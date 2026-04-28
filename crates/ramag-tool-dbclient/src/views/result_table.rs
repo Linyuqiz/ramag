@@ -31,8 +31,9 @@ trait RestrictScrollExt: Styled + Sized {
 }
 impl<T: Styled> RestrictScrollExt for T {}
 use gpui_component::{
-    ActiveTheme as _, IconName, Sizable as _, checkbox::Checkbox,
+    ActiveTheme as _, IconName, Sizable as _,
     button::{Button, ButtonVariants as _},
+    checkbox::Checkbox,
     h_flex,
     input::{Input, InputState},
     menu::ContextMenuExt as _,
@@ -43,7 +44,7 @@ use gpui_component::{
 use crate::actions::{CopyCellValue, CopySelectedColumn};
 use ramag_domain::entities::{QueryResult, Row, Value};
 
-use super::result_panel::{ResultPanel, SortDir, MAX_ROWS_DISPLAY};
+use super::result_panel::{MAX_ROWS_DISPLAY, ResultPanel, SortDir};
 
 /// 帧级数据：本次 render_table 计算一次，供 uniform_list closure 共享访问
 /// 用 Rc 包装才能在 'static + Fn 闭包内 capture（不能 borrow 栈局部变量）
@@ -98,7 +99,11 @@ pub(super) fn render_table(
             let av = a.values.get(sort_col);
             let bv = b.values.get(sort_col);
             let ord = compare_values(av, bv);
-            if matches!(dir, SortDir::Desc) { ord.reverse() } else { ord }
+            if matches!(dir, SortDir::Desc) {
+                ord.reverse()
+            } else {
+                ord
+            }
         });
     }
 
@@ -188,14 +193,12 @@ pub(super) fn render_table(
     // 列宽 / 行号宽 / 总宽
     let col_widths: Vec<gpui::Pixels> = (0..columns.len())
         .map(|ci| {
-            panel.col_width_override(ci).unwrap_or_else(|| {
-                estimate_col_width(ci, &columns, &column_types, &display_rows)
-            })
+            panel
+                .col_width_override(ci)
+                .unwrap_or_else(|| estimate_col_width(ci, &columns, &column_types, &display_rows))
         })
         .collect();
-    let row_num_width = px(
-        (total_rows.to_string().len() as f32 * 9.0 + 16.0).clamp(40.0, 70.0),
-    );
+    let row_num_width = px((total_rows.to_string().len() as f32 * 9.0 + 16.0).clamp(40.0, 70.0));
     let checkbox_col_width = px(32.0);
     let total_content_width = visible_col_indices
         .iter()
@@ -213,7 +216,19 @@ pub(super) fn render_table(
     let current_sort = panel.sort_by();
     let header_cells: Vec<AnyElement> = visible_col_indices
         .iter()
-        .map(|&ci| render_header_cell(ci, &columns, &column_types, &col_widths, current_sort, fg, muted_fg, border, cx))
+        .map(|&ci| {
+            render_header_cell(
+                ci,
+                &columns,
+                &column_types,
+                &col_widths,
+                current_sort,
+                fg,
+                muted_fg,
+                border,
+                cx,
+            )
+        })
         .collect();
 
     let row_num_header = div()
@@ -226,8 +241,7 @@ pub(super) fn render_table(
 
     let selected_rows_set = panel.selected_rows().clone();
     let visible_count_total = display_rows.len();
-    let all_selected =
-        visible_count_total > 0 && selected_rows_set.len() == visible_count_total;
+    let all_selected = visible_count_total > 0 && selected_rows_set.len() == visible_count_total;
     let panel_entity = cx.entity();
 
     let checkbox_header = {
@@ -487,13 +501,7 @@ fn render_header_cell(
                     )
                 })
                 .when_some(sort_arrow, |this, a| {
-                    this.child(
-                        div()
-                            .flex_none()
-                            .text_xs()
-                            .text_color(muted_fg)
-                            .child(a),
-                    )
+                    this.child(div().flex_none().text_xs().text_color(muted_fg).child(a))
                 }),
         )
         .child(render_col_resize_handle(ci, cx))
@@ -561,16 +569,8 @@ fn render_data_row(
                     }),
                 )
                 .context_menu(|menu, _, _| {
-                    menu.menu_with_icon(
-                        "复制单元格",
-                        IconName::Copy,
-                        Box::new(CopyCellValue),
-                    )
-                    .menu_with_icon(
-                        "复制列名",
-                        IconName::Copy,
-                        Box::new(CopySelectedColumn),
-                    )
+                    menu.menu_with_icon("复制单元格", IconName::Copy, Box::new(CopyCellValue))
+                        .menu_with_icon("复制列名", IconName::Copy, Box::new(CopySelectedColumn))
                 })
                 .child(
                     div()
@@ -775,8 +775,8 @@ fn render_col_resize_handle(ci: usize, cx: &mut Context<ResultPanel>) -> AnyElem
         .on_drag(ColResizeDrag(ci), |drag, _pos, _, cx| {
             cx.new(|_| drag.clone())
         })
-        .on_drag_move(cx.listener(
-            move |this, e: &DragMoveEvent<ColResizeDrag>, _, cx| {
+        .on_drag_move(
+            cx.listener(move |this, e: &DragMoveEvent<ColResizeDrag>, _, cx| {
                 let drag = e.drag(cx);
                 let mouse_x = e.event.position.x;
                 let handle_right = e.bounds.right();
@@ -784,14 +784,12 @@ fn render_col_resize_handle(ci: usize, cx: &mut Context<ResultPanel>) -> AnyElem
                 if delta == px(0.0) {
                     return;
                 }
-                let cur = this
-                    .col_width_override(drag.0)
-                    .unwrap_or_else(|| px(180.0));
+                let cur = this.col_width_override(drag.0).unwrap_or_else(|| px(180.0));
                 let new_w = (cur + delta).max(px(60.0)).min(px(800.0));
                 this.set_col_width_override(drag.0, new_w);
                 cx.notify();
-            },
-        ))
+            }),
+        )
         .into_any_element()
 }
 
@@ -832,9 +830,7 @@ fn open_cell_editor(
     });
     panel.set_cell_edit_input(Some(input.clone()));
     let panel_entity = cx.entity();
-    super::cell_edit_dialog::open(
-        panel_entity, ri, ci, col_name, input, has_pk, window, cx,
-    );
+    super::cell_edit_dialog::open(panel_entity, ri, ci, col_name, input, has_pk, window, cx);
 }
 
 /// 比较两个 Value：Null 视为最小，同型按值比较，跨型用字符串兜底
@@ -851,8 +847,12 @@ pub(super) fn compare_values(a: Option<&Value>, b: Option<&Value>) -> std::cmp::
             (Value::Bool(a), Value::Bool(b)) => a.cmp(b),
             (Value::Int(a), Value::Int(b)) => a.cmp(b),
             (Value::Float(a), Value::Float(b)) => a.partial_cmp(b).unwrap_or(Ordering::Equal),
-            (Value::Int(a), Value::Float(b)) => (*a as f64).partial_cmp(b).unwrap_or(Ordering::Equal),
-            (Value::Float(a), Value::Int(b)) => a.partial_cmp(&(*b as f64)).unwrap_or(Ordering::Equal),
+            (Value::Int(a), Value::Float(b)) => {
+                (*a as f64).partial_cmp(b).unwrap_or(Ordering::Equal)
+            }
+            (Value::Float(a), Value::Int(b)) => {
+                a.partial_cmp(&(*b as f64)).unwrap_or(Ordering::Equal)
+            }
             (Value::Text(a), Value::Text(b)) => a.cmp(b),
             (Value::DateTime(a), Value::DateTime(b)) => a.cmp(b),
             (Value::Bytes(a), Value::Bytes(b)) => a.cmp(b),

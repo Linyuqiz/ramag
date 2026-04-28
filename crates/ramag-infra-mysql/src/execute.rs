@@ -33,8 +33,7 @@ pub async fn execute(
 ) -> Result<QueryResult> {
     let start = Instant::now();
 
-    let mut conn: PoolConnection<MySql> =
-        pool.acquire().await.map_err(map_sqlx_error)?;
+    let mut conn: PoolConnection<MySql> = pool.acquire().await.map_err(map_sqlx_error)?;
 
     // 把后端 thread id 写入 handle（仅当 handle Some）；失败不阻塞主查询，仅 warn
     if let Some(h) = &handle {
@@ -283,8 +282,8 @@ fn contains_word(haystack_upper: &str, word: &str) -> bool {
     while i + target.len() <= bytes.len() {
         if &bytes[i..i + target.len()] == target {
             let before_ok = i == 0 || !is_word_byte(bytes[i - 1]);
-            let after_ok = i + target.len() == bytes.len()
-                || !is_word_byte(bytes[i + target.len()]);
+            let after_ok =
+                i + target.len() == bytes.len() || !is_word_byte(bytes[i + target.len()]);
             if before_ok && after_ok {
                 return true;
             }
@@ -335,7 +334,9 @@ async fn execute_query(conn: &mut PoolConnection<MySql>, sql: &str) -> Result<Qu
 
     let domain_rows: Vec<Row> = rows
         .iter()
-        .map(|r| Row { values: decode_row(r) })
+        .map(|r| Row {
+            values: decode_row(r),
+        })
         .collect();
 
     Ok(QueryResult {
@@ -343,7 +344,7 @@ async fn execute_query(conn: &mut PoolConnection<MySql>, sql: &str) -> Result<Qu
         column_types,
         rows: domain_rows,
         affected_rows: 0,
-        elapsed_ms: 0, // 外层填
+        elapsed_ms: 0,        // 外层填
         warnings: Vec::new(), // 外层在每条 statement 后通过 fetch_warnings 注入
     })
 }
@@ -351,17 +352,14 @@ async fn execute_query(conn: &mut PoolConnection<MySql>, sql: &str) -> Result<Qu
 async fn execute_dml(conn: &mut PoolConnection<MySql>, sql: &str) -> Result<QueryResult> {
     debug!(?sql, "executing DML/DDL");
 
-    let result = conn
-        .execute(sql)
-        .await
-        .map_err(map_sqlx_error)?;
+    let result = conn.execute(sql).await.map_err(map_sqlx_error)?;
 
     Ok(QueryResult {
         columns: Vec::new(),
         column_types: Vec::new(),
         rows: Vec::new(),
         affected_rows: result.rows_affected(),
-        elapsed_ms: 0, // 外层填
+        elapsed_ms: 0,        // 外层填
         warnings: Vec::new(), // 外层在每条 statement 后通过 fetch_warnings 注入
     })
 }
@@ -404,11 +402,8 @@ async fn fetch_warnings(conn: &mut PoolConnection<MySql>) -> Vec<Warning> {
         Err(e) => {
             // 1295 = "This command is not supported in the prepared statement protocol"
             // 静默：服务器版本限制，不影响主流程
-            let is_unsupported = e
-                .as_database_error()
-                .and_then(|d| d.code())
-                .as_deref()
-                == Some("1295");
+            let is_unsupported =
+                e.as_database_error().and_then(|d| d.code()).as_deref() == Some("1295");
             if !is_unsupported {
                 warn!(error = %e, "fetch SHOW WARNINGS failed (non-fatal)");
             }
@@ -425,9 +420,7 @@ pub async fn kill_query(pool: &MySqlPool, thread_id: u64) -> Result<()> {
     // KILL QUERY 后端语法支持参数化，但部分 mysql 版本不严格校验，
     // 直接 format 到 SQL 里更稳；thread_id 是 u64，不存在注入风险
     let sql = format!("KILL QUERY {thread_id}");
-    pool.execute(sql.as_str())
-        .await
-        .map_err(map_sqlx_error)?;
+    pool.execute(sql.as_str()).await.map_err(map_sqlx_error)?;
     Ok(())
 }
 
@@ -442,7 +435,9 @@ mod tests {
         assert!(is_query_returning_rows("SHOW TABLES"));
         assert!(is_query_returning_rows("DESC users"));
         assert!(is_query_returning_rows("EXPLAIN SELECT 1"));
-        assert!(is_query_returning_rows("WITH t AS (SELECT 1) SELECT * FROM t"));
+        assert!(is_query_returning_rows(
+            "WITH t AS (SELECT 1) SELECT * FROM t"
+        ));
     }
 
     #[test]
@@ -454,20 +449,20 @@ mod tests {
     #[test]
     fn split_multi() {
         let s = split_statements("SELECT 1; SELECT 2;\n SELECT 3");
-        assert_eq!(s, vec![
-            "SELECT 1".to_string(),
-            "SELECT 2".to_string(),
-            "SELECT 3".to_string(),
-        ]);
+        assert_eq!(
+            s,
+            vec![
+                "SELECT 1".to_string(),
+                "SELECT 2".to_string(),
+                "SELECT 3".to_string(),
+            ]
+        );
     }
 
     #[test]
     fn split_skips_semicolon_in_string() {
         let s = split_statements("SELECT 'a;b'; SELECT 2");
-        assert_eq!(s, vec![
-            "SELECT 'a;b'".to_string(),
-            "SELECT 2".to_string(),
-        ]);
+        assert_eq!(s, vec!["SELECT 'a;b'".to_string(), "SELECT 2".to_string(),]);
     }
 
     #[test]
@@ -533,10 +528,7 @@ mod tests {
 
     #[test]
     fn inject_works_for_with_cte() {
-        let r = inject_limit_if_needed(
-            "WITH t AS (SELECT 1) SELECT * FROM t",
-            Some(500),
-        );
+        let r = inject_limit_if_needed("WITH t AS (SELECT 1) SELECT * FROM t", Some(500));
         assert_eq!(
             r.as_deref(),
             Some("WITH t AS (SELECT 1) SELECT * FROM t LIMIT 500")
@@ -548,10 +540,7 @@ mod tests {
         // 子查询 LIMIT 不影响外层；最外层无 LIMIT 仍要注入
         // 末尾 64 字符扫描看到 "LIMIT 5)" — 会被识别为已含 LIMIT
         // 这是"宁可漏注入"的代价；在显式分页 SQL 里几乎不会发生
-        let r = inject_limit_if_needed(
-            "SELECT * FROM (SELECT * FROM t LIMIT 5) x",
-            Some(500),
-        );
+        let r = inject_limit_if_needed("SELECT * FROM (SELECT * FROM t LIMIT 5) x", Some(500));
         assert!(r.is_none());
     }
 

@@ -517,6 +517,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "backon"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cffb0e931875b666fc4fcb20fee52e9bbd1ef836fd9e9e04ec21555f9f85f7ef"
+dependencies = [
+ "fastrand 2.4.1",
+]
+
+[[package]]
 name = "backtrace"
 version = "0.3.76"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -942,6 +951,20 @@ name = "color_quant"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d7b894f5411737b7867f4827955924d7c254fc9f4d91a6aad6b097804b1018b"
+
+[[package]]
+name = "combine"
+version = "4.6.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba5a308b75df32fe02788e748662718f03fde005016435c444eea572398219fd"
+dependencies = [
+ "bytes",
+ "futures-core",
+ "memchr",
+ "pin-project-lite",
+ "tokio",
+ "tokio-util",
+]
 
 [[package]]
 name = "command-fds"
@@ -4841,6 +4864,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "async-trait",
+ "futures",
  "hex",
  "parking_lot",
  "ramag-domain",
@@ -4863,8 +4887,10 @@ dependencies = [
  "ramag-app",
  "ramag-domain",
  "ramag-infra-mysql",
+ "ramag-infra-redis",
  "ramag-infra-storage",
  "ramag-tool-dbclient",
+ "ramag-tool-redis",
  "ramag-ui",
  "schemars",
  "serde",
@@ -4879,6 +4905,7 @@ version = "0.0.1"
 dependencies = [
  "async-trait",
  "chrono",
+ "futures",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -4898,6 +4925,23 @@ dependencies = [
  "ramag-domain",
  "serde_json",
  "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "ramag-infra-redis"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "dashmap",
+ "futures",
+ "once_cell",
+ "ramag-domain",
+ "redis",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -4939,6 +4983,7 @@ dependencies = [
  "parking_lot",
  "ramag-app",
  "ramag-domain",
+ "ramag-tool-redis",
  "ramag-ui",
  "rfd",
  "ropey",
@@ -4946,6 +4991,25 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlformat",
+ "tracing",
+]
+
+[[package]]
+name = "ramag-tool-redis"
+version = "0.0.1"
+dependencies = [
+ "base64",
+ "chrono",
+ "flate2",
+ "futures",
+ "gpui",
+ "gpui-component",
+ "ramag-app",
+ "ramag-domain",
+ "ramag-ui",
+ "schemars",
+ "serde",
+ "serde_json",
  "tracing",
 ]
 
@@ -5142,6 +5206,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ba239c1c1693315d3cc0e601db3b3965543afbf48c41730fdca2f069f510f4a"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "redis"
+version = "0.32.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "014cc767fefab6a3e798ca45112bccad9c6e0e218fbd49720042716c73cfef44"
+dependencies = [
+ "arc-swap",
+ "backon",
+ "bytes",
+ "cfg-if",
+ "combine",
+ "futures-channel",
+ "futures-util",
+ "itoa",
+ "num-bigint",
+ "percent-encoding",
+ "pin-project-lite",
+ "rustls",
+ "rustls-native-certs",
+ "ryu",
+ "socket2",
+ "tokio",
+ "tokio-rustls",
+ "tokio-util",
+ "url",
+ "webpki-roots 1.0.7",
 ]
 
 [[package]]

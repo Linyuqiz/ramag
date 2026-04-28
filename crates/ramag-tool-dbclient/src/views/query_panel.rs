@@ -105,7 +105,8 @@ impl QueryPanel {
             tab.update(cx, |t, cx| t.set_connection(conn.clone(), cx));
         }
         let conn_id = conn.as_ref().map(|c| c.id.clone());
-        self.history.update(cx, |h, cx| h.set_connection(conn_id, cx));
+        self.history
+            .update(cx, |h, cx| h.set_connection(conn_id, cx));
         cx.notify();
     }
 
@@ -140,11 +141,7 @@ impl QueryPanel {
                 .margin_top(px(80.0))
                 // 固定一个合理的内容高度：HistoryPanel 内部是 size_full，
                 // 必须给父容器明确高度，否则塌陷为 0
-                .content(move |c, _, _| {
-                    c.child(
-                        div().h(px(560.0)).w_full().child(history.clone()),
-                    )
-                })
+                .content(move |c, _, _| c.child(div().h(px(560.0)).w_full().child(history.clone())))
         });
     }
 
@@ -232,12 +229,7 @@ impl QueryPanel {
     }
 
     /// 把 SQL 写入当前激活 Tab 的编辑器
-    pub fn prefill_active_sql(
-        &mut self,
-        sql: String,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn prefill_active_sql(&mut self, sql: String, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(tab) = self.tabs.get(self.active) {
             tab.update(cx, |t, cx| t.set_sql(sql, window, cx));
         }
@@ -320,8 +312,7 @@ impl Render for QueryPanel {
         let only_one = titles.len() <= 1;
 
         // 当前主区视图：始终是 active Tab（历史已迁移到 Dialog）
-        let current_view: Option<AnyView> =
-            self.tabs.get(active).map(|t| t.clone().into());
+        let current_view: Option<AnyView> = self.tabs.get(active).map(|t| t.clone().into());
 
         // Tab Bar 渲染
         let tab_bar_items: Vec<gpui::AnyElement> = titles
@@ -456,15 +447,11 @@ impl Render for QueryPanel {
                                         .small()
                                         .icon(ramag_ui::icons::gauge())
                                         .tooltip("执行计划 EXPLAIN (⌘⇧E)")
-                                        .on_click(cx.listener(
-                                            |this, _: &ClickEvent, _, cx| {
-                                                if let Some(tab) =
-                                                    this.tabs.get(this.active).cloned()
-                                                {
-                                                    tab.update(cx, |t, cx| t.handle_explain(cx));
-                                                }
-                                            },
-                                        )),
+                                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                            if let Some(tab) = this.tabs.get(this.active).cloned() {
+                                                tab.update(cx, |t, cx| t.handle_explain(cx));
+                                            }
+                                        })),
                                 ),
                         ),
                 )

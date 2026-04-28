@@ -11,4 +11,4 @@ pub mod tool_registry;
 pub mod usecases;
 
 pub use tool_registry::ToolRegistry;
-pub use usecases::ConnectionService;
+pub use usecases::{ConnectionService, RedisService};

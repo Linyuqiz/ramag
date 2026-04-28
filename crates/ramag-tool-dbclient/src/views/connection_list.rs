@@ -29,12 +29,14 @@ use gpui_component::{
     scroll::ScrollableElement as _,
     v_flex,
 };
-use ramag_app::ConnectionService;
+use ramag_app::{ConnectionService, RedisService};
 use ramag_domain::entities::{ConnectionConfig, ConnectionId, DriverKind};
 use tracing::{debug, error};
 
 pub struct ConnectionListPanel {
     service: Arc<ConnectionService>,
+    /// Redis 服务：拉取 Redis 连接的 server_version 走它（与 MySQL 服务并列）
+    redis_service: Arc<RedisService>,
     connections: Vec<ConnectionConfig>,
     selected: Option<ConnectionId>,
     loading: bool,
@@ -42,8 +44,8 @@ pub struct ConnectionListPanel {
     search: Entity<InputState>,
     /// 当前搜索关键字（小写，用于过滤；空表示不过滤）
     query: String,
-    /// 服务端版本缓存：key=ConnectionId，value="8.0.32" 之类
-    /// refresh 后串行后台 fetch；失败的连接不缓存 None（避免反复重试）
+    /// 服务端版本缓存：key=ConnectionId，value="8.0.32" / "7.2.4" 等
+    /// refresh 后串行后台 fetch；失败的连接不缓存（避免反复重试）
     versions: HashMap<ConnectionId, String>,
     _subscriptions: Vec<gpui::Subscription>,
 }
@@ -61,12 +63,12 @@ impl EventEmitter<ListEvent> for ConnectionListPanel {}
 impl ConnectionListPanel {
     pub fn new(
         service: Arc<ConnectionService>,
+        redis_service: Arc<RedisService>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let search = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("搜索连接（名称 / host / 用户名）")
-        });
+        let search = cx
+            .new(|cx| InputState::new(window, cx).placeholder("搜索连接（名称 / host / 用户名）"));
 
         // 订阅搜索框变化 → 同步 query 并刷新
         let mut subs = Vec::new();
@@ -83,6 +85,7 @@ impl ConnectionListPanel {
 
         let mut this = Self {
             service,
+            redis_service,
             connections: Vec::new(),
             selected: None,
             loading: true,
@@ -118,10 +121,13 @@ impl ConnectionListPanel {
     }
 
     /// 串行后台拉每个连接的服务端版本（已缓存跳过；失败仅 debug 日志）
-    /// 串行避免一次性建多个池连导致目标库瞬时压力（每条都走 sqlx pool）
+    /// 串行避免一次性建多个池连导致目标库瞬时压力（每条都走 driver 的连接池）
+    ///
+    /// 按 driver 路由：MySQL → ConnectionService（sqlx）；Redis → RedisService（redis-rs）
     fn fetch_versions(&mut self, cx: &mut Context<Self>) {
         let conns: Vec<ConnectionConfig> = self.connections.clone();
-        let svc = self.service.clone();
+        let mysql_svc = self.service.clone();
+        let redis_svc = self.redis_service.clone();
         cx.spawn(async move |this, cx| {
             for conn in conns {
                 let cached = this
@@ -130,7 +136,11 @@ impl ConnectionListPanel {
                 if cached {
                     continue;
                 }
-                match svc.server_version(&conn).await {
+                let result = match conn.driver {
+                    DriverKind::Mysql => mysql_svc.server_version(&conn).await,
+                    DriverKind::Redis => redis_svc.server_version(&conn).await,
+                };
+                match result {
                     Ok(v) => {
                         let _ = this.update(cx, |this, cx| {
                             this.versions.insert(conn.id.clone(), v);
@@ -282,7 +292,15 @@ impl Render for ConnectionListPanel {
                 let version = self.versions.get(&conn.id).cloned();
                 rows.push(
                     connection_row(
-                        idx, conn, is_selected, version, border, row_hover, accent, fg, muted_fg,
+                        idx,
+                        conn,
+                        is_selected,
+                        version,
+                        border,
+                        row_hover,
+                        accent,
+                        fg,
+                        muted_fg,
                         cx,
                     )
                     .into_any_element(),
@@ -292,12 +310,12 @@ impl Render for ConnectionListPanel {
                 .size_full()
                 .overflow_y_scrollbar()
                 .child(
-                    h_flex().w_full().justify_center().px(px(24.0)).py(px(10.0)).child(
-                        v_flex()
-                            .w_full()
-                            .max_w(px(CONTENT_MAX_W))
-                            .children(rows),
-                    ),
+                    h_flex()
+                        .w_full()
+                        .justify_center()
+                        .px(px(24.0))
+                        .py(px(10.0))
+                        .child(v_flex().w_full().max_w(px(CONTENT_MAX_W)).children(rows)),
                 )
                 .into_any_element()
         };
@@ -327,7 +345,10 @@ fn connection_row(
     // 没设颜色时显示无意义的灰圆点会干扰视觉，干脆隐藏
     let theme_for_color = cx.theme();
     let status_dot: Option<gpui::Hsla> = if conn.color != ConnectionColor::None {
-        Some(crate::views::connection_form::color_to_hsla(conn.color, theme_for_color))
+        Some(crate::views::connection_form::color_to_hsla(
+            conn.color,
+            theme_for_color,
+        ))
     } else {
         None
     };
@@ -335,6 +356,7 @@ fn connection_row(
 
     let kind_label = match conn.driver {
         DriverKind::Mysql => "MySQL",
+        DriverKind::Redis => "Redis",
     };
 
     let row_id = SharedString::from(format!("conn-row-{}-{}", idx, conn.id));
@@ -349,9 +371,15 @@ fn connection_row(
     accent_tint.a = 0.10;
 
     let host_port = format!("{}:{}", conn.host, conn.port);
+    // 用户名空（如 Redis 老版无 ACL）显示 "—"，与 db 字段空时一致，避免 "@ 0" 的视觉割裂
+    let username_text = if conn.username.is_empty() {
+        "—".to_string()
+    } else {
+        conn.username.clone()
+    };
     let user_db = format!(
         "{} @ {}",
-        conn.username,
+        username_text,
         conn.database.clone().unwrap_or_else(|| "—".into())
     );
 
@@ -382,21 +410,16 @@ fn connection_row(
         })
         // 类型 badge（固定宽度，整齐对齐）
         .child(
-            div()
-                .flex_none()
-                .w(px(56.0))
-                .flex()
-                .justify_center()
-                .child(
-                    div()
-                        .px(px(8.0))
-                        .py(px(2.0))
-                        .rounded(px(4.0))
-                        .text_xs()
-                        .text_color(accent)
-                        .bg(accent_tint)
-                        .child(kind_label),
-                ),
+            div().flex_none().w(px(56.0)).flex().justify_center().child(
+                div()
+                    .px(px(8.0))
+                    .py(px(2.0))
+                    .rounded(px(4.0))
+                    .text_xs()
+                    .text_color(accent)
+                    .bg(accent_tint)
+                    .child(kind_label),
+            ),
         )
         // 名称（最重要，占主空间）
         .child(
@@ -553,8 +576,9 @@ fn empty_state(
 /// 工厂（注：调用方需要持有 `&mut Window`）
 pub fn create(
     service: Arc<ConnectionService>,
+    redis_service: Arc<RedisService>,
     window: &mut Window,
     cx: &mut gpui::App,
 ) -> Entity<ConnectionListPanel> {
-    cx.new(|cx| ConnectionListPanel::new(service, window, cx))
+    cx.new(|cx| ConnectionListPanel::new(service, redis_service, window, cx))
 }

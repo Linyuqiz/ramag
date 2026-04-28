@@ -15,6 +15,7 @@ ramag-domain = { workspace = true }
 # 应用层需要异步执行 use case
 async-trait = { workspace = true }
 tokio = { workspace = true }
+futures = { workspace = true }
 
 # 错误传播
 anyhow = { workspace = true }

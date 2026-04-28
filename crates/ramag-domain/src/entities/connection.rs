@@ -27,14 +27,15 @@ impl std::fmt::Display for ConnectionId {
 
 /// 数据库类型枚举
 ///
-/// v0.1 仅 MySQL，但枚举先定义出来，未来加 PG/Redis 不破坏 API
+/// v0.1 MySQL，v0.4 起加入 Redis；未来可扩展 PG/SQLite 等
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DriverKind {
     Mysql,
+    /// Redis（KV 形态，使用 KvDriver trait 而非 Driver trait）
+    Redis,
     // 后续阶段添加：
     // Postgres,
     // Sqlite,
-    // Redis,
 }
 
 /// 连接颜色标签：用作环境提示（dev/prod 区分）
@@ -113,7 +114,12 @@ pub struct ConnectionConfig {
 
 impl ConnectionConfig {
     /// 构造一个 MySQL 连接配置（常用入口）
-    pub fn new_mysql(name: impl Into<String>, host: impl Into<String>, port: u16, user: impl Into<String>) -> Self {
+    pub fn new_mysql(
+        name: impl Into<String>,
+        host: impl Into<String>,
+        port: u16,
+        user: impl Into<String>,
+    ) -> Self {
         Self {
             id: ConnectionId::new(),
             name: name.into(),
@@ -121,6 +127,25 @@ impl ConnectionConfig {
             host: host.into(),
             port,
             username: user.into(),
+            password: String::new(),
+            database: None,
+            remark: None,
+            color: ConnectionColor::default(),
+        }
+    }
+
+    /// 构造一个 Redis 连接配置（默认端口 6379）
+    ///
+    /// - `username` 可空字符串：用于 Redis 6.0+ ACL；空时走老版 AUTH（仅密码）
+    /// - `database` 默认 None，driver 启动时按 0 号库进入；后续 select_db 可切换
+    pub fn new_redis(name: impl Into<String>, host: impl Into<String>, port: u16) -> Self {
+        Self {
+            id: ConnectionId::new(),
+            name: name.into(),
+            driver: DriverKind::Redis,
+            host: host.into(),
+            port,
+            username: String::new(),
             password: String::new(),
             database: None,
             remark: None,

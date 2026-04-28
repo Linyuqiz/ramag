@@ -17,8 +17,8 @@ use gpui_component::{
     menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem},
     v_flex,
 };
-use ramag_app::ConnectionService;
 use parking_lot::RwLock;
+use ramag_app::ConnectionService;
 use ramag_domain::entities::{Column, ConnectionConfig, ForeignKey, Index, Schema};
 
 use crate::sql_completion::{SchemaCache, is_system_schema};
@@ -129,7 +129,11 @@ impl TableTreePanel {
     }
 
     fn current_filter(&self, cx: &gpui::App) -> String {
-        self.search.read(cx).value().to_string().to_ascii_lowercase()
+        self.search
+            .read(cx)
+            .value()
+            .to_string()
+            .to_ascii_lowercase()
     }
 
     fn toggle_show_system(&mut self, cx: &mut Context<Self>) {
@@ -166,7 +170,9 @@ impl TableTreePanel {
     }
 
     fn load_schemas(&mut self, cx: &mut Context<Self>) {
-        let Some(conn) = self.connection.clone() else { return };
+        let Some(conn) = self.connection.clone() else {
+            return;
+        };
         self.loading_schemas = true;
         self.error = None;
         cx.notify();
@@ -179,8 +185,7 @@ impl TableTreePanel {
                 match result {
                     Ok(schemas) => {
                         // 写入共享 cache：DB 下拉的选项来自此处
-                        let names: Vec<String> =
-                            schemas.iter().map(|s| s.name.clone()).collect();
+                        let names: Vec<String> = schemas.iter().map(|s| s.name.clone()).collect();
                         this.schema_cache.write().all_schemas = names;
                         this.schemas = schemas;
                     }
@@ -205,13 +210,18 @@ impl TableTreePanel {
             cx.notify();
             return;
         }
-        self.expanded.insert(schema_name.clone(), SchemaTables {
-            loading: true,
-            ..Default::default()
-        });
+        self.expanded.insert(
+            schema_name.clone(),
+            SchemaTables {
+                loading: true,
+                ..Default::default()
+            },
+        );
         cx.notify();
 
-        let Some(conn) = self.connection.clone() else { return };
+        let Some(conn) = self.connection.clone() else {
+            return;
+        };
         let svc = self.service.clone();
         let schema_for_async = schema_name.clone();
         cx.spawn(async move |this, cx| {
@@ -222,8 +232,7 @@ impl TableTreePanel {
                 match result {
                     Ok(tables) => {
                         // 顺手把表名同步到补全 cache（一次 IO 两份用）
-                        let names: Vec<String> =
-                            tables.iter().map(|t| t.name.clone()).collect();
+                        let names: Vec<String> = tables.iter().map(|t| t.name.clone()).collect();
                         this.schema_cache
                             .write()
                             .tables
@@ -263,12 +272,7 @@ impl TableTreePanel {
     }
 
     /// 切换表的列展开状态：第一次展开时异步拉列结构，关闭只是移除状态
-    fn toggle_table_columns(
-        &mut self,
-        schema: String,
-        table: String,
-        cx: &mut Context<Self>,
-    ) {
+    fn toggle_table_columns(&mut self, schema: String, table: String, cx: &mut Context<Self>) {
         let key = format!("{schema}.{table}");
         if self.table_columns.remove(&key).is_some() {
             cx.notify();
@@ -284,7 +288,9 @@ impl TableTreePanel {
         );
         cx.notify();
 
-        let Some(conn) = self.connection.clone() else { return };
+        let Some(conn) = self.connection.clone() else {
+            return;
+        };
         let svc = self.service.clone();
         let schema_async = schema.clone();
         let table_async = table.clone();
@@ -373,7 +379,12 @@ impl Render for TableTreePanel {
                 .size_full()
                 .p_2()
                 .gap_2()
-                .child(div().text_xs().text_color(red).child(format!("加载失败：{err}")))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(red)
+                        .child(format!("加载失败：{err}")),
+                )
                 .child(
                     Button::new("retry")
                         .small()
@@ -404,9 +415,10 @@ impl Render for TableTreePanel {
                     return true;
                 }
                 if let Some(entry) = self.expanded.get(&s.name)
-                    && entry.tables.iter().any(|t| {
-                        t.name.to_ascii_lowercase().contains(&filter)
-                    })
+                    && entry
+                        .tables
+                        .iter()
+                        .any(|t| t.name.to_ascii_lowercase().contains(&filter))
                 {
                     return true;
                 }
@@ -420,7 +432,10 @@ impl Render for TableTreePanel {
             let b_sys = is_system_schema(&b.name);
             a_sys.cmp(&b_sys).then_with(|| a.name.cmp(&b.name))
         });
-        let expanded_snapshot: HashMap<String, (bool, Vec<ramag_domain::entities::Table>, Option<String>)> = self
+        let expanded_snapshot: HashMap<
+            String,
+            (bool, Vec<ramag_domain::entities::Table>, Option<String>),
+        > = self
             .expanded
             .iter()
             .map(|(k, v)| (k.clone(), (v.loading, v.tables.clone(), v.error.clone())))
@@ -530,12 +545,14 @@ impl Render for TableTreePanel {
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.toggle_schema(name_for_click.clone(), cx);
                 }))
-                .child(div().w(px(12.0)).text_xs().text_color(muted_fg).child(arrow))
                 .child(
-                    Icon::new(IconName::HardDrive)
-                        .small()
-                        .text_color(muted_fg),
+                    div()
+                        .w(px(12.0))
+                        .text_xs()
+                        .text_color(muted_fg)
+                        .child(arrow),
                 )
+                .child(Icon::new(IconName::HardDrive).small().text_color(muted_fg))
                 .child(
                     div()
                         .text_sm()
@@ -616,10 +633,8 @@ impl Render for TableTreePanel {
                         let t_name = t.name.clone();
                         let row_estimate = t.row_estimate;
                         let is_view = t.is_view;
-                        let is_sel = selected.as_ref()
-                            == Some(&(s_name.clone(), t_name.clone()));
-                        let row_id =
-                            SharedString::from(format!("table-{}-{}", s_name, t_name));
+                        let is_sel = selected.as_ref() == Some(&(s_name.clone(), t_name.clone()));
+                        let row_id = SharedString::from(format!("table-{}-{}", s_name, t_name));
                         let s_for_click = s_name.clone();
                         let t_for_click = t_name.clone();
 
@@ -664,10 +679,9 @@ impl Render for TableTreePanel {
                             // 否则点开箭头会顺带跑一次 SELECT，违反 "单点查看结构" 直觉
                             .child(
                                 div()
-                                    .on_mouse_down(
-                                        gpui::MouseButton::Left,
-                                        |_, _, cx| cx.stop_propagation(),
-                                    )
+                                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
+                                        cx.stop_propagation()
+                                    })
                                     .child(
                                         Button::new(chevron_id)
                                             .ghost()
@@ -722,7 +736,11 @@ impl Render for TableTreePanel {
                         }
                         // 右键菜单：查看建表 SQL / 视图定义（PopupMenuItem.on_click 走 closure，
                         // 通过 Entity::update 拿回 self 来 emit）
-                        let menu_label = if is_view { "查看视图定义" } else { "查看建表 SQL" };
+                        let menu_label = if is_view {
+                            "查看视图定义"
+                        } else {
+                            "查看建表 SQL"
+                        };
                         let row = row.context_menu(move |menu: PopupMenu, _, _| {
                             let s = s_for_menu.clone();
                             let t = t_for_menu.clone();
@@ -821,15 +839,8 @@ impl Render for TableTreePanel {
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
-                    .child(
-                        v_flex()
-                            .px_2()
-                            .pb_2()
-                            .gap_1()
-                            .children(rows),
-                    ),
+                    .child(v_flex().px_2().pb_2().gap_1().children(rows)),
             )
             .into_any_element()
     }
 }
-

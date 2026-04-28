@@ -16,15 +16,18 @@ use gpui::{
     WindowOptions, prelude::*, px, size,
 };
 use gpui_component::Root;
-use ramag_app::{ConnectionService, ToolRegistry};
-use ramag_domain::traits::{Driver, Storage};
+use ramag_app::{ConnectionService, RedisService, ToolRegistry};
+use ramag_domain::traits::{Driver, KvDriver, Storage};
 use ramag_infra_mysql::MysqlDriver;
+use ramag_infra_redis::RedisDriver;
 use ramag_infra_storage::RedbStorage;
 use ramag_tool_dbclient::{
     CloseQueryTab, DbClientTool, ExplainQuery, FindInResults, FormatSql, NewQueryTab, RunQuery,
     RunStatementAtCursor, SaveSqlFile, ToggleHistory, ToggleSqlEditor, create_dbclient_view,
 };
-use ramag_ui::{HomeEvent, HomeView, Mode, NavTarget, RamagAssets, Shell, StorageGlobal, apply_theme};
+use ramag_ui::{
+    HomeEvent, HomeView, Mode, NavTarget, RamagAssets, Shell, StorageGlobal, apply_theme,
+};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use tracing::{Level, error, info};
@@ -50,6 +53,9 @@ fn main() {
         }
     };
 
+    // Redis 数据层（共用 storage，独立 driver）
+    let redis_service: Arc<RedisService> = build_redis_service(storage.clone());
+
     // 启动前读偏好里保存的主题模式（默认 Dark）
     let initial_mode = read_theme_pref(&storage);
 
@@ -65,11 +71,13 @@ fn main() {
     // 必须在 app.run 之前注册（on_reopen 在 Application 上，不是 run 内的 App）
     let registry_for_reopen = registry.clone();
     let conn_service_for_reopen = conn_service.clone();
+    let redis_service_for_reopen = redis_service.clone();
     app.on_reopen(move |cx: &mut App| {
         if cx.windows().is_empty() {
             open_main_window(
                 registry_for_reopen.clone(),
                 conn_service_for_reopen.clone(),
+                redis_service_for_reopen.clone(),
                 cx,
             );
         }
@@ -117,7 +125,12 @@ fn main() {
             disabled: false,
         }]);
 
-        open_main_window(registry.clone(), conn_service.clone(), cx);
+        open_main_window(
+            registry.clone(),
+            conn_service.clone(),
+            redis_service.clone(),
+            cx,
+        );
     });
 }
 
@@ -125,6 +138,7 @@ fn main() {
 fn open_main_window(
     registry: Arc<ToolRegistry>,
     conn_service: Arc<ConnectionService>,
+    redis_service: Arc<RedisService>,
     cx: &mut App,
 ) {
     // 启动时窗口最大化（macOS 等价于 zoom 到屏幕可用区）
@@ -147,12 +161,12 @@ fn open_main_window(
             },
             move |window, cx| {
                 // 1. 创建 Home 视图
-                let home_view = cx.new(|cx| {
-                    HomeView::new(registry.clone(), conn_service.clone(), cx)
-                });
+                let home_view =
+                    cx.new(|cx| HomeView::new(registry.clone(), conn_service.clone(), cx));
 
-                // 2. 创建 DB Client 视图
-                let dbclient_view = create_dbclient_view(conn_service.clone(), window, cx);
+                // 2. 创建 DB Client 视图（统一管理 MySQL + Redis 连接，driver 在表单内选）
+                let dbclient_view =
+                    create_dbclient_view(conn_service.clone(), redis_service.clone(), window, cx);
 
                 // 3. 创建 Shell 并注入视图
                 let shell = cx.new(|cx| {
@@ -164,22 +178,16 @@ fn open_main_window(
                     let _sub: Subscription = cx.subscribe_in(
                         &home_view,
                         window,
-                        move |this: &mut Shell, _, event: &HomeEvent, window, cx| {
-                            match event {
-                                HomeEvent::OpenTool(tool_id) => {
-                                    this.navigate_to(
-                                        NavTarget::Tool(tool_id.clone()),
-                                        window,
-                                        cx,
-                                    );
-                                }
-                                HomeEvent::OpenConnection(_id) => {
-                                    this.navigate_to(
-                                        NavTarget::Tool(DbClientTool::ID.to_string()),
-                                        window,
-                                        cx,
-                                    );
-                                }
+                        move |this: &mut Shell, _, event: &HomeEvent, window, cx| match event {
+                            HomeEvent::OpenTool(tool_id) => {
+                                this.navigate_to(NavTarget::Tool(tool_id.clone()), window, cx);
+                            }
+                            HomeEvent::OpenConnection(_id) => {
+                                this.navigate_to(
+                                    NavTarget::Tool(DbClientTool::ID.to_string()),
+                                    window,
+                                    cx,
+                                );
                             }
                         },
                     );
@@ -205,8 +213,8 @@ fn open_main_window(
 fn build_connection_service() -> anyhow::Result<(Arc<ConnectionService>, Arc<dyn Storage>)> {
     let driver: Arc<dyn Driver> = Arc::new(MysqlDriver::new());
 
-    let storage_impl = RedbStorage::open_default()
-        .map_err(|e| anyhow::anyhow!("初始化 redb 存储失败: {e}"))?;
+    let storage_impl =
+        RedbStorage::open_default().map_err(|e| anyhow::anyhow!("初始化 redb 存储失败: {e}"))?;
     info!(path = %storage_impl.path().display(), "storage opened");
     let storage: Arc<dyn Storage> = Arc::new(storage_impl);
 
@@ -229,15 +237,24 @@ fn read_theme_pref(storage: &Arc<dyn Storage>) -> Mode {
 }
 
 /// 注册所有 Tool 到 Registry
+///
+/// MySQL + Redis 都归入 DbClient 工具（统一"数据源管理"入口），
+/// 区别仅在新建连接表单的 driver 选择器内体现
 fn build_tool_registry() -> Arc<ToolRegistry> {
     let registry = Arc::new(ToolRegistry::new());
     registry.register(Arc::new(DbClientTool::new()));
     registry
 }
 
+/// 装配 Redis 数据层：RedisDriver + 共用 Storage
+fn build_redis_service(storage: Arc<dyn Storage>) -> Arc<RedisService> {
+    let driver: Arc<dyn KvDriver> = Arc::new(RedisDriver::new());
+    Arc::new(RedisService::new(driver, storage))
+}
+
 fn init_tracing() {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,ramag=debug"));
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,ramag=debug"));
 
     // stderr 层：开发时 cargo run 直接看；DMG 安装后 stderr 默认重定向到 macOS 系统日志
     // 文件层：所有运行时都写一份到固定路径，方便用户自查（尤其是错误日志）

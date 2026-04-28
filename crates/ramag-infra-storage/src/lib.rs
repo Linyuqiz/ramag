@@ -31,7 +31,9 @@ use async_trait::async_trait;
 use directories::ProjectDirs;
 use futures::channel::oneshot;
 use parking_lot::RwLock;
-use redb::{Database, ReadableDatabase as _, ReadableTable, ReadableTableMetadata as _, TableDefinition};
+use redb::{
+    Database, ReadableDatabase as _, ReadableTable, ReadableTableMetadata as _, TableDefinition,
+};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
 
@@ -219,7 +221,10 @@ impl Storage for RedbStorage {
 
             let cipher = cipher.read();
             let mut out = Vec::new();
-            for entry in table.iter().map_err(|e| DomainError::Storage(e.to_string()))? {
+            for entry in table
+                .iter()
+                .map_err(|e| DomainError::Storage(e.to_string()))?
+            {
                 let (_, v) = entry.map_err(|e| DomainError::Storage(e.to_string()))?;
                 let enc: EncryptedConnection = serde_json::from_str(v.value())
                     .map_err(|e| DomainError::Storage(format!("反序列化连接失败：{e}")))?;
@@ -385,7 +390,10 @@ impl Storage for RedbStorage {
 
             // 倒序取（最新的在最后），limit 控制
             let mut all: Vec<QueryRecord> = Vec::new();
-            for entry in table.iter().map_err(|e| DomainError::Storage(e.to_string()))? {
+            for entry in table
+                .iter()
+                .map_err(|e| DomainError::Storage(e.to_string()))?
+            {
                 let (_, v) = entry.map_err(|e| DomainError::Storage(e.to_string()))?;
                 if let Ok(rec) = serde_json::from_str::<QueryRecord>(v.value()) {
                     if let Some(ref filter_id) = conn_filter

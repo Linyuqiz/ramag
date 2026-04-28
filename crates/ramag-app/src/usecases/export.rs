@@ -36,11 +36,7 @@ pub fn to_json(result: &QueryResult) -> String {
     for row in &result.rows {
         let mut obj = Map::with_capacity(result.columns.len());
         for (i, col) in result.columns.iter().enumerate() {
-            let v = row
-                .values
-                .get(i)
-                .cloned()
-                .unwrap_or(Value::Null);
+            let v = row.values.get(i).cloned().unwrap_or(Value::Null);
             obj.insert(col.clone(), value_to_json(v));
         }
         arr.push(JsonValue::Object(obj));
@@ -136,16 +132,12 @@ mod tests {
             column_types: Vec::new(),
             rows: vec![
                 Row {
-                    values: vec![
-                        Value::Int(1),
-                        Value::Text("张三".into()),
-                        Value::Null,
-                    ],
+                    values: vec![Value::Int(1), Value::Text("张三".into()), Value::Null],
                 },
                 Row {
                     values: vec![
                         Value::Int(2),
-                        Value::Text("李, 四".into()), // 含逗号
+                        Value::Text("李, 四".into()),      // 含逗号
                         Value::Text("\"escaped\"".into()), // 含引号
                     ],
                 },

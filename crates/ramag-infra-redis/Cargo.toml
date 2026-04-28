@@ -1,0 +1,38 @@
+[package]
+name = "ramag-infra-redis"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Ramag Redis 驱动实现（实现 Domain 的 KvDriver trait，封装 redis-rs）"
+
+[lints]
+workspace = true
+
+[dependencies]
+ramag-domain = { workspace = true }
+
+# Redis 异步驱动
+redis = { workspace = true }
+
+# 异步运行时（GPUI 用 smol，redis-rs 必须 tokio，桥接）
+async-trait = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+
+# 连接池缓存（按 (ConnectionId, db) 共享 ConnectionManager）
+dashmap = { workspace = true }
+once_cell = { workspace = true }
+
+# 错误
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# 时间戳（Pub/Sub 消息接收时间）
+chrono = { workspace = true }
+
+# 日志
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

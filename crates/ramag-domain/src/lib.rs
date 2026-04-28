@@ -16,4 +16,4 @@ pub mod traits;
 
 // 重导出，让上层使用更简洁
 pub use error::{DomainError, Result};
-pub use traits::{Driver, Storage, Tool, ToolMeta};
+pub use traits::{Driver, KvDriver, Storage, Tool, ToolMeta};

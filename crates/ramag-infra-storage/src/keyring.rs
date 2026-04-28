@@ -14,8 +14,8 @@
 //! `keyring` crate 在 Linux 走 secret-service，Windows 走 Credential Manager，
 //! 但 v0.1 优先 macOS 体验，其他平台靠 keyring crate 默认行为兜底。
 
-use rand::TryRngCore;
 use ramag_domain::error::{DomainError, Result};
+use rand::TryRngCore;
 use tracing::{info, warn};
 
 const SERVICE: &str = "ramag";

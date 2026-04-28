@@ -23,9 +23,11 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex, v_flex,
 };
-use ramag_app::ConnectionService;
-use ramag_domain::entities::{ConnectionConfig, ConnectionId};
+use ramag_app::{ConnectionService, RedisService};
+use ramag_domain::entities::{ConnectionConfig, ConnectionId, DriverKind};
 use tracing::{error, info};
+
+use ramag_tool_redis::RedisSessionPanel;
 
 use gpui_component::WindowExt as _;
 
@@ -41,10 +43,47 @@ enum CenterMode {
     ConnectionPicker,
 }
 
+/// 已打开的会话：按 driver 区分两种内部组件
+///
+/// MySQL 走原 ConnectionSession（QueryPanel + Tree）；
+/// Redis 走 ramag-tool-redis 的 RedisSessionPanel（Key 树 + 详情）
+enum SessionEntity {
+    Mysql(Entity<ConnectionSession>),
+    Redis(Entity<RedisSessionPanel>),
+}
+
+impl SessionEntity {
+    fn config<'a>(&'a self, cx: &'a gpui::App) -> &'a ConnectionConfig {
+        match self {
+            SessionEntity::Mysql(e) => e.read(cx).config(),
+            SessionEntity::Redis(e) => e.read(cx).config(),
+        }
+    }
+    fn title<'a>(&'a self, cx: &'a gpui::App) -> &'a str {
+        match self {
+            SessionEntity::Mysql(e) => e.read(cx).title(),
+            SessionEntity::Redis(e) => e.read(cx).title(),
+        }
+    }
+    fn kind_label(&self) -> &'static str {
+        match self {
+            SessionEntity::Mysql(_) => "MySQL",
+            SessionEntity::Redis(_) => "Redis",
+        }
+    }
+    fn to_any_view(&self) -> AnyView {
+        match self {
+            SessionEntity::Mysql(e) => e.clone().into(),
+            SessionEntity::Redis(e) => e.clone().into(),
+        }
+    }
+}
+
 pub struct DbClientView {
     service: Arc<ConnectionService>,
-    /// 已打开的连接会话
-    sessions: Vec<Entity<ConnectionSession>>,
+    redis_service: Arc<RedisService>,
+    /// 已打开的连接会话（含 MySQL + Redis）
+    sessions: Vec<SessionEntity>,
     /// 当前激活的 session 索引
     active_session: Option<usize>,
     /// 中央显示模式
@@ -57,16 +96,18 @@ pub struct DbClientView {
 impl DbClientView {
     pub fn new(
         service: Arc<ConnectionService>,
+        redis_service: Arc<RedisService>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let picker = cx.new(|cx| ConnectionListPanel::new(service.clone(), window, cx));
+        let picker = cx
+            .new(|cx| ConnectionListPanel::new(service.clone(), redis_service.clone(), window, cx));
 
-        let mut subs = Vec::new();
-        subs.push(cx.subscribe_in(&picker, window, Self::on_picker_event));
+        let subs = vec![cx.subscribe_in(&picker, window, Self::on_picker_event)];
 
         Self {
             service,
+            redis_service,
             sessions: Vec::new(),
             active_session: None,
             // 启动时显示连接管理（用户挑选打开哪个）
@@ -111,7 +152,7 @@ impl DbClientView {
         if let Some(idx) = self
             .sessions
             .iter()
-            .position(|s| s.read(cx).config().id == config.id)
+            .position(|s| s.config(cx).id == config.id)
         {
             self.active_session = Some(idx);
             self.center = CenterMode::Session;
@@ -119,9 +160,20 @@ impl DbClientView {
             return;
         }
 
-        let svc = self.service.clone();
-        let session = cx.new(|cx| ConnectionSession::new(config, svc, window, cx));
-        self.sessions.push(session);
+        // 按 driver dispatch：MySQL 走 SQL Session；Redis 走 RedisSessionPanel
+        let new_session = match config.driver {
+            DriverKind::Mysql => {
+                let svc = self.service.clone();
+                let entity = cx.new(|cx| ConnectionSession::new(config, svc, window, cx));
+                SessionEntity::Mysql(entity)
+            }
+            DriverKind::Redis => {
+                let svc = self.redis_service.clone();
+                let entity = cx.new(|cx| RedisSessionPanel::new(config, svc, window, cx));
+                SessionEntity::Redis(entity)
+            }
+        };
+        self.sessions.push(new_session);
         self.active_session = Some(self.sessions.len() - 1);
         self.center = CenterMode::Session;
         cx.notify();
@@ -167,7 +219,8 @@ impl DbClientView {
 
     fn open_form_create(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let svc = self.service.clone();
-        let form = cx.new(|cx| ConnectionFormPanel::new_create(svc, window, cx));
+        let redis_svc = self.redis_service.clone();
+        let form = cx.new(|cx| ConnectionFormPanel::new_create(svc, redis_svc, window, cx));
         self.subscribe_form_and_open_dialog(form, window, cx);
     }
 
@@ -178,7 +231,8 @@ impl DbClientView {
         cx: &mut Context<Self>,
     ) {
         let svc = self.service.clone();
-        let form = cx.new(|cx| ConnectionFormPanel::new_edit(svc, conn, window, cx));
+        let redis_svc = self.redis_service.clone();
+        let form = cx.new(|cx| ConnectionFormPanel::new_edit(svc, redis_svc, conn, window, cx));
         self.subscribe_form_and_open_dialog(form, window, cx);
     }
 
@@ -232,12 +286,7 @@ impl DbClientView {
     }
 
     /// 弹出删除确认对话框；用户点「删除」后才真正执行 handle_delete
-    fn confirm_delete(
-        &mut self,
-        id: ConnectionId,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn confirm_delete(&mut self, id: ConnectionId, window: &mut Window, cx: &mut Context<Self>) {
         // 找到对应连接名（用于描述文案）；找不到就 fallback 到 id 后 6 位
         let conn_name = self
             .picker
@@ -258,9 +307,7 @@ impl DbClientView {
         window.open_dialog(cx, move |dialog, _, _| {
             let id = id_for_ok.clone();
             let view = view.clone();
-            let desc = format!(
-                "确定要删除连接「{conn_name_for_dialog}」吗？此操作不可撤销。"
-            );
+            let desc = format!("确定要删除连接「{conn_name_for_dialog}」吗？此操作不可撤销。");
 
             let cancel_btn = Button::new("alert-cancel")
                 .ghost()
@@ -326,7 +373,7 @@ impl DbClientView {
                     .sessions
                     .iter()
                     .enumerate()
-                    .filter(|(_, s)| s.read(cx).config().id == id_for_async)
+                    .filter(|(_, s)| s.config(cx).id == id_for_async)
                     .map(|(i, _)| i)
                     .collect();
                 for idx in to_close.into_iter().rev() {
@@ -366,13 +413,12 @@ impl Render for DbClientView {
             .iter()
             .enumerate()
             .map(|(i, s)| {
-                let s_read = s.read(cx);
                 (
                     i,
-                    s_read.title().to_string(),
-                    s_read.kind_label(),
+                    s.title(cx).to_string(),
+                    s.kind_label(),
                     Some(i) == active,
-                    s_read.config().color,
+                    s.config(cx).color,
                 )
             })
             .collect::<Vec<_>>();
@@ -450,25 +496,14 @@ impl Render for DbClientView {
                 .border_r_1()
                 .border_color(border)
                 .cursor_pointer()
-                .child(
-                    div()
-                        .w(px(8.0))
-                        .h(px(8.0))
-                        .rounded_full()
-                        .bg(dot_color),
-                )
+                .child(div().w(px(8.0)).h(px(8.0)).rounded_full().bg(dot_color))
                 .child(
                     div()
                         .text_xs()
                         .text_color(if is_active { fg } else { muted_fg })
                         .child(title.clone()),
                 )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(muted_fg)
-                        .child(kind_label),
-                )
+                .child(div().text_xs().text_color(muted_fg).child(kind_label))
                 .child(
                     Button::new(close_id)
                         .ghost()
@@ -498,7 +533,7 @@ impl Render for DbClientView {
         // ===== 中心内容 =====
         let center_view: AnyView = match &self.center {
             CenterMode::Session => match active.and_then(|i| self.sessions.get(i)) {
-                Some(s) => s.clone().into(),
+                Some(s) => s.to_any_view(),
                 None => self.picker.clone().into(),
             },
             CenterMode::ConnectionPicker => self.picker.clone().into(),
@@ -509,21 +544,17 @@ impl Render for DbClientView {
             .bg(bg)
             .text_color(fg)
             .child(tab_bar)
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .child(center_view),
-            )
+            .child(div().flex_1().min_h_0().child(center_view))
     }
 }
 
 /// 工厂：在 App 上下文创建 DbClientView 并返回 AnyView
 pub fn create_dbclient_view(
     service: Arc<ConnectionService>,
+    redis_service: Arc<RedisService>,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyView {
-    let view = cx.new(|cx| DbClientView::new(service, window, cx));
+    let view = cx.new(|cx| DbClientView::new(service, redis_service, window, cx));
     view.into()
 }

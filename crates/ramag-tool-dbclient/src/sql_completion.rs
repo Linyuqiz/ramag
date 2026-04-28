@@ -14,35 +14,98 @@ use gpui::{Context, Task, Window};
 use gpui_component::RopeExt;
 use gpui_component::input::{CompletionProvider, InputState};
 use lsp_types::{
-    CompletionContext, CompletionItem, CompletionItemKind, CompletionResponse,
-    CompletionTextEdit, InsertReplaceEdit,
+    CompletionContext, CompletionItem, CompletionItemKind, CompletionResponse, CompletionTextEdit,
+    InsertReplaceEdit,
 };
 use parking_lot::RwLock;
 use ropey::Rope;
 
 /// MySQL 常见关键字 + 函数
 const SQL_KEYWORDS: &[&str] = &[
-    "SELECT", "FROM", "WHERE", "GROUP BY", "ORDER BY", "HAVING", "LIMIT", "OFFSET",
-    "INSERT INTO", "VALUES", "UPDATE", "SET", "DELETE FROM",
-    "JOIN", "LEFT JOIN", "RIGHT JOIN", "INNER JOIN", "OUTER JOIN", "FULL JOIN",
-    "CROSS JOIN", "ON", "USING",
-    "UNION", "UNION ALL", "INTERSECT", "EXCEPT", "DISTINCT", "ALL",
-    "AND", "OR", "NOT", "IN", "BETWEEN", "LIKE", "IS NULL", "IS NOT NULL",
-    "EXISTS", "ANY", "SOME",
-    "ASC", "DESC",
-    "CREATE TABLE", "DROP TABLE", "ALTER TABLE", "TRUNCATE TABLE",
-    "CREATE INDEX", "DROP INDEX", "CREATE VIEW", "DROP VIEW",
-    "AS", "CASE", "WHEN", "THEN", "ELSE", "END", "IF", "IFNULL", "COALESCE",
-    "COUNT", "SUM", "AVG", "MIN", "MAX", "GROUP_CONCAT",
-    "NOW", "CURRENT_TIMESTAMP", "DATE", "DATE_FORMAT", "DATEDIFF",
-    "CONCAT", "SUBSTRING", "LENGTH", "TRIM", "UPPER", "LOWER",
-    "CAST", "CONVERT",
-    "TRUE", "FALSE", "NULL",
+    "SELECT",
+    "FROM",
+    "WHERE",
+    "GROUP BY",
+    "ORDER BY",
+    "HAVING",
+    "LIMIT",
+    "OFFSET",
+    "INSERT INTO",
+    "VALUES",
+    "UPDATE",
+    "SET",
+    "DELETE FROM",
+    "JOIN",
+    "LEFT JOIN",
+    "RIGHT JOIN",
+    "INNER JOIN",
+    "OUTER JOIN",
+    "FULL JOIN",
+    "CROSS JOIN",
+    "ON",
+    "USING",
+    "UNION",
+    "UNION ALL",
+    "INTERSECT",
+    "EXCEPT",
+    "DISTINCT",
+    "ALL",
+    "AND",
+    "OR",
+    "NOT",
+    "IN",
+    "BETWEEN",
+    "LIKE",
+    "IS NULL",
+    "IS NOT NULL",
+    "EXISTS",
+    "ANY",
+    "SOME",
+    "ASC",
+    "DESC",
+    "CREATE TABLE",
+    "DROP TABLE",
+    "ALTER TABLE",
+    "TRUNCATE TABLE",
+    "CREATE INDEX",
+    "DROP INDEX",
+    "CREATE VIEW",
+    "DROP VIEW",
+    "AS",
+    "CASE",
+    "WHEN",
+    "THEN",
+    "ELSE",
+    "END",
+    "IF",
+    "IFNULL",
+    "COALESCE",
+    "COUNT",
+    "SUM",
+    "AVG",
+    "MIN",
+    "MAX",
+    "GROUP_CONCAT",
+    "NOW",
+    "CURRENT_TIMESTAMP",
+    "DATE",
+    "DATE_FORMAT",
+    "DATEDIFF",
+    "CONCAT",
+    "SUBSTRING",
+    "LENGTH",
+    "TRIM",
+    "UPPER",
+    "LOWER",
+    "CAST",
+    "CONVERT",
+    "TRUE",
+    "FALSE",
+    "NULL",
 ];
 
 /// MySQL 系统内置库（默认隐藏；下拉/表树排序时下沉）
-pub const SYSTEM_SCHEMAS: &[&str] =
-    &["mysql", "information_schema", "performance_schema", "sys"];
+pub const SYSTEM_SCHEMAS: &[&str] = &["mysql", "information_schema", "performance_schema", "sys"];
 
 /// 大小写无关地判断库名是否系统内置
 pub fn is_system_schema(name: &str) -> bool {
@@ -130,8 +193,9 @@ fn detect_context(before_cursor_upper: &str) -> SqlContext {
             // 表名上下文
             "FROM" | "JOIN" | "INTO" | "UPDATE" | "TABLE" => return SqlContext::Table,
             // 列名上下文
-            "SELECT" | "WHERE" | "AND" | "OR" | "ON" | "USING" | "HAVING" | "SET"
-            | "DISTINCT" => return SqlContext::Column,
+            "SELECT" | "WHERE" | "AND" | "OR" | "ON" | "USING" | "HAVING" | "SET" | "DISTINCT" => {
+                return SqlContext::Column;
+            }
             _ => {}
         }
     }
@@ -438,17 +502,17 @@ mod tests {
     #[test]
     fn keywords_uppercase_only() {
         for kw in SQL_KEYWORDS {
-            assert!(
-                kw.chars().all(|c| !c.is_lowercase()),
-                "keyword {kw} 含小写"
-            );
+            assert!(kw.chars().all(|c| !c.is_lowercase()), "keyword {kw} 含小写");
         }
     }
 
     #[test]
     fn detect_table_context() {
         assert_eq!(detect_context("SELECT * FROM "), SqlContext::Table);
-        assert_eq!(detect_context("SELECT a FROM users JOIN "), SqlContext::Table);
+        assert_eq!(
+            detect_context("SELECT a FROM users JOIN "),
+            SqlContext::Table
+        );
         assert_eq!(detect_context("UPDATE "), SqlContext::Table);
         assert_eq!(detect_context("INSERT INTO "), SqlContext::Table);
     }
@@ -458,15 +522,27 @@ mod tests {
         // SELECT 后到 FROM 之前
         assert_eq!(detect_context("SELECT "), SqlContext::Column);
         // WHERE / AND / OR / ON / HAVING
-        assert_eq!(detect_context("SELECT * FROM users WHERE "), SqlContext::Column);
+        assert_eq!(
+            detect_context("SELECT * FROM users WHERE "),
+            SqlContext::Column
+        );
         assert_eq!(
             detect_context("SELECT * FROM users WHERE id = 1 AND "),
             SqlContext::Column
         );
-        assert_eq!(detect_context("SELECT a FROM x JOIN y ON "), SqlContext::Column);
+        assert_eq!(
+            detect_context("SELECT a FROM x JOIN y ON "),
+            SqlContext::Column
+        );
         // ORDER BY / GROUP BY 多词
-        assert_eq!(detect_context("SELECT * FROM x ORDER BY "), SqlContext::Column);
-        assert_eq!(detect_context("SELECT * FROM x GROUP BY "), SqlContext::Column);
+        assert_eq!(
+            detect_context("SELECT * FROM x ORDER BY "),
+            SqlContext::Column
+        );
+        assert_eq!(
+            detect_context("SELECT * FROM x GROUP BY "),
+            SqlContext::Column
+        );
         // UPDATE ... SET
         assert_eq!(detect_context("UPDATE x SET "), SqlContext::Column);
     }
@@ -498,8 +574,10 @@ mod tests {
     fn cache_default_schema_first() {
         let mut c = SchemaCache::default();
         c.default_schema = Some("midas".to_string());
-        c.tables
-            .insert("midas".to_string(), vec!["users".to_string(), "orders".to_string()]);
+        c.tables.insert(
+            "midas".to_string(),
+            vec!["users".to_string(), "orders".to_string()],
+        );
         c.tables
             .insert("logs".to_string(), vec!["events".to_string()]);
         let all = c.all_tables();

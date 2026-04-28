@@ -67,9 +67,10 @@ impl ActivityBar {
         cx.notify();
     }
 
-    /// 根据工具 id 选一个图标：
-    /// - `dbclient` 走 ramag 自带 svg（database.svg）
-    /// - 其他先用上游 IconName 兜底
+    /// 根据工具 id 选一个图标
+    ///
+    /// 注：MySQL 与 Redis 共用 dbclient 工具入口（"数据源管理"），
+    /// 不在 ActivityBar 上分别加图标 —— 用户在新建连接表单内选 driver
     fn icon_for_tool(tool_id: &str) -> Icon {
         match tool_id {
             "dbclient" => icons::database(),
@@ -159,22 +160,29 @@ impl Render for ActivityBar {
                         .icon(IconName::Settings)
                         // BottomLeft anchor：菜单弹按钮上方而非右侧
                         // 否则子菜单"主题"展开会盖住底部的设置按钮本身
-                        .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, window, cx| {
-                            // 保留 Sun / Moon 图标：让用户一眼能识别两个选项
-                            // ✓ 选中标记由 label 前缀承担（避免 .checked() 把整行染成 accent 蓝）
-                            menu.submenu("主题", window, cx, move |sub, _, _| {
-                                sub.item(
-                                    PopupMenuItem::new(label_light)
-                                        .icon(IconName::Sun)
-                                        .on_click(|_, _, app| set_theme(crate::theme::Mode::Light, app)),
-                                )
-                                .item(
-                                    PopupMenuItem::new(label_dark)
-                                        .icon(IconName::Moon)
-                                        .on_click(|_, _, app| set_theme(crate::theme::Mode::Dark, app)),
-                                )
-                            })
-                        }),
+                        .dropdown_menu_with_anchor(
+                            gpui::Anchor::BottomLeft,
+                            move |menu, window, cx| {
+                                // 保留 Sun / Moon 图标：让用户一眼能识别两个选项
+                                // ✓ 选中标记由 label 前缀承担（避免 .checked() 把整行染成 accent 蓝）
+                                menu.submenu("主题", window, cx, move |sub, _, _| {
+                                    sub.item(
+                                        PopupMenuItem::new(label_light)
+                                            .icon(IconName::Sun)
+                                            .on_click(|_, _, app| {
+                                                set_theme(crate::theme::Mode::Light, app)
+                                            }),
+                                    )
+                                    .item(
+                                        PopupMenuItem::new(label_dark)
+                                            .icon(IconName::Moon)
+                                            .on_click(|_, _, app| {
+                                                set_theme(crate::theme::Mode::Dark, app)
+                                            }),
+                                    )
+                                })
+                            },
+                        ),
                 ),
         );
 

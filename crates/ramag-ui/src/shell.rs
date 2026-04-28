@@ -45,11 +45,7 @@ pub struct Shell {
 }
 
 impl Shell {
-    pub fn new(
-        registry: Arc<ToolRegistry>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    pub fn new(registry: Arc<ToolRegistry>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let activity_bar = cx.new(|_| ActivityBar::new(registry.clone()));
 
         let mut subs = Vec::new();
@@ -173,4 +169,3 @@ fn render_view_missing(cx: &Context<Shell>) -> impl IntoElement {
                 .child("请检查 ramag-bin/main.rs 是否调用了 register_tool_view"),
         )
 }
-

@@ -100,9 +100,16 @@ pub async fn list_tables(pool: &MySqlPool, schema: &str) -> Result<Vec<Table>> {
 pub async fn list_columns(pool: &MySqlPool, schema: &str, table: &str) -> Result<Vec<Column>> {
     debug!(?schema, ?table, "list_columns");
 
-    let rows: Vec<(String, String, String, String, Option<String>, Option<String>, String)> =
-        sqlx::query_as(
-            r#"
+    let rows: Vec<(
+        String,
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        String,
+    )> = sqlx::query_as(
+        r#"
             SELECT
                 CONVERT(COLUMN_NAME USING utf8mb4),
                 CONVERT(DATA_TYPE USING utf8mb4),
@@ -115,12 +122,12 @@ pub async fn list_columns(pool: &MySqlPool, schema: &str, table: &str) -> Result
             WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
             ORDER BY ORDINAL_POSITION
             "#,
-        )
-        .bind(schema)
-        .bind(table)
-        .fetch_all(pool)
-        .await
-        .map_err(map_sqlx_error)?;
+    )
+    .bind(schema)
+    .bind(table)
+    .fetch_all(pool)
+    .await
+    .map_err(map_sqlx_error)?;
 
     Ok(rows
         .into_iter()
@@ -163,8 +170,7 @@ pub async fn list_indexes(pool: &MySqlPool, schema: &str, table: &str) -> Result
     .map_err(map_sqlx_error)?;
 
     // 按 INDEX_NAME 聚合 columns
-    let mut grouped: std::collections::BTreeMap<String, Index> =
-        std::collections::BTreeMap::new();
+    let mut grouped: std::collections::BTreeMap<String, Index> = std::collections::BTreeMap::new();
     for (idx_name, non_unique, _seq, col_name) in rows {
         let primary = idx_name == "PRIMARY";
         let entry = grouped.entry(idx_name.clone()).or_insert_with(|| Index {

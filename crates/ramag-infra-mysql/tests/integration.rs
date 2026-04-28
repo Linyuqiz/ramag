@@ -58,14 +58,20 @@ macro_rules! require_env {
 async fn test_connection_works() {
     let config = require_env!();
     let driver = MysqlDriver::new();
-    driver.test_connection(&config).await.expect("test_connection 失败");
+    driver
+        .test_connection(&config)
+        .await
+        .expect("test_connection 失败");
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn list_schemas_returns_data() {
     let config = require_env!();
     let driver = MysqlDriver::new();
-    let schemas = driver.list_schemas(&config).await.expect("list_schemas 失败");
+    let schemas = driver
+        .list_schemas(&config)
+        .await
+        .expect("list_schemas 失败");
     println!("schemas: {:#?}", schemas);
     assert!(!schemas.is_empty(), "至少应返回一个 schema");
 }
@@ -74,7 +80,10 @@ async fn list_schemas_returns_data() {
 async fn list_tables_for_db() {
     let config = require_env!();
     let driver = MysqlDriver::new();
-    let schema = config.database.clone().unwrap_or_else(|| "midas_storage".into());
+    let schema = config
+        .database
+        .clone()
+        .unwrap_or_else(|| "midas_storage".into());
     let tables = driver
         .list_tables(&config, &schema)
         .await
@@ -87,7 +96,10 @@ async fn list_tables_for_db() {
 async fn list_columns_for_first_table() {
     let config = require_env!();
     let driver = MysqlDriver::new();
-    let schema = config.database.clone().unwrap_or_else(|| "midas_storage".into());
+    let schema = config
+        .database
+        .clone()
+        .unwrap_or_else(|| "midas_storage".into());
 
     let tables = driver
         .list_tables(&config, &schema)

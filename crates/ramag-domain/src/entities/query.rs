@@ -135,7 +135,13 @@ impl Value {
     pub fn to_sql_literal(&self) -> String {
         match self {
             Value::Null => "NULL".to_string(),
-            Value::Bool(b) => if *b { "TRUE".to_string() } else { "FALSE".to_string() },
+            Value::Bool(b) => {
+                if *b {
+                    "TRUE".to_string()
+                } else {
+                    "FALSE".to_string()
+                }
+            }
             Value::Int(i) => i.to_string(),
             Value::Float(f) => f.to_string(),
             Value::Text(s) => format!("'{}'", escape_sql_string(s)),
@@ -226,9 +232,10 @@ mod tests {
 
     #[test]
     fn clipboard_primitive() {
+        // 浮点用非 π 近似（避开 clippy::approx_constant）
         assert_eq!(Value::Bool(true).to_clipboard_string(), "true");
         assert_eq!(Value::Int(-42).to_clipboard_string(), "-42");
-        assert_eq!(Value::Float(3.14).to_clipboard_string(), "3.14");
+        assert_eq!(Value::Float(2.5).to_clipboard_string(), "2.5");
     }
 
     #[test]
@@ -246,7 +253,9 @@ mod tests {
 
     #[test]
     fn clipboard_datetime_rfc3339() {
-        let dt = chrono::Utc.with_ymd_and_hms(2026, 4, 26, 17, 30, 0).unwrap();
+        let dt = chrono::Utc
+            .with_ymd_and_hms(2026, 4, 26, 17, 30, 0)
+            .unwrap();
         let s = Value::DateTime(dt).to_clipboard_string();
         assert!(s.starts_with("2026-04-26T17:30:00"));
     }
@@ -265,10 +274,7 @@ mod tests {
             Value::Text("O'Reilly".to_string()).to_sql_literal(),
             "'O''Reilly'"
         );
-        assert_eq!(
-            Value::Text("a\\b".to_string()).to_sql_literal(),
-            "'a\\\\b'"
-        );
+        assert_eq!(Value::Text("a\\b".to_string()).to_sql_literal(), "'a\\\\b'");
     }
 
     #[test]
@@ -281,7 +287,9 @@ mod tests {
 
     #[test]
     fn sql_literal_datetime_mysql_format() {
-        let dt = chrono::Utc.with_ymd_and_hms(2026, 4, 8, 17, 31, 15).unwrap();
+        let dt = chrono::Utc
+            .with_ymd_and_hms(2026, 4, 8, 17, 31, 15)
+            .unwrap();
         assert_eq!(
             Value::DateTime(dt).to_sql_literal(),
             "'2026-04-08 17:31:15'"

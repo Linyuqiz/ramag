@@ -19,7 +19,7 @@ use gpui_component::{
     input::{Input, InputEvent, InputState},
     v_flex,
 };
-use ramag_app::ConnectionService;
+use ramag_app::{ConnectionService, RedisService};
 use ramag_domain::entities::{ConnectionColor, ConnectionConfig, ConnectionId, DriverKind};
 use tracing::{error, info};
 
@@ -55,12 +55,14 @@ pub enum FormEvent {
 const DRIVERS: &[(&str, &str, bool)] = &[
     ("mysql", "MySQL", true),
     ("postgres", "PostgreSQL", false),
-    ("redis", "Redis", false),
+    ("redis", "Redis", true),
 ];
 
 /// 连接表单面板
 pub struct ConnectionFormPanel {
     service: Arc<ConnectionService>,
+    /// Redis 服务（test_connection 时按 driver 路由）；Storage 与 service 共用
+    redis_service: Arc<RedisService>,
     mode: FormMode,
     /// 当前选中的 driver id（"mysql" / "postgres" / ...）
     /// 当前只有 mysql 可选；其他显示但不可点
@@ -83,24 +85,27 @@ impl EventEmitter<FormEvent> for ConnectionFormPanel {}
 impl ConnectionFormPanel {
     pub fn new_create(
         service: Arc<ConnectionService>,
+        redis_service: Arc<RedisService>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        Self::build(service, FormMode::Create, None, window, cx)
+        Self::build(service, redis_service, FormMode::Create, None, window, cx)
     }
 
     pub fn new_edit(
         service: Arc<ConnectionService>,
+        redis_service: Arc<RedisService>,
         existing: ConnectionConfig,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let mode = FormMode::Edit(existing.id.clone());
-        Self::build(service, mode, Some(existing), window, cx)
+        Self::build(service, redis_service, mode, Some(existing), window, cx)
     }
 
     fn build(
         service: Arc<ConnectionService>,
+        redis_service: Arc<RedisService>,
         mode: FormMode,
         prefill: Option<ConnectionConfig>,
         window: &mut Window,
@@ -175,6 +180,7 @@ impl ConnectionFormPanel {
 
         Self {
             service,
+            redis_service,
             mode,
             driver_id,
             name,
@@ -191,11 +197,25 @@ impl ConnectionFormPanel {
     }
 
     /// 切换 driver（仅可用 driver 才会通过 UI 触发）
-    fn set_driver(&mut self, id: &'static str, cx: &mut Context<Self>) {
-        if self.driver_id != id {
-            self.driver_id = id;
-            cx.notify();
+    ///
+    /// 端口字段联动：仅当用户没改动过端口（仍是另一 driver 的默认值）时才自动切换
+    /// - mysql ↔ redis：3306 ↔ 6379
+    fn set_driver(&mut self, id: &'static str, window: &mut Window, cx: &mut Context<Self>) {
+        if self.driver_id == id {
+            return;
         }
+        let cur_port = self.port.read(cx).value().to_string();
+        let new_port: Option<&'static str> = match (self.driver_id, id) {
+            ("mysql", "redis") if cur_port == "3306" || cur_port.is_empty() => Some("6379"),
+            ("redis", "mysql") if cur_port == "6379" || cur_port.is_empty() => Some("3306"),
+            _ => None,
+        };
+        if let Some(np) = new_port {
+            self.port
+                .update(cx, |state, cx| state.set_value(np, window, cx));
+        }
+        self.driver_id = id;
+        cx.notify();
     }
 
     /// 校验表单并返回 ConnectionConfig；任意必填项缺失返回中文错误描述
@@ -222,12 +242,21 @@ impl ConnectionFormPanel {
         if port == 0 {
             return Err("Port 必须是 1 - 65535".into());
         }
-        if username.is_empty() {
+
+        let driver =
+            id_to_driver_kind(self.driver_id).ok_or_else(|| "请选择数据库类型".to_string())?;
+
+        // 用户名：MySQL 必填；Redis 可空（老版无 ACL 时用空用户名）
+        if matches!(driver, DriverKind::Mysql) && username.is_empty() {
             return Err("请填写用户名".into());
         }
-
-        let driver = id_to_driver_kind(self.driver_id)
-            .ok_or_else(|| "请选择数据库类型".to_string())?;
+        // Redis 的 DB 字段限制 0-255 数字
+        if matches!(driver, DriverKind::Redis) {
+            if let Some(ref s) = database {
+                s.parse::<u8>()
+                    .map_err(|_| "DB 必须是 0 - 255 的数字（默认 Redis 上限 0-15）".to_string())?;
+            }
+        }
         let id = match &self.mode {
             FormMode::Create => ConnectionId::new(),
             FormMode::Edit(id) => id.clone(),
@@ -295,8 +324,8 @@ impl ConnectionFormPanel {
                     .text_color(fg)
                     .cursor_pointer()
                     .hover(move |this| this.border_color(accent_border))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.set_driver(id, cx);
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        this.set_driver(id, window, cx);
                     }));
             } else {
                 // 禁用：dim、不可点
@@ -328,9 +357,14 @@ impl ConnectionFormPanel {
         self.test_state = TestState::Testing;
         cx.notify();
 
-        let svc = self.service.clone();
+        // 按 driver 走对应的 service.test：MySQL → ConnectionService；Redis → RedisService
+        let mysql_svc = self.service.clone();
+        let redis_svc = self.redis_service.clone();
         cx.spawn(async move |this, cx| {
-            let result = svc.test(&config).await;
+            let result = match config.driver {
+                DriverKind::Mysql => mysql_svc.test(&config).await,
+                DriverKind::Redis => redis_svc.test(&config).await,
+            };
             let _ = this.update(cx, |this, cx| {
                 this.test_state = match result {
                     Ok(_) => {
@@ -402,9 +436,21 @@ impl Render for ConnectionFormPanel {
         // 内容（不带 dialog 标题/边框，dialog 系统提供）：
         // driver 选择器（仅新建可见）→ 字段分组 → 底部按钮区
         // 注：dialog 自身有 16px padding，这里只补少量上下间距
-        let driver_selector: Option<gpui::AnyElement> =
-            matches!(self.mode, FormMode::Create)
-                .then(|| self.render_driver_selector(cx).into_any_element());
+        let driver_selector: Option<gpui::AnyElement> = matches!(self.mode, FormMode::Create)
+            .then(|| self.render_driver_selector(cx).into_any_element());
+
+        // driver 相关的标签 / 占位（Redis 与 SQL 类形态略有差异）
+        let is_redis = self.driver_id == "redis";
+        let database_label = if is_redis {
+            "DB（0-15）"
+        } else {
+            "默认库（可选）"
+        };
+        let username_label = if is_redis {
+            "用户名（ACL，可选）"
+        } else {
+            "用户名"
+        };
 
         v_flex()
             .w_full()
@@ -435,14 +481,14 @@ impl Render for ConnectionFormPanel {
                                     .child(field_row("Port", Input::new(&self.port))),
                             ),
                     )
-                    .child(field_row("默认库（可选）", Input::new(&self.database))),
+                    .child(field_row(database_label, Input::new(&self.database))),
             )
             // —— 认证 ——
             .child(
                 v_flex()
                     .gap(px(12.0))
                     .child(section_title("认证", muted_fg))
-                    .child(field_row("用户名", Input::new(&self.username)))
+                    .child(field_row(username_label, Input::new(&self.username)))
                     .child(field_row("密码", Input::new(&self.password))),
             )
             // —— 分隔 + 按钮区 ——
@@ -458,14 +504,11 @@ impl Render for ConnectionFormPanel {
                             .min_w_0()
                             .items_center()
                             .gap(px(12.0))
-                            .child(
-                                Button::new("test")
-                                    .small()
-                                    .label("测试连接")
-                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                        this.handle_test(cx);
-                                    })),
-                            )
+                            .child(Button::new("test").small().label("测试连接").on_click(
+                                cx.listener(|this, _: &ClickEvent, _, cx| {
+                                    this.handle_test(cx);
+                                }),
+                            ))
                             .when_some(test_msg, |this, (msg, color)| {
                                 this.child(
                                     div()
@@ -498,7 +541,11 @@ impl Render for ConnectionFormPanel {
                                 Button::new("save")
                                     .primary()
                                     .small()
-                                    .label(if self.saving { "保存中..." } else { "保存" })
+                                    .label(if self.saving {
+                                        "保存中..."
+                                    } else {
+                                        "保存"
+                                    })
                                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                         if !this.saving {
                                             this.handle_save(cx);
@@ -552,9 +599,13 @@ fn field_row(label: &str, input: Input) -> impl IntoElement {
 }
 
 /// DriverKind → driver_id 字符串（用于 UI 选择器内部状态）
+///
+/// Redis 不在 DBClient 工具的表单选择器内呈现（Redis 走独立的 Redis 工具），
+/// 此处仍要覆盖以满足穷举 match；id 选用 "redis" 与未来 Redis 表单约定保持一致
 fn driver_kind_to_id(kind: DriverKind) -> &'static str {
     match kind {
         DriverKind::Mysql => "mysql",
+        DriverKind::Redis => "redis",
     }
 }
 
@@ -562,6 +613,7 @@ fn driver_kind_to_id(kind: DriverKind) -> &'static str {
 fn id_to_driver_kind(id: &str) -> Option<DriverKind> {
     match id {
         "mysql" => Some(DriverKind::Mysql),
+        "redis" => Some(DriverKind::Redis),
         _ => None,
     }
 }

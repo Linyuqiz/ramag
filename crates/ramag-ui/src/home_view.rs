@@ -10,10 +10,7 @@ use gpui::{
     Window, div, hsla, prelude::*, px,
 };
 use gpui_component::{
-    ActiveTheme, Icon, Sizable as _,
-    h_flex,
-    scroll::ScrollableElement as _,
-    v_flex,
+    ActiveTheme, Icon, Sizable as _, h_flex, scroll::ScrollableElement as _, v_flex,
 };
 
 use crate::icons;
@@ -63,71 +60,59 @@ impl Render for HomeView {
         let bg = theme.background;
 
         // 外层撑满 + 滚动；内容距顶 96px（视觉居中偏上 1/3）
-        v_flex()
-            .size_full()
-            .bg(bg)
-            .overflow_y_scrollbar()
-            .child(
+        v_flex().size_full().bg(bg).overflow_y_scrollbar().child(
+            v_flex().size_full().items_center().pt(px(96.0)).child(
                 v_flex()
-                    .size_full()
-                    .items_center()
-                    .pt(px(96.0))
+                    .w_full()
+                    .max_w(px(840.0))
+                    .px(px(40.0))
+                    .gap(px(32.0))
+                    .child(render_logo(mono, accent, muted_fg))
                     .child(
-                        v_flex()
+                        h_flex()
+                            .gap(px(14.0))
                             .w_full()
-                            .max_w(px(840.0))
-                            .px(px(40.0))
-                            .gap(px(32.0))
-                            .child(render_logo(mono, accent, muted_fg))
-                            .child(
-                                h_flex()
-                                    .gap(px(14.0))
-                                    .w_full()
-                                    .child(active_module_card(
-                                        "module-db",
-                                        icons::database(),
-                                        "数据库",
-                                        "MySQL · PostgreSQL · Redis · MongoDB",
-                                        secondary_bg,
-                                        border,
-                                        fg,
-                                        muted_fg,
-                                        accent,
-                                        card_hover,
-                                        cx.listener(|_this, _: &ClickEvent, _, cx| {
-                                            cx.emit(HomeEvent::OpenTool("dbclient".into()));
-                                        }),
-                                    ))
-                                    .child(soon_module_card(
-                                        "module-term",
-                                        icons::terminal(),
-                                        "终端",
-                                        "本地 Shell · SSH",
-                                        secondary_bg,
-                                        border,
-                                        muted_fg,
-                                    ))
-                                    .child(soon_module_card(
-                                        "module-vc",
-                                        icons::git_branch(),
-                                        "版本管理",
-                                        "Git 仓库 · 提交 · 合并",
-                                        secondary_bg,
-                                        border,
-                                        muted_fg,
-                                    )),
-                            ),
+                            .child(active_module_card(
+                                "module-db",
+                                icons::database(),
+                                "数据库",
+                                "MySQL · PostgreSQL · Redis · MongoDB",
+                                secondary_bg,
+                                border,
+                                fg,
+                                muted_fg,
+                                accent,
+                                card_hover,
+                                cx.listener(|_this, _: &ClickEvent, _, cx| {
+                                    cx.emit(HomeEvent::OpenTool("dbclient".into()));
+                                }),
+                            ))
+                            .child(soon_module_card(
+                                "module-term",
+                                icons::terminal(),
+                                "终端",
+                                "本地 Shell · SSH",
+                                secondary_bg,
+                                border,
+                                muted_fg,
+                            ))
+                            .child(soon_module_card(
+                                "module-vc",
+                                icons::git_branch(),
+                                "版本管理",
+                                "Git 仓库 · 提交 · 合并",
+                                secondary_bg,
+                                border,
+                                muted_fg,
+                            )),
                     ),
-            )
+            ),
+        )
     }
 }
 
 /// Logo 区：ANSI Shadow 大字 + tagline（等宽字体居中）
-fn render_logo(
-    mono: SharedString,
-    accent: gpui::Hsla,
-    muted_fg: gpui::Hsla,
-) -> impl IntoElement {
+fn render_logo(mono: SharedString, accent: gpui::Hsla, muted_fg: gpui::Hsla) -> impl IntoElement {
     // 渐变叠色：从顶部稍亮往下逐行掉点 alpha，制造层次感
     let mut lines = Vec::with_capacity(RAMAG_LOGO.len());
     for (i, line) in RAMAG_LOGO.iter().enumerate() {

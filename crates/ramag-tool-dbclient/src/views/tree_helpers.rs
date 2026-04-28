@@ -20,11 +20,7 @@ pub(super) fn format_thousands(n: u64) -> String {
 
 /// 渲染单个列结构子节点：🔑 主键 + 列名 + * NOT NULL + raw_type
 /// 长列名 / 长类型不截断，依赖外层横向滚动容器查看
-pub(super) fn render_column_row(
-    col: &Column,
-    fg: gpui::Hsla,
-    muted_fg: gpui::Hsla,
-) -> AnyElement {
+pub(super) fn render_column_row(col: &Column, fg: gpui::Hsla, muted_fg: gpui::Hsla) -> AnyElement {
     let pk_label = if col.is_primary_key { "🔑 " } else { "" };
     let null_mark = if col.nullable { "" } else { " *" };
     h_flex()
@@ -38,12 +34,7 @@ pub(super) fn render_column_row(
                 .text_xs()
                 .text_color(fg)
                 .whitespace_nowrap()
-                .child(format!(
-                    "{}{}{}",
-                    pk_label,
-                    col.name.clone(),
-                    null_mark
-                )),
+                .child(format!("{}{}{}", pk_label, col.name.clone(), null_mark)),
         )
         .child(
             div()

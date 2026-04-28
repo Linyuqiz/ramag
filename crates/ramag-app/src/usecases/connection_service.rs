@@ -27,7 +27,10 @@ impl ConnectionService {
 
     // === 连接配置 CRUD ===
 
-    /// 列出所有保存的连接
+    /// 列出所有保存的连接（含 MySQL / Redis 等所有 driver）
+    ///
+    /// dbclient 工具是统一连接管理入口，列表展示所有 driver；
+    /// 调用方按 [`DriverKind`] 字段决定打开方式（SQL 编辑器 / Key 树 等）
     pub async fn list(&self) -> Result<Vec<ConnectionConfig>> {
         self.storage.list_connections().await
     }
@@ -122,10 +125,7 @@ impl ConnectionService {
         query: &Query,
         handle: CancelHandle,
     ) -> Result<QueryResult> {
-        let result = self
-            .driver
-            .execute_cancellable(config, query, handle)
-            .await;
+        let result = self.driver.execute_cancellable(config, query, handle).await;
         self.append_history_for(config, query, &result).await;
         result
     }

@@ -15,12 +15,8 @@ pub fn map_sqlx_error(err: sqlx::Error) -> DomainError {
             DomainError::ConnectionFailed("连接池等待超时（数据库可能繁忙或不可达）".into())
         }
         sqlx::Error::PoolClosed => DomainError::ConnectionFailed("连接池已关闭".into()),
-        sqlx::Error::Io(io_err) => {
-            DomainError::ConnectionFailed(format!("网络/IO 错误：{io_err}"))
-        }
-        sqlx::Error::Tls(tls_err) => {
-            DomainError::ConnectionFailed(format!("TLS 错误：{tls_err}"))
-        }
+        sqlx::Error::Io(io_err) => DomainError::ConnectionFailed(format!("网络/IO 错误：{io_err}")),
+        sqlx::Error::Tls(tls_err) => DomainError::ConnectionFailed(format!("TLS 错误：{tls_err}")),
 
         // === MySQL 数据库错误（含错误码识别）===
         sqlx::Error::Database(db_err) => {
@@ -38,25 +34,21 @@ pub fn map_sqlx_error(err: sqlx::Error) -> DomainError {
         }
 
         // === 查询/解析类 ===
-        sqlx::Error::ColumnDecode { index, source } => DomainError::QueryFailed(format!(
-            "列解码失败（第 {index} 列）：{source}"
-        )),
+        sqlx::Error::ColumnDecode { index, source } => {
+            DomainError::QueryFailed(format!("列解码失败（第 {index} 列）：{source}"))
+        }
         sqlx::Error::Decode(e) => DomainError::QueryFailed(format!("数据解码失败：{e}")),
         sqlx::Error::TypeNotFound { type_name } => {
             DomainError::QueryFailed(format!("类型未识别：{type_name}"))
         }
-        sqlx::Error::ColumnNotFound(name) => {
-            DomainError::QueryFailed(format!("列不存在：{name}"))
-        }
+        sqlx::Error::ColumnNotFound(name) => DomainError::QueryFailed(format!("列不存在：{name}")),
         sqlx::Error::ColumnIndexOutOfBounds { index, len } => {
             DomainError::QueryFailed(format!("列索引越界：{index} ≥ {len}"))
         }
         sqlx::Error::RowNotFound => DomainError::NotFound("查询结果为空".into()),
 
         // === 协议/配置类 ===
-        sqlx::Error::Protocol(msg) => {
-            DomainError::ConnectionFailed(format!("协议错误：{msg}"))
-        }
+        sqlx::Error::Protocol(msg) => DomainError::ConnectionFailed(format!("协议错误：{msg}")),
         sqlx::Error::Configuration(e) => DomainError::InvalidConfig(format!("配置错误：{e}")),
 
         // === 兜底 ===

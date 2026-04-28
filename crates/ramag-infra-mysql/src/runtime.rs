@@ -62,7 +62,8 @@ where
         let _ = tx.send(result);
     });
 
-    rx.await.expect("tokio runtime 内任务未送回结果（异常情况）")
+    rx.await
+        .expect("tokio runtime 内任务未送回结果（异常情况）")
 }
 
 #[cfg(test)]

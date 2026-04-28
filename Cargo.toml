@@ -4,8 +4,10 @@ members = [
     "crates/ramag-domain",
     "crates/ramag-app",
     "crates/ramag-infra-mysql",
+    "crates/ramag-infra-redis",
     "crates/ramag-infra-storage",
     "crates/ramag-tool-dbclient",
+    "crates/ramag-tool-redis",
     "crates/ramag-ui",
     "crates/ramag-bin",
 ]
@@ -23,8 +25,10 @@ repository = "https://github.com/axemc/ramag"
 ramag-domain = { path = "crates/ramag-domain" }
 ramag-app = { path = "crates/ramag-app" }
 ramag-infra-mysql = { path = "crates/ramag-infra-mysql" }
+ramag-infra-redis = { path = "crates/ramag-infra-redis" }
 ramag-infra-storage = { path = "crates/ramag-infra-storage" }
 ramag-tool-dbclient = { path = "crates/ramag-tool-dbclient" }
+ramag-tool-redis = { path = "crates/ramag-tool-redis" }
 ramag-ui = { path = "crates/ramag-ui" }
 
 # GPUI 框架（来自 zed-industries/zed git 主干）
@@ -61,6 +65,22 @@ sqlx = { version = "0.8", default-features = false, features = [
     "chrono",
     "uuid",
     "json",
+] }
+
+# Redis 驱动（v0.4 起，第二个数据库工具）
+# - aio + tokio-comp：tokio 异步连接基础
+# - tokio-rustls-comp：把 tokio runtime 与 rustls TLS 粘合（必需，否则
+#   redis-rs 编译报 connect_tcp_tls 缺实现）；自动激活 tls-rustls
+# - tls-rustls-webpki-roots：使用内置 webpki 根证书，免依赖系统证书库
+# - connection-manager：自动重连的连接句柄（PoolCache 用此）
+# - streams：XADD/XRANGE 等 Streams 命令的解析支持
+redis = { version = "0.32", default-features = false, features = [
+    "aio",
+    "tokio-comp",
+    "tokio-rustls-comp",
+    "tls-rustls-webpki-roots",
+    "connection-manager",
+    "streams",
 ] }
 
 # 嵌入式本地存储

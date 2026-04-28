@@ -13,6 +13,8 @@ workspace = true
 ramag-domain = { workspace = true }
 ramag-app = { workspace = true }
 ramag-ui = { workspace = true }
+# Redis 视图组件（dbclient 是统一连接入口；Redis 会话面板在此 crate 内复用）
+ramag-tool-redis = { workspace = true }
 
 # SQL 补全的 anyhow::Result 返回值
 anyhow = { workspace = true }

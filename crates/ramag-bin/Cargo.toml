@@ -29,7 +29,9 @@ ramag-domain = { workspace = true }
 ramag-app = { workspace = true }
 ramag-ui = { workspace = true }
 ramag-tool-dbclient = { workspace = true }
+ramag-tool-redis = { workspace = true }
 ramag-infra-mysql = { workspace = true }
+ramag-infra-redis = { workspace = true }
 ramag-infra-storage = { workspace = true }
 
 # GPUI

@@ -41,7 +41,11 @@ impl ToolRegistry {
 
     /// 根据 id 查找 Tool
     pub fn find(&self, id: &str) -> Option<Arc<dyn Tool>> {
-        self.tools.read().iter().find(|t| t.meta().id == id).cloned()
+        self.tools
+            .read()
+            .iter()
+            .find(|t| t.meta().id == id)
+            .cloned()
     }
 
     /// 当前已注册数量

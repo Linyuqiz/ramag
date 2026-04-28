@@ -18,7 +18,10 @@ use sqlx::{Row, ValueRef};
 
 /// 解码一行所有列为 `Vec<Value>`
 pub fn decode_row(row: &MySqlRow) -> Vec<Value> {
-    row.columns().iter().map(|col| decode_column(row, col)).collect()
+    row.columns()
+        .iter()
+        .map(|col| decode_column(row, col))
+        .collect()
 }
 
 /// 解码单列值
@@ -178,23 +181,41 @@ mod tests {
     #[test]
     fn map_int_types() {
         assert_eq!(map_column_type("INT", "int(11)").kind, ColumnKind::Integer);
-        assert_eq!(map_column_type("BIGINT", "bigint(20)").kind, ColumnKind::Integer);
+        assert_eq!(
+            map_column_type("BIGINT", "bigint(20)").kind,
+            ColumnKind::Integer
+        );
         assert_eq!(map_column_type("YEAR", "year").kind, ColumnKind::Integer);
     }
 
     #[test]
     fn map_tinyint_one_is_bool() {
         // TINYINT(1) 习惯上当布尔
-        assert_eq!(map_column_type("TINYINT", "tinyint(1)").kind, ColumnKind::Bool);
+        assert_eq!(
+            map_column_type("TINYINT", "tinyint(1)").kind,
+            ColumnKind::Bool
+        );
         // TINYINT(4) 是整数
-        assert_eq!(map_column_type("TINYINT", "tinyint(4)").kind, ColumnKind::Integer);
+        assert_eq!(
+            map_column_type("TINYINT", "tinyint(4)").kind,
+            ColumnKind::Integer
+        );
     }
 
     #[test]
     fn map_text_types() {
-        assert_eq!(map_column_type("VARCHAR", "varchar(255)").kind, ColumnKind::Text);
-        assert_eq!(map_column_type("LONGTEXT", "longtext").kind, ColumnKind::Text);
-        assert_eq!(map_column_type("ENUM", "enum('a','b')").kind, ColumnKind::Text);
+        assert_eq!(
+            map_column_type("VARCHAR", "varchar(255)").kind,
+            ColumnKind::Text
+        );
+        assert_eq!(
+            map_column_type("LONGTEXT", "longtext").kind,
+            ColumnKind::Text
+        );
+        assert_eq!(
+            map_column_type("ENUM", "enum('a','b')").kind,
+            ColumnKind::Text
+        );
     }
 
     #[test]
@@ -205,8 +226,14 @@ mod tests {
 
     #[test]
     fn map_datetime_types() {
-        assert_eq!(map_column_type("DATETIME", "datetime").kind, ColumnKind::DateTime);
-        assert_eq!(map_column_type("TIMESTAMP", "timestamp").kind, ColumnKind::DateTime);
+        assert_eq!(
+            map_column_type("DATETIME", "datetime").kind,
+            ColumnKind::DateTime
+        );
+        assert_eq!(
+            map_column_type("TIMESTAMP", "timestamp").kind,
+            ColumnKind::DateTime
+        );
         assert_eq!(map_column_type("DATE", "date").kind, ColumnKind::DateTime);
     }
 
@@ -224,6 +251,9 @@ mod tests {
 
     #[test]
     fn map_unknown() {
-        assert_eq!(map_column_type("GEOMETRY", "geometry").kind, ColumnKind::Other);
+        assert_eq!(
+            map_column_type("GEOMETRY", "geometry").kind,
+            ColumnKind::Other
+        );
     }
 }

@@ -40,8 +40,8 @@ use ramag_domain::entities::{ConnectionConfig, Query};
 use tracing::{error, info};
 
 use crate::actions::{
-    ExplainQuery, ExportCsv, ExportJson, ExportMarkdown, FormatSql, RunQuery,
-    RunStatementAtCursor, SaveSqlFile,
+    ExplainQuery, ExportCsv, ExportJson, ExportMarkdown, FormatSql, RunQuery, RunStatementAtCursor,
+    SaveSqlFile,
 };
 use crate::views::result_panel::{ResultPanel, ResultState};
 
@@ -107,8 +107,9 @@ impl QueryTab {
                 .placeholder("-- 输入 SQL，按 ⌘↵ 运行\nSELECT 1;")
                 .rows(8);
             // SQL 补全：关键字 + 表名 + 列名（cache 共享）
-            state.lsp.completion_provider =
-                Some(crate::sql_completion::SqlCompletionProvider::new_rc(cache_for_provider));
+            state.lsp.completion_provider = Some(
+                crate::sql_completion::SqlCompletionProvider::new_rc(cache_for_provider),
+            );
             state
         });
         let result = cx.new(|cx| {
@@ -185,7 +186,9 @@ impl QueryTab {
     /// 扫描当前 SQL 找出 FROM / JOIN 涉及的表，对未在 cache 的表后台拉一次列结构
     /// schema 推断顺序：SQL 全限定 schema → 连接默认 database → cache.tables 反查
     fn prefetch_columns_for_used_tables(&self, cx: &mut Context<Self>) {
-        let Some(conn) = self.connection.clone() else { return };
+        let Some(conn) = self.connection.clone() else {
+            return;
+        };
         let sql = self.editor.read(cx).value().to_string();
         let tables = extract_tables_in_use_for_prefetch(&sql);
         if tables.is_empty() {
@@ -372,10 +375,7 @@ impl QueryTab {
         }
         let Some(conn) = self.connection.clone() else {
             self.result.update(cx, |r, cx| {
-                r.set_state(
-                    ResultState::Error("尚未选择连接".to_string()),
-                    cx,
-                );
+                r.set_state(ResultState::Error("尚未选择连接".to_string()), cx);
             });
             return;
         };
@@ -455,11 +455,7 @@ impl QueryTab {
                 this.query_start = None;
                 match outcome {
                     Ok(qr) => {
-                        info!(
-                            rows = qr.rows.len(),
-                            elapsed_ms = qr.elapsed_ms,
-                            "query ok"
-                        );
+                        info!(rows = qr.rows.len(), elapsed_ms = qr.elapsed_ms, "query ok");
                         // 成功时清掉之前的错误高亮
                         this.clear_sql_diagnostics(cx);
                         // 派生 tab 标题（同步给 QueryPanel TabBar）
@@ -514,7 +510,9 @@ impl QueryTab {
         if !is_ddl {
             return;
         }
-        let Some(conn) = self.connection.clone() else { return };
+        let Some(conn) = self.connection.clone() else {
+            return;
+        };
         // active_schema 优先，否则退到连接默认 database
         let Some(schema) = self
             .active_schema
@@ -580,9 +578,7 @@ impl QueryTab {
                     ..gpui_component::input::Position::new(line, 9999);
                 diag.push(
                     gpui_component::highlighter::Diagnostic::new(range, msg_for_diag)
-                        .with_severity(
-                            gpui_component::highlighter::DiagnosticSeverity::Error,
-                        ),
+                        .with_severity(gpui_component::highlighter::DiagnosticSeverity::Error),
                 );
                 cx.notify();
             }
@@ -611,10 +607,7 @@ impl QueryTab {
             );
             return;
         }
-        let default_name = format!(
-            "ramag-{}.sql",
-            chrono::Local::now().format("%Y%m%d-%H%M%S")
-        );
+        let default_name = format!("ramag-{}.sql", chrono::Local::now().format("%Y%m%d-%H%M%S"));
         let (tx, rx) = futures::channel::oneshot::channel::<Result<std::path::PathBuf, String>>();
         std::thread::spawn(move || {
             let dialog = rfd::FileDialog::new()
@@ -640,17 +633,15 @@ impl QueryTab {
                         .and_then(|s| s.to_str())
                         .unwrap_or("文件")
                         .to_string();
-                    this.pending_notification = Some(
-                        Notification::success(format!("已保存到 {name}")).autohide(true),
-                    );
+                    this.pending_notification =
+                        Some(Notification::success(format!("已保存到 {name}")).autohide(true));
                     cx.notify();
                 }
                 Err(e) if e == "__cancel__" => {}
                 Err(e) => {
                     error!(error = %e, "save sql failed");
-                    this.pending_notification = Some(
-                        Notification::error(format!("保存失败：{e}")).autohide(true),
-                    );
+                    this.pending_notification =
+                        Some(Notification::error(format!("保存失败：{e}")).autohide(true));
                     cx.notify();
                 }
             });
@@ -687,10 +678,7 @@ impl QueryTab {
         self.result.update(cx, |r, cx| {
             r.set_state(ResultState::Empty, cx);
         });
-        window.push_notification(
-            Notification::info("已取消查询").autohide(true),
-            cx,
-        );
+        window.push_notification(Notification::info("已取消查询").autohide(true), cx);
         info!("query cancelled");
         cx.notify();
     }
@@ -722,22 +710,20 @@ impl Render for QueryTab {
 
         // 仅"执行中"状态在工具条显示实时耗时，其他状态由结果面板底部 status_bar 展示
         // 避免与 status_bar 的"X 行 · 耗时 N ms"重复
-        let running_elapsed = self
-            .query_start
-            .map(|t| t.elapsed())
-            .map(format_elapsed);
-        let (result_summary, has_result): (Option<String>, bool) = match self.result.read(cx).state() {
-            ResultState::Ok(qr) => (None, !qr.rows.is_empty()),
-            ResultState::Error(_) => (None, false),
-            ResultState::Running => (
-                Some(match &running_elapsed {
-                    Some(s) => format!("执行中 {s}"),
-                    None => "执行中".to_string(),
-                }),
-                false,
-            ),
-            ResultState::Empty => (None, false),
-        };
+        let running_elapsed = self.query_start.map(|t| t.elapsed()).map(format_elapsed);
+        let (result_summary, has_result): (Option<String>, bool) =
+            match self.result.read(cx).state() {
+                ResultState::Ok(qr) => (None, !qr.rows.is_empty()),
+                ResultState::Error(_) => (None, false),
+                ResultState::Running => (
+                    Some(match &running_elapsed {
+                        Some(s) => format!("执行中 {s}"),
+                        None => "执行中".to_string(),
+                    }),
+                    false,
+                ),
+                ResultState::Empty => (None, false),
+            };
         // 工具条「删除」按钮：多选行 OR 选中单元格 都算可删
         let panel_for_btn = self.result.read(cx);
         let has_multi_selected = !panel_for_btn.selected_rows().is_empty();
@@ -854,8 +840,7 @@ impl Render for QueryTab {
                                             inserted_separator = true;
                                         }
                                         last_was_business = !is_sys;
-                                        let is_current =
-                                            cur.as_deref() == Some(s.as_str());
+                                        let is_current = cur.as_deref() == Some(s.as_str());
                                         let entity_each = entity.clone();
                                         let s_each = s.clone();
                                         // 系统库后缀加（系统）以提示，但仍可选
@@ -865,17 +850,14 @@ impl Render for QueryTab {
                                             s.clone()
                                         };
                                         menu = menu.item(
-                                            PopupMenuItem::new(label)
-                                                .checked(is_current)
-                                                .on_click(move |_, _, app| {
+                                            PopupMenuItem::new(label).checked(is_current).on_click(
+                                                move |_, _, app| {
                                                     let chosen = s_each.clone();
                                                     entity_each.update(app, |this, cx| {
-                                                        this.set_active_schema(
-                                                            Some(chosen),
-                                                            cx,
-                                                        );
+                                                        this.set_active_schema(Some(chosen), cx);
                                                     });
-                                                }),
+                                                },
+                                            ),
                                         );
                                     }
                                 }
@@ -899,24 +881,32 @@ impl Render for QueryTab {
                                 div()
                                     .flex_1()
                                     .min_w_0()
-                                    .on_action(move |action: &gpui_component::input::MoveUp, window, app| {
-                                        col_for_up.update(app, |state, cx| {
-                                            state.handle_action_for_context_menu(
-                                                Box::new(action.clone()),
-                                                window,
-                                                cx,
-                                            );
-                                        });
-                                    })
-                                    .on_action(move |action: &gpui_component::input::MoveDown, window, app| {
-                                        col_for_down.update(app, |state, cx| {
-                                            state.handle_action_for_context_menu(
-                                                Box::new(action.clone()),
-                                                window,
-                                                cx,
-                                            );
-                                        });
-                                    })
+                                    .on_action(
+                                        move |action: &gpui_component::input::MoveUp,
+                                              window,
+                                              app| {
+                                            col_for_up.update(app, |state, cx| {
+                                                state.handle_action_for_context_menu(
+                                                    Box::new(action.clone()),
+                                                    window,
+                                                    cx,
+                                                );
+                                            });
+                                        },
+                                    )
+                                    .on_action(
+                                        move |action: &gpui_component::input::MoveDown,
+                                              window,
+                                              app| {
+                                            col_for_down.update(app, |state, cx| {
+                                                state.handle_action_for_context_menu(
+                                                    Box::new(action.clone()),
+                                                    window,
+                                                    cx,
+                                                );
+                                            });
+                                        },
+                                    )
                                     .child(
                                         Input::new(&col_input)
                                             .small()
@@ -936,12 +926,7 @@ impl Render for QueryTab {
                             )
                     })
                     .when_some(result_summary, |this, summary| {
-                        this.child(
-                            div()
-                                .text_xs()
-                                .text_color(muted_fg)
-                                .child(summary),
-                        )
+                        this.child(div().text_xs().text_color(muted_fg).child(summary))
                     })
                     // LIMIT 自动注入开关：默认开启（按钮高亮态），关闭时按钮置灰
                     // 工作机制：开 → SELECT 自动追加 LIMIT 10000；关 → 用户写啥跑啥
@@ -977,9 +962,10 @@ impl Render for QueryTab {
                             })
                             .disabled(!can_insert)
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                let Some(conn) = this.connection.clone() else { return };
-                                let Some((schema, table)) = this.pinned_target.clone()
-                                else {
+                                let Some(conn) = this.connection.clone() else {
+                                    return;
+                                };
+                                let Some((schema, table)) = this.pinned_target.clone() else {
                                     return;
                                 };
                                 let svc = this.service.clone();
@@ -991,20 +977,24 @@ impl Render for QueryTab {
                                         match cols {
                                             Ok(cols) => {
                                                 // 为每列建 InputState（草稿行的输入框）
-                                                let inputs: Vec<gpui::Entity<InputState>> =
-                                                    cols.iter()
-                                                        .map(|col| {
-                                                            let placeholder = format!(
-                                                                "{} · {}",
-                                                                col.data_type.raw_type,
-                                                                if col.nullable { "可空" } else { "必填" }
-                                                            );
-                                                            app.new(|cx_inner| {
-                                                                InputState::new(window, cx_inner)
-                                                                    .placeholder(placeholder)
-                                                            })
+                                                let inputs: Vec<gpui::Entity<InputState>> = cols
+                                                    .iter()
+                                                    .map(|col| {
+                                                        let placeholder = format!(
+                                                            "{} · {}",
+                                                            col.data_type.raw_type,
+                                                            if col.nullable {
+                                                                "可空"
+                                                            } else {
+                                                                "必填"
+                                                            }
+                                                        );
+                                                        app.new(|cx_inner| {
+                                                            InputState::new(window, cx_inner)
+                                                                .placeholder(placeholder)
                                                         })
-                                                        .collect();
+                                                    })
+                                                    .collect();
                                                 let first_input = inputs.first().cloned();
                                                 panel.update(app, |r, cx| {
                                                     r.start_insert(
@@ -1109,12 +1099,7 @@ impl Render for QueryTab {
                                         .content(move |c, _, cx| {
                                             let muted_fg = cx.theme().muted_foreground;
                                             let p = preview_for_content.clone();
-                                            c.child(
-                                                div()
-                                                    .text_sm()
-                                                    .text_color(muted_fg)
-                                                    .child(p),
-                                            )
+                                            c.child(div().text_sm().text_color(muted_fg).child(p))
                                         })
                                         .footer(
                                             h_flex()
@@ -1555,10 +1540,7 @@ mod tests {
     #[test]
     fn inject_limit_keeps_subquery_limit_alone() {
         // 子查询里的 LIMIT 不算 top-level，外层仍要注入
-        let s = super::inject_limits(
-            "SELECT * FROM (SELECT * FROM t LIMIT 10) x",
-            1000,
-        );
+        let s = super::inject_limits("SELECT * FROM (SELECT * FROM t LIMIT 10) x", 1000);
         assert!(s.ends_with("LIMIT 1000"));
     }
 
@@ -1582,11 +1564,20 @@ mod tests {
     fn extract_stmt_multi_picks_by_cursor() {
         let sql = "SELECT 1; SELECT 2; SELECT 3";
         // cursor 在 "SELECT 1" 中
-        assert_eq!(super::extract_statement_at_cursor(sql, 3).trim(), "SELECT 1");
+        assert_eq!(
+            super::extract_statement_at_cursor(sql, 3).trim(),
+            "SELECT 1"
+        );
         // cursor 在 "SELECT 2" 中（位置 12 = 'L' of 2nd SELECT）
-        assert_eq!(super::extract_statement_at_cursor(sql, 12).trim(), "SELECT 2");
+        assert_eq!(
+            super::extract_statement_at_cursor(sql, 12).trim(),
+            "SELECT 2"
+        );
         // cursor 在末尾 "SELECT 3"
-        assert_eq!(super::extract_statement_at_cursor(sql, 25).trim(), "SELECT 3");
+        assert_eq!(
+            super::extract_statement_at_cursor(sql, 25).trim(),
+            "SELECT 3"
+        );
     }
 
     #[test]
@@ -1597,7 +1588,10 @@ mod tests {
             super::extract_statement_at_cursor(sql, 5).trim(),
             "SELECT 'a;b'"
         );
-        assert_eq!(super::extract_statement_at_cursor(sql, 18).trim(), "SELECT 2");
+        assert_eq!(
+            super::extract_statement_at_cursor(sql, 18).trim(),
+            "SELECT 2"
+        );
     }
 
     #[test]
@@ -1625,22 +1619,13 @@ mod tests {
 
     #[test]
     fn explain_does_not_double_wrap() {
-        assert_eq!(
-            wrap_explain("EXPLAIN SELECT 1"),
-            "EXPLAIN SELECT 1"
-        );
-        assert_eq!(
-            wrap_explain("explain  SELECT 1"),
-            "explain  SELECT 1"
-        );
+        assert_eq!(wrap_explain("EXPLAIN SELECT 1"), "EXPLAIN SELECT 1");
+        assert_eq!(wrap_explain("explain  SELECT 1"), "explain  SELECT 1");
     }
 
     #[test]
     fn explain_strips_trailing_semicolons() {
-        assert_eq!(
-            wrap_explain("SELECT 1;;;"),
-            "EXPLAIN SELECT 1"
-        );
+        assert_eq!(wrap_explain("SELECT 1;;;"), "EXPLAIN SELECT 1");
     }
 
     #[test]

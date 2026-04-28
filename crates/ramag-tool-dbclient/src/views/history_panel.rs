@@ -12,8 +12,7 @@ use gpui::{
     SharedString, Styled, Window, div, prelude::*, px,
 };
 use gpui_component::{
-    ActiveTheme, Sizable as _,
-    h_flex,
+    ActiveTheme, Sizable as _, h_flex,
     input::{Input, InputState},
     v_flex,
 };
@@ -49,9 +48,7 @@ impl HistoryPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let filter_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("搜索历史 SQL...")
-        });
+        let filter_input = cx.new(|cx| InputState::new(window, cx).placeholder("搜索历史 SQL..."));
         cx.observe(&filter_input, |_, _, cx| cx.notify()).detach();
 
         Self {
@@ -94,7 +91,6 @@ impl HistoryPanel {
         })
         .detach();
     }
-
 }
 
 impl Render for HistoryPanel {
@@ -257,15 +253,13 @@ impl Render for HistoryPanel {
                             .text_color(fg)
                             .child("查询历史"),
                     )
-                    .child(
-                        div().text_xs().text_color(muted_fg).child(
-                            if !filter_text.is_empty() {
-                                format!("· 命中 {visible_records} / {total_records}")
-                            } else {
-                                format!("· {total_records} 条")
-                            },
-                        ),
-                    ),
+                    .child(div().text_xs().text_color(muted_fg).child(
+                        if !filter_text.is_empty() {
+                            format!("· 命中 {visible_records} / {total_records}")
+                        } else {
+                            format!("· {total_records} 条")
+                        },
+                    )),
                 // 清空 / 刷新 / 关闭按钮已移除：
                 // - 清空 / 刷新：低频，未来可放右键菜单或快捷键，先去掉减负
                 // - 关闭：QueryPanel 顶部"历史"按钮再次点击即可 toggle 关闭

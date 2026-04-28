@@ -62,9 +62,8 @@ impl ConnectionSession {
         // 默认 schema 立即记录
         schema_cache.write().default_schema = config.database.clone();
 
-        let tree = cx.new(|cx| {
-            TableTreePanel::new(service.clone(), schema_cache.clone(), window, cx)
-        });
+        let tree =
+            cx.new(|cx| TableTreePanel::new(service.clone(), schema_cache.clone(), window, cx));
         let queries =
             cx.new(|cx| QueryPanel::new(service.clone(), schema_cache.clone(), window, cx));
 
@@ -109,7 +108,11 @@ impl ConnectionSession {
                         q.set_active_schema(Some(schema.clone()), cx);
                     });
                 }
-                TreeEvent::ShowCreateTable { schema, table, is_view } => {
+                TreeEvent::ShowCreateTable {
+                    schema,
+                    table,
+                    is_view,
+                } => {
                     info!(schema = %schema, table = %table, is_view, "show create");
                     // 视图走 SHOW CREATE VIEW；基础表走 SHOW CREATE TABLE
                     // MySQL 8 上 SHOW CREATE TABLE 也能看到视图定义但列名不同（"View"）
@@ -192,6 +195,7 @@ impl ConnectionSession {
     pub fn kind_label(&self) -> &'static str {
         match self.config.driver {
             DriverKind::Mysql => "MySQL",
+            DriverKind::Redis => "Redis",
         }
     }
 }
@@ -207,10 +211,13 @@ impl Render for ConnectionSession {
             .bg(theme.background)
             // ⌘E：切 SQL 编辑器（动作走 dispatch 冒泡到此）
             // 与表树按钮 emit 的 ToggleSqlEditor 殊途同归，都调 queries.toggle_editor + 同步 tree
-            .on_action(cx.listener(|this, _: &crate::actions::ToggleSqlEditor, _, cx| {
-                let visible = this.queries.update(cx, |q, cx| q.toggle_editor(cx));
-                this.tree.update(cx, |t, cx| t.set_editor_visible(visible, cx));
-            }))
+            .on_action(
+                cx.listener(|this, _: &crate::actions::ToggleSqlEditor, _, cx| {
+                    let visible = this.queries.update(cx, |q, cx| q.toggle_editor(cx));
+                    this.tree
+                        .update(cx, |t, cx| t.set_editor_visible(visible, cx));
+                }),
+            )
             .child(
                 h_resizable("session-resize")
                     .with_state(&self.resize_state)
@@ -227,12 +234,8 @@ impl Render for ConnectionSession {
                             ),
                     )
                     .child(
-                        resizable_panel().child(
-                            div()
-                                .size_full()
-                                .min_w_0()
-                                .child(self.queries.clone()),
-                        ),
+                        resizable_panel()
+                            .child(div().size_full().min_w_0().child(self.queries.clone())),
                     ),
             )
     }
@@ -271,5 +274,8 @@ async fn warm_once(
             }
         }
     }
-    info!(schemas = cache.read().tables.len(), "schema cache refreshed");
+    info!(
+        schemas = cache.read().tables.len(),
+        "schema cache refreshed"
+    );
 }

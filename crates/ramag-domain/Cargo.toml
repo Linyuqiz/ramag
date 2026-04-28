@@ -25,3 +25,6 @@ chrono = { workspace = true }
 
 # 唯一标识
 uuid = { workspace = true }
+
+# Pub/Sub 消息流（mpsc 通道：driver 端 push、UI 端 pull）
+futures = { workspace = true }

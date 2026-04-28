@@ -8,7 +8,9 @@ use std::sync::atomic::AtomicU64;
 
 use async_trait::async_trait;
 
-use crate::entities::{Column, ConnectionConfig, ForeignKey, Index, Query, QueryResult, Schema, Table};
+use crate::entities::{
+    Column, ConnectionConfig, ForeignKey, Index, Query, QueryResult, Schema, Table,
+};
 use crate::error::Result;
 
 /// 查询取消句柄
@@ -59,12 +61,10 @@ pub trait Driver: Send + Sync {
 
     /// 取消正在执行的查询（按 thread/session id 定位）
     /// 默认未实现；MySQL 走 `KILL QUERY <id>`，PostgreSQL 走 `pg_cancel_backend(<pid>)`
-    async fn cancel_query(
-        &self,
-        _config: &ConnectionConfig,
-        _thread_id: u64,
-    ) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented("cancel_query".into()))
+    async fn cancel_query(&self, _config: &ConnectionConfig, _thread_id: u64) -> Result<()> {
+        Err(crate::error::DomainError::NotImplemented(
+            "cancel_query".into(),
+        ))
     }
 
     /// 列出所有 schema（库）
@@ -74,11 +74,26 @@ pub trait Driver: Send + Sync {
     async fn list_tables(&self, config: &ConnectionConfig, schema: &str) -> Result<Vec<Table>>;
 
     /// 列出某张表的所有列
-    async fn list_columns(&self, config: &ConnectionConfig, schema: &str, table: &str) -> Result<Vec<Column>>;
+    async fn list_columns(
+        &self,
+        config: &ConnectionConfig,
+        schema: &str,
+        table: &str,
+    ) -> Result<Vec<Column>>;
 
     /// 列出某张表的所有索引（含主键、唯一、普通）
-    async fn list_indexes(&self, config: &ConnectionConfig, schema: &str, table: &str) -> Result<Vec<Index>>;
+    async fn list_indexes(
+        &self,
+        config: &ConnectionConfig,
+        schema: &str,
+        table: &str,
+    ) -> Result<Vec<Index>>;
 
     /// 列出某张表的所有外键
-    async fn list_foreign_keys(&self, config: &ConnectionConfig, schema: &str, table: &str) -> Result<Vec<ForeignKey>>;
+    async fn list_foreign_keys(
+        &self,
+        config: &ConnectionConfig,
+        schema: &str,
+        table: &str,
+    ) -> Result<Vec<ForeignKey>>;
 }

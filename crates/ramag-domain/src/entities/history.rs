@@ -99,11 +99,7 @@ impl QueryRecord {
 
     /// SQL 单行预览（去除多余空白 + 截断）
     pub fn sql_preview(&self, max_chars: usize) -> String {
-        let normalized: String = self
-            .sql
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ");
+        let normalized: String = self.sql.split_whitespace().collect::<Vec<_>>().join(" ");
         if normalized.chars().count() <= max_chars {
             normalized
         } else {

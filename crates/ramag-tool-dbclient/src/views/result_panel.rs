@@ -107,8 +107,7 @@ pub struct ResultPanel {
 impl ResultPanel {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         // 列过滤补全：把列名 Arc 共享给 provider，新结果到达时本 panel 写入即可
-        let column_completion_source: Arc<RwLock<Vec<String>>> =
-            Arc::new(RwLock::new(Vec::new()));
+        let column_completion_source: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
         let provider = crate::sql_completion::ColumnFilterCompletionProvider::new_rc(
             column_completion_source.clone(),
         );
@@ -116,18 +115,18 @@ impl ResultPanel {
         // 方向键由 query_tab 工具条侧外层 div 拦截 MoveUp/MoveDown action 转发给
         // InputState::handle_action_for_context_menu，让补全菜单选项导航生效
         let column_filter_input = cx.new(|cx| {
-            let mut state = InputState::new(window, cx)
-                .placeholder("过滤列（逗号分隔多列名）");
+            let mut state = InputState::new(window, cx).placeholder("过滤列（逗号分隔多列名）");
             // 装载列名补全 provider：用户键入时弹候选
             state.lsp.completion_provider = Some(provider);
             state
         });
-        let row_filter_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("过滤行（任意单元格包含）")
-        });
+        let row_filter_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("过滤行（任意单元格包含）"));
         // 输入变化 → 触发 ResultPanel 重渲染（filter 应用在 render_table）
-        cx.observe(&column_filter_input, |_, _, cx| cx.notify()).detach();
-        cx.observe(&row_filter_input, |_, _, cx| cx.notify()).detach();
+        cx.observe(&column_filter_input, |_, _, cx| cx.notify())
+            .detach();
+        cx.observe(&row_filter_input, |_, _, cx| cx.notify())
+            .detach();
 
         Self {
             state: ResultState::Empty,
@@ -203,7 +202,9 @@ impl ResultPanel {
 
     /// 提交新增：遍历每列 InputState 校验后调 apply_insert_async
     pub(super) fn submit_insert(&mut self, cx: &mut Context<Self>) {
-        let Some(pending) = self.pending_insert.as_ref() else { return };
+        let Some(pending) = self.pending_insert.as_ref() else {
+            return;
+        };
         let mut values: Vec<(String, Value)> = Vec::new();
         let mut err: Option<String> = None;
         for (col, input) in pending.columns.iter().zip(pending.inputs.iter()) {
@@ -225,9 +226,7 @@ impl ResultPanel {
             return;
         }
         if values.is_empty() {
-            self.pending_notification = Some(
-                Notification::warning("请至少填一列").autohide(true),
-            );
+            self.pending_notification = Some(Notification::warning("请至少填一列").autohide(true));
             cx.notify();
             return;
         }
@@ -251,9 +250,7 @@ impl ResultPanel {
                 None => format!("`{}`", escape(table)),
             });
         }
-        self.source_sql
-            .as_deref()
-            .and_then(extract_first_table_ref)
+        self.source_sql.as_deref().and_then(extract_first_table_ref)
     }
 
     /// QueryTab 注入执行器：行内编辑（UPDATE 单元格）需要 service + connection
@@ -274,7 +271,9 @@ impl ResultPanel {
     /// 弹框打开前同步取数据：列名 + 当前 cell 文本 + 是否能推断主键
     /// （在 listener 上下文调用，避免 cell_edit_dialog 内 panel.read 二次借用 panic）
     pub(super) fn cell_info(&self, ri: usize, ci: usize) -> Option<(String, String, bool)> {
-        let ResultState::Ok(result) = &self.state else { return None };
+        let ResultState::Ok(result) = &self.state else {
+            return None;
+        };
         let col_name = result.columns.get(ci)?.clone();
         let val = result.rows.get(ri)?.values.get(ci)?;
         let has_pk = find_pk_idx(result).is_some();
@@ -307,8 +306,7 @@ impl ResultPanel {
         // 新结果到达：warnings 面板默认收起（避免上次展开污染本次）
         self.warnings_expanded = false;
         // 切表/重跑时双向归位：垂直回顶 + 水平回左
-        self.uniform_scroll
-            .scroll_to_item(0, ScrollStrategy::Top);
+        self.uniform_scroll.scroll_to_item(0, ScrollStrategy::Top);
         self.h_scroll.set_offset(Point::new(px(0.0), px(0.0)));
         cx.notify();
     }
@@ -435,9 +433,8 @@ impl ResultPanel {
             }
         };
         if base.rows.is_empty() {
-            self.pending_notification = Some(
-                Notification::warning("结果为空，无需导出").autohide(true),
-            );
+            self.pending_notification =
+                Some(Notification::warning("结果为空，无需导出").autohide(true));
             cx.notify();
             return;
         }
@@ -456,9 +453,8 @@ impl ResultPanel {
                 .map(|(_, r)| r.clone())
                 .collect();
             if filtered.rows.is_empty() {
-                self.pending_notification = Some(
-                    Notification::warning("勾选的行越界，无内容可导出").autohide(true),
-                );
+                self.pending_notification =
+                    Some(Notification::warning("勾选的行越界，无内容可导出").autohide(true));
                 cx.notify();
                 return;
             }
@@ -529,9 +525,7 @@ impl ResultPanel {
                             .title(format!("导出成功 · {scope_label}"))
                             .autohide(true)
                     }
-                    ExportOutcome::Cancelled => {
-                        Notification::info("已取消导出").autohide(true)
-                    }
+                    ExportOutcome::Cancelled => Notification::info("已取消导出").autohide(true),
                     ExportOutcome::Failed(msg) => {
                         error!(error = %msg, "export failed");
                         // 错误消息也截断到合理长度
@@ -541,9 +535,7 @@ impl ResultPanel {
                         } else {
                             msg
                         };
-                        Notification::error(short)
-                            .title("导出失败")
-                            .autohide(true)
+                        Notification::error(short).title("导出失败").autohide(true)
                     }
                 };
                 this.pending_notification = Some(n);
@@ -566,7 +558,6 @@ pub enum ExportFormat {
     Json,
     Markdown,
 }
-
 
 impl Render for ResultPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -631,26 +622,18 @@ impl Render for ResultPanel {
                                     .small()
                                     .icon(IconName::Copy)
                                     .tooltip("复制错误信息")
-                                    .on_click(cx.listener(
-                                        move |this, _: &ClickEvent, _, cx| {
-                                            cx.write_to_clipboard(ClipboardItem::new_string(
-                                                msg_for_copy.clone(),
-                                            ));
-                                            this.pending_notification = Some(
-                                                Notification::success("已复制错误信息")
-                                                    .autohide(true),
-                                            );
-                                            cx.notify();
-                                        },
-                                    )),
+                                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                        cx.write_to_clipboard(ClipboardItem::new_string(
+                                            msg_for_copy.clone(),
+                                        ));
+                                        this.pending_notification = Some(
+                                            Notification::success("已复制错误信息").autohide(true),
+                                        );
+                                        cx.notify();
+                                    })),
                             ),
                     )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(fg)
-                            .child(msg.clone()),
-                    )
+                    .child(div().text_xs().text_color(fg).child(msg.clone()))
                     .into_any_element()
             }
 
@@ -714,7 +697,9 @@ impl ResultPanel {
     /// - 收起态：显示 "⚠ N 条服务端警告（点击展开）"
     /// - 展开态：列出每条 [Level Code] message；最多 20 条，超出加 "更多 K 条"
     fn render_warnings_banner(&self, cx: &Context<Self>) -> Option<gpui::AnyElement> {
-        let ResultState::Ok(qr) = &self.state else { return None };
+        let ResultState::Ok(qr) = &self.state else {
+            return None;
+        };
         if qr.warnings.is_empty() {
             return None;
         }
@@ -762,7 +747,8 @@ impl ResultPanel {
 
         // 展开态：每行 [Level Code] message；最多 20 条，避免极端情况撑爆 UI
         const MAX_VISIBLE: usize = 20;
-        let mut rows: Vec<gpui::AnyElement> = Vec::with_capacity(qr.warnings.len().min(MAX_VISIBLE) + 1);
+        let mut rows: Vec<gpui::AnyElement> =
+            Vec::with_capacity(qr.warnings.len().min(MAX_VISIBLE) + 1);
         for w in qr.warnings.iter().take(MAX_VISIBLE) {
             let line = format!("[{} {}] {}", w.level, w.code, w.message);
             rows.push(
@@ -801,25 +787,34 @@ impl ResultPanel {
 
     /// 复制选中单元格完整值
     fn copy_selected_cell(&mut self, cx: &mut Context<Self>) {
-        let Some((ri, ci)) = self.selected_cell else { return };
-        let ResultState::Ok(result) = &self.state else { return };
-        let Some(val) = result.rows.get(ri).and_then(|r| r.values.get(ci)) else { return };
+        let Some((ri, ci)) = self.selected_cell else {
+            return;
+        };
+        let ResultState::Ok(result) = &self.state else {
+            return;
+        };
+        let Some(val) = result.rows.get(ri).and_then(|r| r.values.get(ci)) else {
+            return;
+        };
         cx.write_to_clipboard(ClipboardItem::new_string(val.to_clipboard_string()));
-        self.pending_notification = Some(
-            Notification::success("已复制单元格").autohide(true),
-        );
+        self.pending_notification = Some(Notification::success("已复制单元格").autohide(true));
         cx.notify();
     }
 
     /// 复制选中列的列名
     fn copy_selected_column_name(&mut self, cx: &mut Context<Self>) {
-        let Some((_, ci)) = self.selected_cell else { return };
-        let ResultState::Ok(result) = &self.state else { return };
-        let Some(name) = result.columns.get(ci).cloned() else { return };
+        let Some((_, ci)) = self.selected_cell else {
+            return;
+        };
+        let ResultState::Ok(result) = &self.state else {
+            return;
+        };
+        let Some(name) = result.columns.get(ci).cloned() else {
+            return;
+        };
         cx.write_to_clipboard(ClipboardItem::new_string(name.clone()));
-        self.pending_notification = Some(
-            Notification::success(format!("已复制列名 {name}")).autohide(true),
-        );
+        self.pending_notification =
+            Some(Notification::success(format!("已复制列名 {name}")).autohide(true));
         cx.notify();
     }
 
@@ -827,7 +822,9 @@ impl ResultPanel {
     /// 优先用主键列做预览，没主键用第一列
     pub(super) fn delete_preview(&self) -> Option<(usize, String)> {
         let (ri, _) = self.selected_cell?;
-        let ResultState::Ok(result) = &self.state else { return None };
+        let ResultState::Ok(result) = &self.state else {
+            return None;
+        };
         let row = result.rows.get(ri)?;
         let idx = find_pk_idx(result).unwrap_or(0);
         let col = result.columns.get(idx)?.clone();
@@ -845,7 +842,9 @@ impl ResultPanel {
         if self.selected_rows.is_empty() {
             return None;
         }
-        let ResultState::Ok(result) = &self.state else { return None };
+        let ResultState::Ok(result) = &self.state else {
+            return None;
+        };
         let mut indices: Vec<usize> = self
             .selected_rows
             .iter()
@@ -887,20 +886,20 @@ impl ResultPanel {
         cx: &mut Context<Self>,
     ) {
         let Some(svc) = self.service.clone() else {
-            self.pending_notification = Some(
-                Notification::warning("当前未注入连接，无法删除").autohide(true),
-            );
+            self.pending_notification =
+                Some(Notification::warning("当前未注入连接，无法删除").autohide(true));
             cx.notify();
             return;
         };
         let Some(conn) = self.connection.clone() else {
-            self.pending_notification = Some(
-                Notification::warning("当前未注入连接，无法删除").autohide(true),
-            );
+            self.pending_notification =
+                Some(Notification::warning("当前未注入连接，无法删除").autohide(true));
             cx.notify();
             return;
         };
-        let ResultState::Ok(result) = &self.state else { return };
+        let ResultState::Ok(result) = &self.state else {
+            return;
+        };
         let table_ref = match self.current_table_ref() {
             Some(t) => t,
             None => {
@@ -914,7 +913,11 @@ impl ResultPanel {
         };
 
         let by_pk = find_pk_idx(result).is_some();
-        let strategy = if by_pk { "按主键" } else { "按全列等值" };
+        let strategy = if by_pk {
+            "按主键"
+        } else {
+            "按全列等值"
+        };
 
         // 主线程一次性把每行的 SQL 算好，避免 spawn 闭包内借 result
         let plans: Vec<(usize, String)> = indices
@@ -922,9 +925,7 @@ impl ResultPanel {
             .filter_map(|&ri| {
                 let row = result.rows.get(ri)?;
                 let where_clause = build_pk_where(result, row);
-                let sql = format!(
-                    "DELETE FROM {table_ref} WHERE {where_clause} LIMIT 1;"
-                );
+                let sql = format!("DELETE FROM {table_ref} WHERE {where_clause} LIMIT 1;");
                 Some((ri, sql))
             })
             .collect();
@@ -961,17 +962,11 @@ impl ResultPanel {
                 this.selected_rows.clear();
                 this.selected_cell = None;
                 this.pending_notification = Some(if let Some(e) = last_err {
-                    Notification::error(format!(
-                        "已删除 {} 行后出错：{e}",
-                        deleted.len()
-                    ))
-                    .autohide(true)
+                    Notification::error(format!("已删除 {} 行后出错：{e}", deleted.len()))
+                        .autohide(true)
                 } else {
-                    Notification::success(format!(
-                        "已删除 {} 行（{strategy}匹配）",
-                        deleted.len()
-                    ))
-                    .autohide(true)
+                    Notification::success(format!("已删除 {} 行（{strategy}匹配）", deleted.len()))
+                        .autohide(true)
                 });
                 cx.notify();
             });
@@ -991,16 +986,14 @@ impl ResultPanel {
             return;
         }
         let Some(svc) = self.service.clone() else {
-            self.pending_notification = Some(
-                Notification::warning("当前未注入连接，无法新增").autohide(true),
-            );
+            self.pending_notification =
+                Some(Notification::warning("当前未注入连接，无法新增").autohide(true));
             cx.notify();
             return;
         };
         let Some(conn) = self.connection.clone() else {
-            self.pending_notification = Some(
-                Notification::warning("当前未注入连接，无法新增").autohide(true),
-            );
+            self.pending_notification =
+                Some(Notification::warning("当前未注入连接，无法新增").autohide(true));
             cx.notify();
             return;
         };
@@ -1026,8 +1019,7 @@ impl ResultPanel {
             .map(|(_, v)| v.to_sql_literal())
             .collect::<Vec<_>>()
             .join(", ");
-        let sql =
-            format!("INSERT INTO {table_ref} ({cols_sql}) VALUES ({vals_sql});");
+        let sql = format!("INSERT INTO {table_ref} ({cols_sql}) VALUES ({vals_sql});");
         let q = Query::new(sql);
         // 提前算好 push 用的新行：列顺序按当前结果集列顺序，缺失列填 Null
         let new_row_values: Option<Vec<Value>> = match &self.state {
@@ -1053,34 +1045,26 @@ impl ResultPanel {
                     Ok(qr) => {
                         if qr.affected_rows == 0 {
                             this.pending_notification = Some(
-                                Notification::warning(
-                                    "INSERT 未影响任何行（请检查约束）",
-                                )
-                                .autohide(true),
+                                Notification::warning("INSERT 未影响任何行（请检查约束）")
+                                    .autohide(true),
                             );
                         } else {
                             // 本地追加该行（注意：自增列没回填，UI 显示为 NULL；下次刷新会拿到真值）
                             if let (ResultState::Ok(r), Some(vs)) =
                                 (&mut this.state, new_row_values)
                             {
-                                r.rows.push(ramag_domain::entities::Row {
-                                    values: vs,
-                                });
+                                r.rows.push(ramag_domain::entities::Row { values: vs });
                             }
                             this.pending_notification = Some(
-                                Notification::success(format!(
-                                    "已新增 {} 行",
-                                    qr.affected_rows
-                                ))
-                                .autohide(true),
+                                Notification::success(format!("已新增 {} 行", qr.affected_rows))
+                                    .autohide(true),
                             );
                         }
                     }
                     Err(e) => {
                         error!(error = %e, "insert row failed");
-                        this.pending_notification = Some(
-                            Notification::error(format!("新增失败：{e}")).autohide(true),
-                        );
+                        this.pending_notification =
+                            Some(Notification::error(format!("新增失败：{e}")).autohide(true));
                     }
                 }
                 cx.notify();
@@ -1090,27 +1074,25 @@ impl ResultPanel {
     }
 
     /// 二次确认后真执行 DELETE：异步发到 DB，成功后本地移除该行
-    pub(super) fn execute_delete_row_async(
-        &mut self,
-        ri: usize,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn execute_delete_row_async(&mut self, ri: usize, cx: &mut Context<Self>) {
         let Some(svc) = self.service.clone() else {
-            self.pending_notification = Some(
-                Notification::warning("当前未注入连接，无法删除").autohide(true),
-            );
+            self.pending_notification =
+                Some(Notification::warning("当前未注入连接，无法删除").autohide(true));
             cx.notify();
             return;
         };
         let Some(conn) = self.connection.clone() else {
-            self.pending_notification = Some(
-                Notification::warning("当前未注入连接，无法删除").autohide(true),
-            );
+            self.pending_notification =
+                Some(Notification::warning("当前未注入连接，无法删除").autohide(true));
             cx.notify();
             return;
         };
-        let ResultState::Ok(result) = &self.state else { return };
-        let Some(row) = result.rows.get(ri).cloned() else { return };
+        let ResultState::Ok(result) = &self.state else {
+            return;
+        };
+        let Some(row) = result.rows.get(ri).cloned() else {
+            return;
+        };
 
         let table_ref = match self.current_table_ref() {
             Some(t) => t,
@@ -1125,7 +1107,11 @@ impl ResultPanel {
         };
 
         let by_pk = find_pk_idx(result).is_some();
-        let strategy = if by_pk { "按主键" } else { "按全列等值" };
+        let strategy = if by_pk {
+            "按主键"
+        } else {
+            "按全列等值"
+        };
         let where_clause = build_pk_where(result, &row);
         let sql = format!("DELETE FROM {table_ref} WHERE {where_clause} LIMIT 1;");
         let q = Query::new(sql);
@@ -1161,9 +1147,8 @@ impl ResultPanel {
                     }
                     Err(e) => {
                         error!(error = %e, "delete row failed");
-                        this.pending_notification = Some(
-                            Notification::error(format!("删除失败：{e}")).autohide(true),
-                        );
+                        this.pending_notification =
+                            Some(Notification::error(format!("删除失败：{e}")).autohide(true));
                     }
                 }
                 cx.notify();
@@ -1182,23 +1167,29 @@ impl ResultPanel {
         cx: &mut Context<Self>,
     ) {
         let Some(svc) = self.service.clone() else {
-            self.pending_notification = Some(
-                Notification::warning("当前未注入连接，无法修改").autohide(true),
-            );
+            self.pending_notification =
+                Some(Notification::warning("当前未注入连接，无法修改").autohide(true));
             cx.notify();
             return;
         };
         let Some(conn) = self.connection.clone() else {
-            self.pending_notification = Some(
-                Notification::warning("当前未注入连接，无法修改").autohide(true),
-            );
+            self.pending_notification =
+                Some(Notification::warning("当前未注入连接，无法修改").autohide(true));
             cx.notify();
             return;
         };
-        let ResultState::Ok(result) = &self.state else { return };
-        let Some(row) = result.rows.get(ri).cloned() else { return };
-        let Some(col_name) = result.columns.get(ci).cloned() else { return };
-        let Some(cell_val) = row.values.get(ci).cloned() else { return };
+        let ResultState::Ok(result) = &self.state else {
+            return;
+        };
+        let Some(row) = result.rows.get(ri).cloned() else {
+            return;
+        };
+        let Some(col_name) = result.columns.get(ci).cloned() else {
+            return;
+        };
+        let Some(cell_val) = row.values.get(ci).cloned() else {
+            return;
+        };
 
         // 不允许在没识别到目标表时执行 UPDATE：避免把 `<table>` 占位 SQL 真发到 DB
         let table_ref = match self.current_table_ref() {
@@ -1215,7 +1206,11 @@ impl ResultPanel {
 
         // 主键定位 vs 全列等值兜底：策略名用于 toast 文案
         let by_pk = find_pk_idx(result).is_some();
-        let strategy = if by_pk { "按主键" } else { "按全列等值" };
+        let strategy = if by_pk {
+            "按主键"
+        } else {
+            "按全列等值"
+        };
 
         let where_clause = build_pk_where(result, &row);
         let new_literal = escape_new_value_for_old(&cell_val, &new_text);
@@ -1233,10 +1228,8 @@ impl ResultPanel {
                     Ok(qr) => {
                         if qr.affected_rows == 0 {
                             this.pending_notification = Some(
-                                Notification::warning(
-                                    "UPDATE 未匹配到记录（请检查主键）",
-                                )
-                                .autohide(true),
+                                Notification::warning("UPDATE 未匹配到记录（请检查主键）")
+                                    .autohide(true),
                             );
                         } else {
                             // 本地同步该 cell：避免重新拉数据
@@ -1258,10 +1251,8 @@ impl ResultPanel {
                     }
                     Err(e) => {
                         error!(error = %e, "apply cell update failed");
-                        this.pending_notification = Some(
-                            Notification::error(format!("更新失败：{e}"))
-                                .autohide(true),
-                        );
+                        this.pending_notification =
+                            Some(Notification::error(format!("更新失败：{e}")).autohide(true));
                     }
                 }
                 cx.notify();
@@ -1269,7 +1260,6 @@ impl ResultPanel {
         })
         .detach();
     }
-
 }
 
 /// 新增草稿行的状态：渲染层从 ResultPanel.pending_insert 读
@@ -1283,8 +1273,12 @@ pub(super) struct PendingInsert {
 /// 让 schema/table 字段不报 dead_code（实际我们目前用列展示足够，schema/table 留作未来扩展用）
 #[allow(dead_code)]
 impl PendingInsert {
-    pub fn schema(&self) -> &str { &self.schema }
-    pub fn table(&self) -> &str { &self.table }
+    pub fn schema(&self) -> &str {
+        &self.schema
+    }
+    pub fn table(&self) -> &str {
+        &self.table
+    }
 }
 
 /// 把用户输入按列类型转换 Value（提交新增 / 单元格编辑共用）
@@ -1424,4 +1418,3 @@ fn extract_first_table_ref(sql: &str) -> Option<String> {
         None => table_q,
     })
 }
-
