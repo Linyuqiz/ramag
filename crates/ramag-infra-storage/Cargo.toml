@@ -1,0 +1,47 @@
+[package]
+name = "ramag-infra-storage"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Ramag 本地存储实现（实现 Domain 的 Storage trait，封装 redb + aes-gcm + macOS 钥匙串）"
+
+[lints]
+workspace = true
+
+[dependencies]
+ramag-domain = { workspace = true }
+
+# 嵌入式 KV 存储
+redb = { workspace = true }
+
+# 异步：用 std::thread + futures::oneshot 桥接，无需 tokio runtime（兼容 GPUI smol 上下文）
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+# 序列化
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# 错误
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# 日志
+tracing = { workspace = true }
+
+# 路径定位
+directories = { workspace = true }
+parking_lot = { workspace = true }
+
+# 加密
+aes-gcm = { workspace = true }
+rand = { workspace = true }
+hex = { workspace = true }
+
+# macOS 钥匙串
+keyring = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

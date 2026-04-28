@@ -1,0 +1,30 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# 生成的图标资源（由 scripts/build-icon.sh 生成）
+/scripts/icons/ramag.icns
+/scripts/icons/ramag.iconset/
+/scripts/icons/*.png
+
+# IDE
+/.idea
+/.vscode
+*.iml
+
+# macOS
+.DS_Store
+*.swp
+
+# 本地配置（含密码，禁止提交）
+/config.local.toml
+/.ramag/
+**/local_settings.json
+
+# 日志/临时文件
+*.log
+/tmp/
+
+# AI code
+CLAUDE.md

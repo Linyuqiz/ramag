@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- 背景：深空蓝 → 深紫 → 亮紫，三段对角渐变 -->
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1B1F44"/>
+      <stop offset="0.55" stop-color="#332A6E"/>
+      <stop offset="1" stop-color="#5B2EAD"/>
+    </linearGradient>
+
+    <!-- 左上柔光：模拟玻璃态高光，让背景不死板 -->
+    <radialGradient id="hi" cx="0.25" cy="0.18" r="0.75">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- 数据行渐变：白 → 淡冰蓝，增加金属质感 -->
+    <linearGradient id="row" x1="0" y1="0" x2="1" y2="0.6">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#B7CCFF"/>
+    </linearGradient>
+
+    <!-- 浮动节点光晕：薄荷青（跟紫底形成强对比） -->
+    <radialGradient id="dotGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#5EEAD4" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#5EEAD4" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- 数据行的投影 -->
+    <filter id="rowShadow" x="-10%" y="-10%" width="120%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="22" flood-color="#000" flood-opacity="0.40"/>
+    </filter>
+  </defs>
+
+  <!-- 背景 squircle -->
+  <rect x="0" y="0" width="1024" height="1024" rx="232" fill="url(#bg)"/>
+  <rect x="0" y="0" width="1024" height="1024" rx="232" fill="url(#hi)"/>
+
+  <!-- 中央三行（短-长-中，视觉律动）-->
+  <g filter="url(#rowShadow)">
+    <rect x="252" y="380" width="380" height="68" rx="34" fill="url(#row)" opacity="0.95"/>
+    <rect x="252" y="478" width="476" height="68" rx="34" fill="url(#row)"/>
+    <rect x="252" y="576" width="296" height="68" rx="34" fill="url(#row)" opacity="0.78"/>
+  </g>
+
+  <!-- 右上浮动 accent 节点：薄荷青，自带光晕和高光 -->
+  <circle cx="780" cy="320" r="130" fill="url(#dotGlow)"/>
+  <circle cx="780" cy="320" r="44" fill="#5EEAD4"/>
+  <circle cx="766" cy="306" r="16" fill="#FFFFFF" opacity="0.55"/>
+</svg>

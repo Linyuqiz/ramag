@@ -1,0 +1,31 @@
+[package]
+name = "ramag-app"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Ramag 应用层：Use Cases + ToolRegistry，编排 Domain，被 UI 调用"
+
+[lints]
+workspace = true
+
+[dependencies]
+ramag-domain = { workspace = true }
+
+# 应用层需要异步执行 use case
+async-trait = { workspace = true }
+tokio = { workspace = true }
+
+# 错误传播
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# 日志
+tracing = { workspace = true }
+
+# 并发数据结构（ToolRegistry 用 RwLock）
+parking_lot = { workspace = true }
+
+# 导出工具用
+serde_json = { workspace = true }
+hex = { workspace = true }

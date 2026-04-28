@@ -1,0 +1,49 @@
+[package]
+name = "ramag-tool-dbclient"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Ramag DB Client 工具：实现 Tool trait + 提供数据库客户端 GUI"
+
+[lints]
+workspace = true
+
+[dependencies]
+ramag-domain = { workspace = true }
+ramag-app = { workspace = true }
+ramag-ui = { workspace = true }
+
+# SQL 补全的 anyhow::Result 返回值
+anyhow = { workspace = true }
+
+# GPUI（Stage 2 起需要）
+gpui = { workspace = true }
+gpui-component = { workspace = true }
+
+# 异步
+futures = { workspace = true }
+
+# Action 派生需要
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+
+# 时间显示（历史面板）
+chrono = { workspace = true }
+
+# 系统文件对话框（导出 CSV / JSON）
+rfd = { workspace = true }
+
+# SQL 自动补全（gpui-component CompletionProvider trait 接口要求）
+lsp-types = { workspace = true }
+ropey = { workspace = true }
+
+# schema cache 用 RwLock（parking_lot 比 std 更轻 / 无毒）
+parking_lot = { workspace = true }
+
+# SQL 格式化（⌘⇧F）：纯 Rust，~MIT
+sqlformat = "0.3"
+
+# 日志
+tracing = { workspace = true }

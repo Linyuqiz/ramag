@@ -1,0 +1,41 @@
+[package]
+name = "ramag-infra-mysql"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Ramag MySQL 驱动实现（实现 Domain 的 Driver trait，封装 sqlx）"
+
+[lints]
+workspace = true
+
+[dependencies]
+ramag-domain = { workspace = true }
+
+# MySQL 驱动
+sqlx = { workspace = true }
+
+# 异步运行时（GPUI 用 smol，sqlx 必须 tokio，桥接）
+async-trait = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+
+# 连接池缓存（按 ConnectionId 共享 sqlx::MySqlPool）
+dashmap = { workspace = true }
+once_cell = { workspace = true }
+
+# 错误
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# 时间类型
+chrono = { workspace = true }
+
+# JSON 类型
+serde_json = { workspace = true }
+
+# 日志
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

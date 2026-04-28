@@ -1,0 +1,33 @@
+[package]
+name = "ramag-ui"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Ramag 共享 UI：主壳（Shell）+ 主题，依赖 GPUI"
+
+[lints]
+workspace = true
+
+[dependencies]
+ramag-domain = { workspace = true }
+ramag-app = { workspace = true }
+
+# GPUI 桌面 UI 框架
+gpui = { workspace = true }
+gpui-component = { workspace = true }
+# 上游 Assets 兜底：自定义 AssetSource 找不到本地 svg 时回查上游内置图标
+gpui-component-assets = { workspace = true }
+
+# 异步：Home 加载最近连接需要
+futures = { workspace = true }
+
+# 时间显示
+chrono = { workspace = true }
+
+# 日志
+tracing = { workspace = true }
+
+# 内嵌 ramag 自己的 svg（home/database/wand-sparkles 等）到二进制
+rust-embed = { version = "8", features = ["interpolate-folder-path"] }
+anyhow = { workspace = true }

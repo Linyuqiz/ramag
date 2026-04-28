@@ -1,0 +1,5 @@
+[toolchain]
+# GPUI 依赖 nightly 编译器特性，固定一个稳定的 nightly 版本避免上游变动破坏构建
+channel = "nightly-2026-04-16"
+components = ["rustfmt", "clippy", "rust-analyzer", "rust-src"]
+profile = "default"

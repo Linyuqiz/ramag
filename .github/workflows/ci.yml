@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # GPUI 编译耗时较高，加大缓存
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  check:
+    name: cargo check + test + clippy + fmt
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装系统依赖（GPUI macOS 需要的工具链）
+        run: |
+          # macOS 默认带 Xcode CLT，无需额外操作
+          rustc --version || true
+
+      - name: 安装 Rust toolchain（按 rust-toolchain.toml 自动选择）
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-04-16
+          components: rustfmt, clippy
+
+      - name: 缓存 Cargo 依赖
+        uses: Swatinem/rust-cache@v2
+        with:
+          # 区分 workspace
+          key: ramag-v1
+
+      - name: 检查格式
+        run: cargo fmt --all -- --check
+
+      - name: cargo check
+        run: cargo check --workspace --all-targets
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace

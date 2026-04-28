@@ -1,0 +1,56 @@
+[package]
+name = "ramag-bin"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Ramag 主二进制：注册 tools + 打开主窗口"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "ramag"
+path = "src/main.rs"
+
+# cargo-bundle 配置（cargo install cargo-bundle && cargo bundle --release）
+# 生成 macOS .app 包，dock 图标用 ramag.icns
+[package.metadata.bundle]
+name = "Ramag"
+identifier = "com.axemc.ramag"
+icon = ["../../scripts/icons/ramag.icns"]
+copyright = "Copyright © 2026 axemc"
+category = "public.app-category.developer-tools"
+short_description = "Ramag — 个人工具平台 (DB 客户端等)"
+osx_minimum_system_version = "12.0"
+
+[dependencies]
+ramag-domain = { workspace = true }
+ramag-app = { workspace = true }
+ramag-ui = { workspace = true }
+ramag-tool-dbclient = { workspace = true }
+ramag-infra-mysql = { workspace = true }
+ramag-infra-storage = { workspace = true }
+
+# GPUI
+gpui = { workspace = true }
+gpui_platform = { workspace = true }
+gpui-component = { workspace = true }
+gpui-component-assets = { workspace = true }
+
+# 异步
+tokio = { workspace = true }
+
+# 错误处理
+anyhow = { workspace = true }
+
+# 日志
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Action 派生（Quit 菜单项需要）
+serde = { workspace = true }
+schemars = { workspace = true }
+
+# 日志文件路径（macOS：~/Library/Application Support/com.ramag.ramag/logs/）
+directories = { workspace = true }

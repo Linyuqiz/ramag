@@ -1,0 +1,27 @@
+[package]
+name = "ramag-domain"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Ramag 领域层：核心实体 + traits，无任何外部依赖（除 serde/thiserror/async-trait 等纯工具类）"
+
+[lints]
+workspace = true
+
+[dependencies]
+# 序列化（实体可被 UI 和 infra 使用）
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# 错误定义
+thiserror = { workspace = true }
+
+# trait 异步
+async-trait = { workspace = true }
+
+# 时间类型（实体里需要）
+chrono = { workspace = true }
+
+# 唯一标识
+uuid = { workspace = true }
