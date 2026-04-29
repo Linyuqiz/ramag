@@ -11,7 +11,6 @@ use gpui::{
 };
 
 use crate::actions::{NewQueryTab, ToggleHistory};
-use ramag_ui::CloseTab;
 use gpui_component::{
     ActiveTheme, IconName, Sizable as _, WindowExt as _,
     button::{Button, ButtonVariants as _},
@@ -20,6 +19,7 @@ use gpui_component::{
 use parking_lot::RwLock;
 use ramag_app::ConnectionService;
 use ramag_domain::entities::ConnectionConfig;
+use ramag_ui::CloseTab;
 
 use crate::sql_completion::SchemaCache;
 use crate::views::history_panel::{HistoryEvent, HistoryPanel};

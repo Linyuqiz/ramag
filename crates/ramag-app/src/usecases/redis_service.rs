@@ -16,9 +16,8 @@
 
 use std::sync::Arc;
 
-use futures::channel::mpsc::UnboundedReceiver;
 use ramag_domain::entities::{
-    ConnectionConfig, ConnectionId, DriverKind, KeyMeta, PubSubMessage, RedisType, RedisValue,
+    ConnectionConfig, ConnectionId, DriverKind, KeyMeta, RedisType, RedisValue,
     ScanResult,
 };
 use ramag_domain::error::Result;
@@ -179,23 +178,4 @@ impl RedisService {
         self.driver.info(config, sections).await
     }
 
-    /// Pub/Sub 订阅
-    pub async fn subscribe(
-        &self,
-        config: &ConnectionConfig,
-        channels: Vec<String>,
-        patterns: Vec<String>,
-    ) -> Result<UnboundedReceiver<PubSubMessage>> {
-        self.driver.subscribe(config, channels, patterns).await
-    }
-
-    /// PUBLISH 消息
-    pub async fn publish(
-        &self,
-        config: &ConnectionConfig,
-        channel: &str,
-        message: &str,
-    ) -> Result<u64> {
-        self.driver.publish(config, channel, message).await
-    }
 }

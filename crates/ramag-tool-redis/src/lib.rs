@@ -3,16 +3,12 @@
 
 //! Ramag Redis 视图组件库
 //!
-//! Stage 14：数据层（Domain + Infra Driver）已完成
-//! Stage 15：UI 视图 — 由 dbclient 工具装载（不再是独立 Tool）
-//!   - [`RedisSessionPanel`]：连接打开后的会话面板（DB 切换 + Key 树 + 详情）
-//!   - [`views::key_tree::KeyTreePanel`]：Key 列表
-//!   - [`views::key_detail::KeyDetailPanel`]：值详情
+//! 由 dbclient 工具装载（不再是独立 Tool）。当前仅提供：
+//! - [`RedisSessionPanel`]：连接打开后的会话面板（DB 切换 + Key 树 + 详情）
+//! - [`views::key_tree::KeyTreePanel`] / [`views::key_detail::KeyDetailPanel`]
 //!
-//! 后续 Stage：CLI 命令面板 / Pub/Sub / Streams / 监控
+//! CLI / Pub/Sub 入口已移除；后续如要重做请新建独立模块
 
-pub mod actions;
 pub mod views;
 
-pub use actions::{DeleteCurrentKey, RefreshKeyTree};
 pub use views::RedisSessionPanel;

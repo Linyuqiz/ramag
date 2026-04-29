@@ -24,11 +24,6 @@ pub fn git_branch() -> Icon {
 }
 
 #[inline]
-pub fn terminal() -> Icon {
-    Icon::default().path("icons/terminal.svg")
-}
-
-#[inline]
 pub fn refresh_cw() -> Icon {
     Icon::default().path("icons/refresh-cw.svg")
 }
@@ -58,12 +53,3 @@ pub fn trash() -> Icon {
     Icon::default().path("icons/trash-2.svg")
 }
 
-#[inline]
-pub fn eraser() -> Icon {
-    Icon::default().path("icons/eraser.svg")
-}
-
-#[inline]
-pub fn radio_tower() -> Icon {
-    Icon::default().path("icons/radio-tower.svg")
-}

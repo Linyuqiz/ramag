@@ -9,15 +9,12 @@
 //! 不污染缓存。
 
 use async_trait::async_trait;
-use futures::channel::mpsc::{self, UnboundedReceiver};
-use ramag_domain::entities::{
-    ConnectionConfig, KeyMeta, PubSubMessage, RedisType, RedisValue, ScanResult,
-};
+use ramag_domain::entities::{ConnectionConfig, KeyMeta, RedisType, RedisValue, ScanResult};
 use ramag_domain::error::{DomainError, Result};
 use ramag_domain::traits::KvDriver;
 use redis::aio::ConnectionManager;
-use redis::{AsyncCommands, Client, Cmd, Value as RV};
-use tracing::{debug, warn};
+use redis::{AsyncCommands, Cmd, Value as RV};
+use tracing::debug;
 
 use crate::errors::map_redis_error;
 use crate::pool::PoolCache;
@@ -259,88 +256,6 @@ impl KvDriver for RedisDriver {
         .await
     }
 
-    async fn subscribe(
-        &self,
-        config: &ConnectionConfig,
-        channels: Vec<String>,
-        patterns: Vec<String>,
-    ) -> Result<UnboundedReceiver<PubSubMessage>> {
-        let config = config.clone();
-        run_in_tokio(async move { spawn_subscription(config, channels, patterns).await }).await
-    }
-
-    async fn publish(
-        &self,
-        config: &ConnectionConfig,
-        channel: &str,
-        message: &str,
-    ) -> Result<u64> {
-        let config = config.clone();
-        let pools = self.pools.clone_handle();
-        let channel = channel.to_owned();
-        let message = message.to_owned();
-        run_in_tokio(async move {
-            let mut mgr = pools.get_or_create(&config, 0).await?;
-            let n: u64 = redis::cmd("PUBLISH")
-                .arg(&channel)
-                .arg(&message)
-                .query_async(&mut mgr)
-                .await
-                .map_err(map_redis_error)?;
-            Ok(n)
-        })
-        .await
-    }
-}
-
-/// 启动专用 PubSub 连接 + 后台任务推消息到 mpsc
-///
-/// 必须用独立连接：redis-rs 的 `into_pubsub` 会接管底层 TCP，与连接池
-/// 共享会破坏普通命令的应答路径
-async fn spawn_subscription(
-    config: ConnectionConfig,
-    channels: Vec<String>,
-    patterns: Vec<String>,
-) -> Result<UnboundedReceiver<PubSubMessage>> {
-    use crate::pool::build_connection_info_pub;
-    let info = build_connection_info_pub(&config, 0);
-    let client = Client::open(info).map_err(map_redis_error)?;
-    // get_async_pubsub 直接返回 PubSub（redis 0.32+），无需手动 into_pubsub
-    let mut pubsub = client.get_async_pubsub().await.map_err(map_redis_error)?;
-
-    for ch in &channels {
-        pubsub.subscribe(ch).await.map_err(map_redis_error)?;
-    }
-    for p in &patterns {
-        pubsub.psubscribe(p).await.map_err(map_redis_error)?;
-    }
-
-    let (tx, rx) = mpsc::unbounded::<PubSubMessage>();
-
-    crate::runtime::tokio_runtime().spawn(async move {
-        use futures::StreamExt;
-        // into_on_message 把 PubSub 消费成 'static 的流，避免 borrow PubSub
-        let mut stream = pubsub.into_on_message();
-        while let Some(msg) = stream.next().await {
-            let channel = msg.get_channel_name().to_string();
-            let payload: String = msg.get_payload().unwrap_or_default();
-            // 模式订阅时 get_pattern 会返回模式名；普通订阅会 Err（转 None）
-            let pattern: Option<String> = msg.get_pattern::<String>().ok();
-            let pm = PubSubMessage {
-                channel,
-                pattern,
-                payload,
-                received_at_ms: chrono::Utc::now().timestamp_millis(),
-            };
-            if tx.unbounded_send(pm).is_err() {
-                warn!("pubsub receiver dropped, exiting subscription task");
-                break;
-            }
-        }
-        // stream 在此 drop，释放连接
-    });
-
-    Ok(rx)
 }
 
 // === 内部命令封装 ===

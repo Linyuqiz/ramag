@@ -460,10 +460,8 @@ impl Render for KeyTreePanel {
         let row_count = visible_rc.len();
 
         // 空态：连接已建立但 SCAN 返回 0 个 key
-        let empty_hint = !self.loading
-            && total == 0
-            && self.config.is_some()
-            && self.error.is_none();
+        let empty_hint =
+            !self.loading && total == 0 && self.config.is_some() && self.error.is_none();
 
         let body: gpui::AnyElement = if row_count == 0 {
             // 空态/未连接/loading 都让 body 占满剩余空间，避免 status bar 顶到中间

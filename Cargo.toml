@@ -73,14 +73,12 @@ sqlx = { version = "0.8", default-features = false, features = [
 #   redis-rs 编译报 connect_tcp_tls 缺实现）；自动激活 tls-rustls
 # - tls-rustls-webpki-roots：使用内置 webpki 根证书，免依赖系统证书库
 # - connection-manager：自动重连的连接句柄（PoolCache 用此）
-# - streams：XADD/XRANGE 等 Streams 命令的解析支持
 redis = { version = "0.32", default-features = false, features = [
     "aio",
     "tokio-comp",
     "tokio-rustls-comp",
     "tls-rustls-webpki-roots",
     "connection-manager",
-    "streams",
 ] }
 
 # 嵌入式本地存储

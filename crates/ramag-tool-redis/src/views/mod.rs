@@ -7,14 +7,12 @@
 //! - [`key_tree`]：SCAN 分批 + 命名空间分组
 //! - [`key_detail`]：按类型 dispatch 渲染值
 
-pub mod cli_panel;
 pub mod connection_session;
 pub mod hash_field_form;
 pub mod key_create;
 pub mod key_detail;
 pub mod key_tree;
 pub mod list_element_form;
-pub mod pubsub_panel;
 pub mod set_element_form;
 pub mod stream_entry_form;
 pub mod ttl_edit;

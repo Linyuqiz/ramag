@@ -25,7 +25,9 @@ pub struct FollowSystem(pub bool);
 impl Global for FollowSystem {}
 
 pub fn is_following_system(cx: &App) -> bool {
-    cx.try_global::<FollowSystem>().map(|g| g.0).unwrap_or(false)
+    cx.try_global::<FollowSystem>()
+        .map(|g| g.0)
+        .unwrap_or(false)
 }
 
 pub fn set_following_system(cx: &mut App, follow: bool) {

@@ -403,9 +403,7 @@ impl CompletionProvider for SqlCompletionProvider {
                             }
                             if col.to_ascii_lowercase().starts_with(&prefix_lower) {
                                 // 同表名补全：避免反引号 inline code 染成蓝块
-                                let doc = format!(
-                                    "**{col}**\n\nColumn · in **{schema}.{t}**"
-                                );
+                                let doc = format!("**{col}**\n\nColumn · in **{schema}.{t}**");
                                 items.push(make_item(
                                     col.clone(),
                                     CompletionItemKind::FIELD,

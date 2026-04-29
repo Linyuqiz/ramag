@@ -1,6 +1,6 @@
 //! Ramag 首页 — 终端风
 //!
-//! 结构：ANSI Shadow 大字 RAMAG + 一行 tagline + 三模块卡（数据库 / 版本管理 / 终端）。
+//! 结构：ANSI Shadow 大字 RAMAG + 一行 tagline + 两模块卡（数据库 · 版本管理）。
 //! 数据库卡点击直接进入 dbclient（数据库类型选择由 dbclient 内部完成）。
 
 use std::sync::Arc;
@@ -86,15 +86,6 @@ impl Render for HomeView {
                                 cx.listener(|_this, _: &ClickEvent, _, cx| {
                                     cx.emit(HomeEvent::OpenTool("dbclient".into()));
                                 }),
-                            ))
-                            .child(soon_module_card(
-                                "module-term",
-                                icons::terminal(),
-                                "终端",
-                                "本地 Shell · SSH",
-                                secondary_bg,
-                                border,
-                                muted_fg,
                             ))
                             .child(soon_module_card(
                                 "module-vc",

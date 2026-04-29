@@ -139,11 +139,6 @@ async fn build_connection_manager(config: &ConnectionConfig, db: u8) -> Result<C
     Ok(mgr)
 }
 
-/// 公开包装：driver 内的 spawn_subscription 需要复用这个构建器去开 PubSub 专用连接
-pub fn build_connection_info_pub(config: &ConnectionConfig, db: u8) -> ConnectionInfo {
-    build_connection_info(config, db)
-}
-
 /// 由 ConnectionConfig 构建 redis::ConnectionInfo
 ///
 /// 当前 Stage 14 只支持 plain TCP（无 TLS / Unix Socket）；

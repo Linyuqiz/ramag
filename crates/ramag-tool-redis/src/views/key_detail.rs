@@ -897,10 +897,7 @@ impl KeyDetailPanel {
                         .cursor_pointer()
                         .on_click(cx.listener(move |_, e: &ClickEvent, _, cx| {
                             if e.click_count() >= 2 {
-                                cx.emit(KeyDetailEvent::RequestEditValue(
-                                    k.clone(),
-                                    s.clone(),
-                                ));
+                                cx.emit(KeyDetailEvent::RequestEditValue(k.clone(), s.clone()));
                             }
                         }))
                         .into_any_element(),

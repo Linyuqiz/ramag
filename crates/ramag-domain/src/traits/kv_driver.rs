@@ -19,9 +19,8 @@
 //! - 异步桥接复用 mysql 同款 `tokio runtime + futures oneshot` 模式
 
 use async_trait::async_trait;
-use futures::channel::mpsc::UnboundedReceiver;
 
-use crate::entities::{ConnectionConfig, PubSubMessage, RedisType, RedisValue, ScanResult};
+use crate::entities::{ConnectionConfig, RedisType, RedisValue, ScanResult};
 use crate::error::Result;
 
 /// KV 数据库驱动统一抽象
@@ -109,21 +108,4 @@ pub trait KvDriver: Send + Sync {
     ///
     /// 返回原始 INFO 文本（多 section 由 `\r\n` 分隔），由调用方解析展示
     async fn info(&self, config: &ConnectionConfig, sections: &[&str]) -> Result<String>;
-
-    /// Pub/Sub 订阅
-    ///
-    /// 创建独立连接（PubSub 接管不能复用普通命令池）；
-    /// 内部 spawn 后台任务持续从 redis 流读消息推到 mpsc。
-    /// 调用方 drop 返回的 receiver 即取消订阅
-    async fn subscribe(
-        &self,
-        config: &ConnectionConfig,
-        channels: Vec<String>,
-        patterns: Vec<String>,
-    ) -> Result<UnboundedReceiver<PubSubMessage>>;
-
-    /// 发布消息到指定 channel
-    /// 返回收到该消息的订阅者数量
-    async fn publish(&self, config: &ConnectionConfig, channel: &str, message: &str)
-    -> Result<u64>;
 }

@@ -577,26 +577,21 @@ impl TableTreePanel {
                     let s = s_for_menu.clone();
                     let t = t_for_menu.clone();
                     let ent = entity_for_menu.clone();
-                    menu.item(PopupMenuItem::new(menu_label).on_click(
-                        move |_e, _w, app| {
-                            let s = s.clone();
-                            let t = t.clone();
-                            ent.update(app, |this, cx| {
-                                this.handle_show_ddl(s, t, is_view, cx);
-                            });
-                        },
-                    ))
+                    menu.item(PopupMenuItem::new(menu_label).on_click(move |_e, _w, app| {
+                        let s = s.clone();
+                        let t = t.clone();
+                        ent.update(app, |this, cx| {
+                            this.handle_show_ddl(s, t, is_view, cx);
+                        });
+                    }))
                 });
                 row.into_any_element()
             }
-            TreeRow::TablePlaceholder { text, is_error } => render_columns_placeholder(
-                text.clone(),
-                if *is_error { red } else { muted_fg },
-            ),
-            TreeRow::Column { col } => render_column_row(col, fg, muted_fg),
-            TreeRow::SectionLabel { text } => {
-                render_columns_placeholder(text.clone(), muted_fg)
+            TreeRow::TablePlaceholder { text, is_error } => {
+                render_columns_placeholder(text.clone(), if *is_error { red } else { muted_fg })
             }
+            TreeRow::Column { col } => render_column_row(col, fg, muted_fg),
+            TreeRow::SectionLabel { text } => render_columns_placeholder(text.clone(), muted_fg),
             TreeRow::DetailLine { text } => render_columns_placeholder(text.clone(), fg),
         }
     }
@@ -803,11 +798,7 @@ impl Render for TableTreePanel {
                     Input::new(&self.search)
                         .small()
                         .cleanable(true)
-                        .prefix(
-                            Icon::new(IconName::Search)
-                                .small()
-                                .text_color(muted_fg),
-                        ),
+                        .prefix(Icon::new(IconName::Search).small().text_color(muted_fg)),
                 ),
             )
             .child(
@@ -901,8 +892,7 @@ impl Render for TableTreePanel {
                         let cols_key = format!("{}.{}", name, t.name);
                         let cols_state = self.table_columns.get(&cols_key);
                         let is_cols_expanded = cols_state.is_some();
-                        let is_sel =
-                            selected.as_ref() == Some(&(name.clone(), t.name.clone()));
+                        let is_sel = selected.as_ref() == Some(&(name.clone(), t.name.clone()));
                         tree_rows.push(TreeRow::Table {
                             schema: name.clone(),
                             name: t.name.clone(),
@@ -945,8 +935,7 @@ impl Render for TableTreePanel {
                                             ix.name,
                                             ix.columns.join(", ")
                                         );
-                                        tree_rows
-                                            .push(TreeRow::DetailLine { text: line });
+                                        tree_rows.push(TreeRow::DetailLine { text: line });
                                     }
                                 }
                                 if !cs.foreign_keys.is_empty() {
@@ -962,8 +951,7 @@ impl Render for TableTreePanel {
                                             fk.ref_table,
                                             fk.ref_columns.join(", ")
                                         );
-                                        tree_rows
-                                            .push(TreeRow::DetailLine { text: line });
+                                        tree_rows.push(TreeRow::DetailLine { text: line });
                                     }
                                 }
                             }
