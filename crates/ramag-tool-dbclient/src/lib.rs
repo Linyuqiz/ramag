@@ -11,9 +11,9 @@ pub mod sql_completion;
 pub mod views;
 
 pub use actions::{
-    CloseQueryTab, CopyCellValue, CopySelectedColumn, ExplainQuery, ExportCsv, ExportJson,
-    ExportMarkdown, FindInResults, FormatSql, NewQueryTab, RunQuery, RunStatementAtCursor,
-    SaveSqlFile, ToggleHistory, ToggleSqlEditor,
+    CopyCellValue, CopySelectedColumn, ExplainQuery, ExportCsv, ExportJson, ExportMarkdown,
+    FindInResults, FormatSql, NewQueryTab, RunQuery, RunStatementAtCursor, SaveSqlFile,
+    ToggleHistory, ToggleSqlEditor,
 };
 pub use views::DbClientView;
 pub use views::dbclient_view::create_dbclient_view;

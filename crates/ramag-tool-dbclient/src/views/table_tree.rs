@@ -3,18 +3,21 @@
 //! Stage 2 版本：两级树（schema → tables），点 table 高亮但不做后续动作。
 
 use std::collections::HashMap;
+use std::ops::Range;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    AnyElement, ClickEvent, Context, EventEmitter, IntoElement, ParentElement, Render,
-    SharedString, Styled, Window, div, prelude::*, px,
+    AnyElement, AppContext as _, ClickEvent, Context, EventEmitter, IntoElement, ParentElement,
+    Render, SharedString, Styled, UniformListScrollHandle, Window, div, prelude::*, px,
+    uniform_list,
 };
 use gpui_component::{
     ActiveTheme, Icon, IconName, Selectable as _, Sizable as _,
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
-    menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem},
+    menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenu, PopupMenuItem},
     v_flex,
 };
 use parking_lot::RwLock;
@@ -46,6 +49,14 @@ pub struct TableTreePanel {
     /// 父级 (QueryPanel via session) 注入：当前 SQL 编辑器是否可见
     /// 仅用于让 toggle 按钮显示正确朝向（PanelRightOpen / PanelRightClose）
     editor_visible: bool,
+    /// 当前激活的 schema（与 Redis 的 DB picker 对齐）
+    /// - schema 行点击时同步设置
+    /// - 顶部 picker 下拉切换时设置
+    /// - 显示在树顶部按钮 label 上
+    active_schema: Option<String>,
+    /// 树体虚拟列表滚动句柄：扁平化为 Vec<TreeRow> 后用 uniform_list
+    /// 行级虚拟化，万级 schema/table 也流畅（与 Redis Key 树同款方案）
+    uniform_scroll: UniformListScrollHandle,
     _subscriptions: Vec<gpui::Subscription>,
 }
 
@@ -115,6 +126,8 @@ impl TableTreePanel {
             // 默认 false：与 QueryPanel.show_editor 默认值保持一致
             // 数据浏览/导出是主场景，写 SQL 时按 ⌘E 或点按钮唤出
             editor_visible: false,
+            active_schema: None,
+            uniform_scroll: UniformListScrollHandle::new(),
             _subscriptions: subs,
         }
     }
@@ -201,7 +214,9 @@ impl TableTreePanel {
     }
 
     fn toggle_schema(&mut self, schema_name: String, cx: &mut Context<Self>) {
-        // 不论展开还是收起，都把"当前 schema"广播给父级（设默认库）
+        // 不论展开还是收起，都把"当前 schema"广播给父级（设默认库）+ 自身 active_schema
+        // active_schema 决定顶部 picker 显示文本
+        self.active_schema = Some(schema_name.clone());
         cx.emit(TreeEvent::SchemaActivated {
             schema: schema_name.clone(),
         });
@@ -341,14 +356,257 @@ impl TableTreePanel {
     }
 }
 
-impl Render for TableTreePanel {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // 提前拷出所有要用的颜色，theme 借用立即结束
+/// 扁平化的树行（uniform_list 行级虚拟化的数据单元）
+///
+/// 所有变体的渲染高度统一为 28px（由 render_tree_row 与 tree_helpers 的两个
+/// 占位/列函数共同保证）。这是 uniform_list 行级度量的硬约束 ——
+/// 高度不一致会让虚拟列表计算错位
+#[derive(Clone)]
+enum TreeRow {
+    /// schema 行：可点击展开/折叠
+    Schema {
+        name: String,
+        is_expanded: bool,
+        is_system: bool,
+    },
+    /// schema 下的占位行：loading / error / 空
+    SchemaPlaceholder { text: String, is_error: bool },
+    /// 分组小标题："表 (N)" / "视图 (N)"
+    GroupHeader { text: String },
+    /// 表/视图行
+    Table {
+        schema: String,
+        name: String,
+        is_view: bool,
+        is_cols_expanded: bool,
+        is_selected: bool,
+        row_estimate: Option<u64>,
+    },
+    /// 表的列结构占位行：loading / error
+    TablePlaceholder { text: String, is_error: bool },
+    /// 列定义行
+    Column { col: Column },
+    /// "索引 (N)" / "外键 (N)" 小标题
+    SectionLabel { text: String },
+    /// 索引 / 外键 的详情行
+    DetailLine { text: String },
+}
+
+impl TableTreePanel {
+    /// 渲染单条 TreeRow（在 uniform_list 闭包内被调）
+    ///
+    /// `+ use<>`：避免捕获 &self 与 &mut cx 的 lifetime 让返回值挂钩外层借用，
+    /// 使 closure 内重复调用时不互相干扰
+    fn render_tree_row(&self, row: &TreeRow, cx: &mut Context<Self>) -> AnyElement {
         let muted_fg = cx.theme().muted_foreground;
         let muted_bg = cx.theme().muted;
         let accent_bg = cx.theme().accent;
         let accent_fg = cx.theme().accent_foreground;
         let fg = cx.theme().foreground;
+        let red = gpui::red();
+
+        match row {
+            TreeRow::Schema {
+                name,
+                is_expanded,
+                is_system,
+            } => {
+                let arrow = if *is_expanded { "▾" } else { "▸" };
+                let id_str = SharedString::from(format!("schema-{name}"));
+                let name_for_click = name.clone();
+                let name_color = if *is_system { muted_fg } else { fg };
+
+                h_flex()
+                    .id(id_str)
+                    .h(px(28.0))
+                    .flex_none()
+                    .items_center()
+                    .gap_1p5()
+                    .px_2()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .hover(move |this| this.bg(muted_bg))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.toggle_schema(name_for_click.clone(), cx);
+                    }))
+                    .child(
+                        div()
+                            .w(px(12.0))
+                            .text_xs()
+                            .text_color(muted_fg)
+                            .child(arrow),
+                    )
+                    .child(Icon::new(IconName::HardDrive).small().text_color(muted_fg))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(name_color)
+                            .whitespace_nowrap()
+                            .child(name.clone()),
+                    )
+                    .into_any_element()
+            }
+            TreeRow::SchemaPlaceholder { text, is_error } => div()
+                .w_full()
+                .h(px(28.0))
+                .flex_none()
+                .pl_5()
+                .pr_2()
+                .pt(px(6.0))
+                .text_xs()
+                .text_color(if *is_error { red } else { muted_fg })
+                .whitespace_nowrap()
+                .overflow_hidden()
+                .text_ellipsis()
+                .child(text.clone())
+                .into_any_element(),
+            TreeRow::GroupHeader { text } => div()
+                .w_full()
+                .h(px(28.0))
+                .flex_none()
+                .pl_5()
+                .pr_2()
+                .pt(px(6.0))
+                .text_xs()
+                .text_color(muted_fg)
+                .child(text.clone())
+                .into_any_element(),
+            TreeRow::Table {
+                schema,
+                name,
+                is_view,
+                is_cols_expanded,
+                is_selected,
+                row_estimate,
+            } => {
+                let schema = schema.clone();
+                let name = name.clone();
+                let is_view = *is_view;
+                let is_cols_expanded = *is_cols_expanded;
+                let is_selected = *is_selected;
+                let row_estimate = *row_estimate;
+
+                let row_id = SharedString::from(format!("table-{}-{}", schema, name));
+                let s_for_click = schema.clone();
+                let t_for_click = name.clone();
+
+                let chevron_icon = if is_cols_expanded {
+                    IconName::ChevronDown
+                } else {
+                    IconName::ChevronRight
+                };
+                let chevron_id = SharedString::from(format!("col-toggle-{}-{}", schema, name));
+                let s_for_chev = schema.clone();
+                let t_for_chev = name.clone();
+                let s_for_menu = schema.clone();
+                let t_for_menu = name.clone();
+                let entity_for_menu = cx.entity().clone();
+
+                let mut row = h_flex()
+                    .id(row_id)
+                    .h(px(28.0))
+                    .flex_none()
+                    .items_center()
+                    .gap_1()
+                    .pl(px(20.0))
+                    .pr_2()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .hover(move |this| this.bg(muted_bg))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.handle_table_click(s_for_click.clone(), t_for_click.clone(), cx);
+                    }))
+                    // chevron 单击只展开列结构，不触发 TableSelected（保留原 stop_propagation 行为）
+                    .child(
+                        div()
+                            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
+                                cx.stop_propagation()
+                            })
+                            .child(
+                                Button::new(chevron_id)
+                                    .ghost()
+                                    .xsmall()
+                                    .icon(chevron_icon)
+                                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                        this.toggle_table_columns(
+                                            s_for_chev.clone(),
+                                            t_for_chev.clone(),
+                                            cx,
+                                        );
+                                    })),
+                            ),
+                    )
+                    .child(
+                        Icon::new(if is_view {
+                            IconName::Frame
+                        } else {
+                            IconName::MemoryStick
+                        })
+                        .small()
+                        .text_color(muted_fg),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(if is_selected { accent_fg } else { fg })
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .whitespace_nowrap()
+                            .child(name.clone()),
+                    );
+                if is_selected {
+                    row = row.bg(accent_bg);
+                }
+                if let Some(n) = row_estimate {
+                    row = row.child(
+                        div()
+                            .text_xs()
+                            .text_color(muted_fg)
+                            .flex_none()
+                            .child(format!("(~{})", format_thousands(n))),
+                    );
+                }
+                let menu_label = if is_view {
+                    "查看视图定义"
+                } else {
+                    "查看建表 SQL"
+                };
+                let row = row.context_menu(move |menu: PopupMenu, _, _| {
+                    let s = s_for_menu.clone();
+                    let t = t_for_menu.clone();
+                    let ent = entity_for_menu.clone();
+                    menu.item(PopupMenuItem::new(menu_label).on_click(
+                        move |_e, _w, app| {
+                            let s = s.clone();
+                            let t = t.clone();
+                            ent.update(app, |this, cx| {
+                                this.handle_show_ddl(s, t, is_view, cx);
+                            });
+                        },
+                    ))
+                });
+                row.into_any_element()
+            }
+            TreeRow::TablePlaceholder { text, is_error } => render_columns_placeholder(
+                text.clone(),
+                if *is_error { red } else { muted_fg },
+            ),
+            TreeRow::Column { col } => render_column_row(col, fg, muted_fg),
+            TreeRow::SectionLabel { text } => {
+                render_columns_placeholder(text.clone(), muted_fg)
+            }
+            TreeRow::DetailLine { text } => render_columns_placeholder(text.clone(), fg),
+        }
+    }
+}
+
+impl Render for TableTreePanel {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // 仅 render() 当前 scope 直接用到的颜色（早期返回 + header bar 文字）；
+        // 行渲染需要的颜色由 render_tree_row 自己 cx.theme() 取
+        let muted_fg = cx.theme().muted_foreground;
         let red = gpui::red();
 
         // 早期返回
@@ -443,8 +701,8 @@ impl Render for TableTreePanel {
         let selected = self.selected.clone();
         let schema_count = schemas.len();
 
-        // 构建每行（包含 schema 行 + 展开的 tables）
-        let mut rows: Vec<AnyElement> = Vec::with_capacity(schemas.len() * 4);
+        // 扁平化为 Vec<TreeRow> 喂给 uniform_list 行级虚拟化（28px 等高）
+        let mut tree_rows: Vec<TreeRow> = Vec::with_capacity(schemas.len() * 4);
         let total_schemas = self.schemas.len();
         let visible_schemas = schemas.len();
         let _ = schema_count; // 未使用变量
@@ -472,129 +730,148 @@ impl Render for TableTreePanel {
         } else {
             "显示 SQL 编辑器 (⌘E)"
         };
-        rows.push(
-            h_flex()
-                .items_center()
-                .justify_between()
-                .px_2()
-                .py_1()
-                .child(div().text_xs().text_color(muted_fg).child(header_text))
-                .child(
-                    // 顺序：眼睛 (系统库 toggle) → 刷新 → SQL 编辑器切换
-                    // SQL 编辑器切换放最右，避免误点
-                    h_flex()
-                        .items_center()
-                        .gap_1()
-                        .child(
-                            Button::new("toggle-system")
-                                .ghost()
-                                .xsmall()
-                                .icon(toggle_icon)
-                                .tooltip(toggle_tip)
-                                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                    this.toggle_show_system(cx);
-                                })),
-                        )
-                        .child(
-                            Button::new("refresh-schemas")
-                                .ghost()
-                                .xsmall()
-                                .icon(ramag_ui::icons::refresh_cw())
-                                .tooltip("刷新")
-                                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                    this.refresh(cx);
-                                })),
-                        )
-                        .child(
-                            Button::new("toggle-query-panel")
-                                .ghost()
-                                .xsmall()
-                                .icon(IconName::SquareTerminal)
-                                .selected(qp_visible)
-                                .tooltip(qp_tip)
-                                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                    cx.emit(TreeEvent::ToggleSqlEditor);
-                                    let _ = this; // emit 已足够；具体显隐由父级处理
-                                })),
+        // 顶部第 1 行：schema picker（与 Redis 的 DB picker 对齐布局）
+        // 显示当前 active schema；下拉列出 schemas 切换；空态显示"未选库"
+        // 系统库 toggle 控制下拉里是否显示系统库
+        let active_label = self
+            .active_schema
+            .clone()
+            .unwrap_or_else(|| "未选库".to_string());
+        let picker_label = format!("DB {active_label} ▾");
+        let entity_for_picker = cx.entity().clone();
+        let picker_schemas: Vec<String> = self
+            .schemas
+            .iter()
+            .filter(|s| show_system || !is_system_schema(&s.name))
+            .map(|s| s.name.clone())
+            .collect();
+        let active_for_menu = self.active_schema.clone();
+
+        let db_row = h_flex()
+            .w_full()
+            .px(px(10.0))
+            .py(px(6.0))
+            .border_b_1()
+            .border_color(cx.theme().border)
+            .gap(px(8.0))
+            .items_center()
+            .child(
+                Button::new("schema-picker")
+                    .ghost()
+                    .small()
+                    .label(picker_label)
+                    .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _, _| {
+                        let mut m = menu;
+                        let entity = entity_for_picker.clone();
+                        let active = active_for_menu.clone();
+                        for s in &picker_schemas {
+                            let s_owned = s.clone();
+                            let is_active = active.as_deref() == Some(s.as_str());
+                            let label = if is_active {
+                                format!("✓ {s}")
+                            } else {
+                                format!("  {s}")
+                            };
+                            let entity = entity.clone();
+                            m = m.item(PopupMenuItem::new(label).on_click(move |_, _, app| {
+                                let s = s_owned.clone();
+                                entity.update(app, |this, cx| {
+                                    if this.active_schema.as_deref() != Some(s.as_str()) {
+                                        this.active_schema = Some(s.clone());
+                                        cx.emit(TreeEvent::SchemaActivated { schema: s });
+                                        cx.notify();
+                                    }
+                                });
+                            }));
+                        }
+                        m
+                    }),
+            );
+
+        // 顶部第 2 行：搜索框 + 三个工具按钮（与 Redis Key 树同款样式）
+        // 搜索框：small 尺寸 + cleanable X + 放大镜 prefix
+        let header_bar = h_flex()
+            .w_full()
+            .items_center()
+            .px(px(10.0))
+            .py(px(8.0))
+            .border_b_1()
+            .border_color(cx.theme().border)
+            .gap(px(6.0))
+            .child(
+                div().flex_1().min_w_0().child(
+                    Input::new(&self.search)
+                        .small()
+                        .cleanable(true)
+                        .prefix(
+                            Icon::new(IconName::Search)
+                                .small()
+                                .text_color(muted_fg),
                         ),
-                )
-                .into_any_element(),
-        );
+                ),
+            )
+            .child(
+                Button::new("toggle-system")
+                    .ghost()
+                    .xsmall()
+                    .icon(toggle_icon)
+                    .tooltip(toggle_tip)
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.toggle_show_system(cx);
+                    })),
+            )
+            .child(
+                Button::new("refresh-schemas")
+                    .ghost()
+                    .xsmall()
+                    .icon(ramag_ui::icons::refresh_cw())
+                    .tooltip("刷新")
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.refresh(cx);
+                    })),
+            )
+            .child(
+                Button::new("toggle-query-panel")
+                    .ghost()
+                    .xsmall()
+                    .icon(IconName::SquareTerminal)
+                    .selected(qp_visible)
+                    .tooltip(qp_tip)
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        cx.emit(TreeEvent::ToggleSqlEditor);
+                        let _ = this;
+                    })),
+            );
 
         for s in schemas {
             let name = s.name.clone();
             let exp = expanded_snapshot.get(&name);
             let is_expanded = exp.is_some();
-            let arrow = if is_expanded { "▾" } else { "▸" };
-            let id_str = format!("schema-{name}");
-            let name_for_click = name.clone();
-            // 系统库视觉降级：箭头/图标/文字全部 muted_fg，让业务库更醒目
             let is_sys = is_system_schema(&name);
-            let name_color = if is_sys { muted_fg } else { fg };
 
-            // schema 行（带数据库图标）
-            let schema_row = h_flex()
-                .id(SharedString::from(id_str))
-                .items_center()
-                .gap_1p5()
-                .px_2()
-                .py_1()
-                .rounded_md()
-                .cursor_pointer()
-                .hover(move |this| this.bg(muted_bg))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.toggle_schema(name_for_click.clone(), cx);
-                }))
-                .child(
-                    div()
-                        .w(px(12.0))
-                        .text_xs()
-                        .text_color(muted_fg)
-                        .child(arrow),
-                )
-                .child(Icon::new(IconName::HardDrive).small().text_color(muted_fg))
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(name_color)
-                        .whitespace_nowrap()
-                        .child(name.clone()),
-                )
-                .into_any_element();
-            rows.push(schema_row);
+            tree_rows.push(TreeRow::Schema {
+                name: name.clone(),
+                is_expanded,
+                is_system: is_sys,
+            });
 
             // 展开内容
             if let Some((loading, tables, error)) = exp {
                 if *loading {
-                    rows.push(
-                        div()
-                            .pl_5()
-                            .py_1()
-                            .text_xs()
-                            .text_color(muted_fg)
-                            .child("加载 tables...")
-                            .into_any_element(),
-                    );
+                    tree_rows.push(TreeRow::SchemaPlaceholder {
+                        text: "加载 tables...".into(),
+                        is_error: false,
+                    });
                 } else if let Some(e) = error.clone() {
-                    rows.push(
-                        div()
-                            .pl_5()
-                            .py_1()
-                            .text_xs()
-                            .text_color(red)
-                            .child(e)
-                            .into_any_element(),
-                    );
+                    tree_rows.push(TreeRow::SchemaPlaceholder {
+                        text: e,
+                        is_error: true,
+                    });
                 } else if tables.is_empty() {
-                    rows.push(
-                        div()
-                            .pl_5()
-                            .py_1()
-                            .text_xs()
-                            .text_color(muted_fg)
-                            .child("（空）")
-                            .into_any_element(),
-                    );
+                    tree_rows.push(TreeRow::SchemaPlaceholder {
+                        text: "（空）".into(),
+                        is_error: false,
+                    });
                 } else {
                     // 按 TABLE_TYPE 分组渲染：基础表在前、视图在后
                     // metadata.list_tables 已按 TABLE_TYPE,TABLE_NAME 排序，这里再用 partition 算分组数量
@@ -618,165 +895,43 @@ impl Render for TableTreePanel {
                             } else {
                                 format!("表 ({total_tables})")
                             };
-                            rows.push(
-                                div()
-                                    .pl_5()
-                                    .py_1()
-                                    .text_xs()
-                                    .text_color(muted_fg)
-                                    .child(label)
-                                    .into_any_element(),
-                            );
+                            tree_rows.push(TreeRow::GroupHeader { text: label });
                             last_was_view = Some(t.is_view);
                         }
-                        let s_name = name.clone();
-                        let t_name = t.name.clone();
-                        let row_estimate = t.row_estimate;
-                        let is_view = t.is_view;
-                        let is_sel = selected.as_ref() == Some(&(s_name.clone(), t_name.clone()));
-                        let row_id = SharedString::from(format!("table-{}-{}", s_name, t_name));
-                        let s_for_click = s_name.clone();
-                        let t_for_click = t_name.clone();
-
-                        // 是否已展开列结构
-                        let cols_key = format!("{s_name}.{t_name}");
+                        let cols_key = format!("{}.{}", name, t.name);
                         let cols_state = self.table_columns.get(&cols_key);
-                        let is_expanded = cols_state.is_some();
-
-                        let chevron_icon = if is_expanded {
-                            IconName::ChevronDown
-                        } else {
-                            IconName::ChevronRight
-                        };
-                        let chevron_id =
-                            SharedString::from(format!("col-toggle-{}-{}", s_name, t_name));
-                        let s_for_chev = s_name.clone();
-                        let t_for_chev = t_name.clone();
-                        // 右键菜单用：捕获 schema/table 给 closure
-                        let s_for_menu = s_name.clone();
-                        let t_for_menu = t_name.clone();
-                        let entity_for_menu = cx.entity().clone();
-
-                        // 长表名由 ellipsis 截断；要看完整名拖宽侧栏即可
-                        let mut row = h_flex()
-                            .id(row_id)
-                            .items_center()
-                            .gap_1()
-                            .pl(px(20.0))
-                            .pr_2()
-                            .py_1()
-                            .rounded_md()
-                            .cursor_pointer()
-                            .hover(move |this| this.bg(muted_bg))
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.handle_table_click(
-                                    s_for_click.clone(),
-                                    t_for_click.clone(),
-                                    cx,
-                                );
-                            }))
-                            // chevron 点击只展开列结构，不触发外层 row 的 TableSelected
-                            // 否则点开箭头会顺带跑一次 SELECT，违反 "单点查看结构" 直觉
-                            .child(
-                                div()
-                                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
-                                        cx.stop_propagation()
-                                    })
-                                    .child(
-                                        Button::new(chevron_id)
-                                            .ghost()
-                                            .xsmall()
-                                            .icon(chevron_icon)
-                                            .on_click(cx.listener(
-                                                move |this, _: &ClickEvent, _, cx| {
-                                                    this.toggle_table_columns(
-                                                        s_for_chev.clone(),
-                                                        t_for_chev.clone(),
-                                                        cx,
-                                                    );
-                                                },
-                                            )),
-                                    ),
-                            )
-                            // 视图用 Frame（虚拟矩形框，对应 SQL VIEW 的语义）
-                            // 基础表用 MemoryStick；两者形态差异大，加上 Frame 不和系统库 toggle 的 Eye 重复
-                            .child(
-                                Icon::new(if is_view {
-                                    IconName::Frame
-                                } else {
-                                    IconName::MemoryStick
-                                })
-                                .small()
-                                .text_color(muted_fg),
-                            )
-                            // 表名：flex_1 占据剩余空间，超长 ellipsis 截断
-                            // 拖拽侧栏宽度可看完整名
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(if is_sel { accent_fg } else { fg })
-                                    .flex_1()
-                                    .min_w_0()
-                                    .overflow_hidden()
-                                    .text_ellipsis()
-                                    .whitespace_nowrap()
-                                    .child(t_name.clone()),
-                            );
-                        if is_sel {
-                            row = row.bg(accent_bg);
-                        }
-                        if let Some(n) = row_estimate {
-                            row = row.child(
-                                div()
-                                    .text_xs()
-                                    .text_color(muted_fg)
-                                    .flex_none()
-                                    .child(format!("({})", format_thousands(n))),
-                            );
-                        }
-                        // 右键菜单：查看建表 SQL / 视图定义（PopupMenuItem.on_click 走 closure，
-                        // 通过 Entity::update 拿回 self 来 emit）
-                        let menu_label = if is_view {
-                            "查看视图定义"
-                        } else {
-                            "查看建表 SQL"
-                        };
-                        let row = row.context_menu(move |menu: PopupMenu, _, _| {
-                            let s = s_for_menu.clone();
-                            let t = t_for_menu.clone();
-                            let ent = entity_for_menu.clone();
-                            menu.item(PopupMenuItem::new(menu_label).on_click(
-                                move |_e, _w, app| {
-                                    let s = s.clone();
-                                    let t = t.clone();
-                                    ent.update(app, |this, cx| {
-                                        this.handle_show_ddl(s, t, is_view, cx);
-                                    });
-                                },
-                            ))
+                        let is_cols_expanded = cols_state.is_some();
+                        let is_sel =
+                            selected.as_ref() == Some(&(name.clone(), t.name.clone()));
+                        tree_rows.push(TreeRow::Table {
+                            schema: name.clone(),
+                            name: t.name.clone(),
+                            is_view: t.is_view,
+                            is_cols_expanded,
+                            is_selected: is_sel,
+                            row_estimate: t.row_estimate,
                         });
-                        rows.push(row.into_any_element());
 
                         // 展开的列结构子节点 + 索引 + 外键
                         if let Some(cs) = cols_state {
                             if cs.loading {
-                                rows.push(render_columns_placeholder("加载列结构...", muted_fg));
+                                tree_rows.push(TreeRow::TablePlaceholder {
+                                    text: "加载列结构...".into(),
+                                    is_error: false,
+                                });
                             } else if let Some(err) = cs.error.as_ref() {
-                                rows.push(render_columns_placeholder(
-                                    format!("加载失败：{err}"),
-                                    red,
-                                ));
+                                tree_rows.push(TreeRow::TablePlaceholder {
+                                    text: format!("加载失败：{err}"),
+                                    is_error: true,
+                                });
                             } else {
-                                // 列
                                 for col in cs.columns.iter() {
-                                    rows.push(render_column_row(col, fg, muted_fg));
+                                    tree_rows.push(TreeRow::Column { col: col.clone() });
                                 }
-                                // 索引节点（含主键 / 唯一 / 普通）
                                 if !cs.indexes.is_empty() {
-                                    rows.push(render_columns_placeholder(
-                                        format!("索引 ({})", cs.indexes.len()),
-                                        muted_fg,
-                                    ));
+                                    tree_rows.push(TreeRow::SectionLabel {
+                                        text: format!("索引 ({})", cs.indexes.len()),
+                                    });
                                     for ix in cs.indexes.iter() {
                                         let prefix = if ix.primary {
                                             "🔑 PK"
@@ -790,15 +945,14 @@ impl Render for TableTreePanel {
                                             ix.name,
                                             ix.columns.join(", ")
                                         );
-                                        rows.push(render_columns_placeholder(line, fg));
+                                        tree_rows
+                                            .push(TreeRow::DetailLine { text: line });
                                     }
                                 }
-                                // 外键节点
                                 if !cs.foreign_keys.is_empty() {
-                                    rows.push(render_columns_placeholder(
-                                        format!("外键 ({})", cs.foreign_keys.len()),
-                                        muted_fg,
-                                    ));
+                                    tree_rows.push(TreeRow::SectionLabel {
+                                        text: format!("外键 ({})", cs.foreign_keys.len()),
+                                    });
                                     for fk in cs.foreign_keys.iter() {
                                         let line = format!(
                                             "↗ {} ({}) → {}.{}({})",
@@ -808,7 +962,8 @@ impl Render for TableTreePanel {
                                             fk.ref_table,
                                             fk.ref_columns.join(", ")
                                         );
-                                        rows.push(render_columns_placeholder(line, fg));
+                                        tree_rows
+                                            .push(TreeRow::DetailLine { text: line });
                                     }
                                 }
                             }
@@ -818,28 +973,44 @@ impl Render for TableTreePanel {
             }
         }
 
-        // 搜索框 + 内容
+        // uniform_list 行级虚拟化：仅渲染屏幕可见行，万级 schema/table 也流畅
+        let tree_rows_rc: Rc<Vec<TreeRow>> = Rc::new(tree_rows);
+        let body = uniform_list(
+            "mysql-tree-rows",
+            tree_rows_rc.len(),
+            cx.processor({
+                let tree_rows_rc = tree_rows_rc.clone();
+                move |this, range: Range<usize>, _w, cx| {
+                    range
+                        .map(|i| this.render_tree_row(&tree_rows_rc[i], cx))
+                        .collect::<Vec<_>>()
+                }
+            }),
+        )
+        .track_scroll(&self.uniform_scroll)
+        .flex_1();
+
         v_flex()
             .size_full()
-            .gap_1()
             .overflow_hidden()
-            // 顶部搜索框
+            // 顶部第 1 行：schema picker（DB: <name> ▾）
+            .child(db_row)
+            // 顶部第 2 行：搜索框 + 三按钮（与 Redis Key 树布局一致）
+            .child(header_bar)
+            // 树体（虚拟列表）
+            .child(body)
+            // 底部 status bar：数据库计数
             .child(
                 div()
-                    .px_2()
-                    .pt_2()
-                    .pb_1()
-                    .child(Input::new(&self.search).xsmall()),
-            )
-            .child(
-                // 列表区：纵向滚动；横向由 ellipsis 截断（要看长名拖宽侧栏）
-                div()
-                    .id("tree-scroll")
+                    .flex_none()
                     .w_full()
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .child(v_flex().px_2().pb_2().gap_1().children(rows)),
+                    .px_2()
+                    .py(px(4.0))
+                    .border_t_1()
+                    .border_color(cx.theme().border)
+                    .text_xs()
+                    .text_color(muted_fg)
+                    .child(header_text),
             )
             .into_any_element()
     }

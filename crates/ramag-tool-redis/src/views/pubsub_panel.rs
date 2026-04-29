@@ -102,6 +102,13 @@ impl PubSubPanel {
         }
     }
 
+    /// 把焦点放到顶部 channel 输入框（新建 tab 时由 Session 调用）
+    pub fn focus_input(&self, window: &mut Window, cx: &mut Context<Self>) {
+        self.channels_input.update(cx, |state, cx_inner| {
+            state.focus(window, cx_inner);
+        });
+    }
+
     fn parse_csv(input: Entity<InputState>, cx: &gpui::App) -> Vec<String> {
         input
             .read(cx)
@@ -356,14 +363,16 @@ impl Render for PubSubPanel {
                 Button::new("ps-publish")
                     .outline()
                     .small()
-                    .label("PUBLISH")
+                    .icon(gpui_component::IconName::Play)
+                    .tooltip("PUBLISH 消息")
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.handle_publish(cx))),
             )
             .child(
                 Button::new("ps-clear")
                     .ghost()
                     .small()
-                    .label("清空")
+                    .icon(ramag_ui::icons::eraser())
+                    .tooltip("清空消息列表")
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.clear_messages(cx))),
             );
 

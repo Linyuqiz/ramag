@@ -13,7 +13,7 @@ use gpui::{
     Styled, Window, div, prelude::*, px,
 };
 use gpui_component::{
-    ActiveTheme, Sizable as _,
+    ActiveTheme, IconName, Sizable as _,
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
@@ -116,6 +116,13 @@ impl CliPanel {
     pub fn set_db(&mut self, db: u8, cx: &mut Context<Self>) {
         self.db = db;
         cx.notify();
+    }
+
+    /// 把焦点放到底部命令输入框（新建 tab 时由 Session 调用）
+    pub fn focus_input(&self, window: &mut Window, cx: &mut Context<Self>) {
+        self.input.update(cx, |state, cx_inner| {
+            state.focus(window, cx_inner);
+        });
     }
 
     fn handle_submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -284,7 +291,8 @@ impl Render for CliPanel {
                 Button::new("cli-clear")
                     .ghost()
                     .xsmall()
-                    .label("清空")
+                    .icon(ramag_ui::icons::eraser())
+                    .tooltip("清空命令历史")
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.clear_history(cx))),
             );
 
@@ -319,7 +327,8 @@ impl Render for CliPanel {
                 Button::new("cli-send")
                     .primary()
                     .small()
-                    .label("执行")
+                    .icon(IconName::Play)
+                    .tooltip("执行命令 (Enter)")
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                         this.handle_submit(window, cx)
                     })),

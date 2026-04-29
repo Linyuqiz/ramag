@@ -47,3 +47,23 @@ pub fn gauge() -> Icon {
 pub fn download() -> Icon {
     Icon::default().path("icons/download.svg")
 }
+
+#[inline]
+pub fn pencil() -> Icon {
+    Icon::default().path("icons/pencil.svg")
+}
+
+#[inline]
+pub fn trash() -> Icon {
+    Icon::default().path("icons/trash-2.svg")
+}
+
+#[inline]
+pub fn eraser() -> Icon {
+    Icon::default().path("icons/eraser.svg")
+}
+
+#[inline]
+pub fn radio_tower() -> Icon {
+    Icon::default().path("icons/radio-tower.svg")
+}

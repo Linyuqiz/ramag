@@ -6,11 +6,12 @@
 use std::sync::Arc;
 
 use gpui::{
-    AnyView, ClickEvent, Context, Entity, InteractiveElement, IntoElement, ParentElement, Render,
-    SharedString, Styled, Window, div, prelude::*, px,
+    AnyView, ClickEvent, Context, Entity, InteractiveElement, IntoElement, ParentElement, Point,
+    Render, ScrollHandle, SharedString, Styled, Window, div, prelude::*, px,
 };
 
-use crate::actions::{CloseQueryTab, NewQueryTab, ToggleHistory};
+use crate::actions::{NewQueryTab, ToggleHistory};
+use ramag_ui::CloseTab;
 use gpui_component::{
     ActiveTheme, IconName, Sizable as _, WindowExt as _,
     button::{Button, ButtonVariants as _},
@@ -44,6 +45,8 @@ pub struct QueryPanel {
     /// SQL 编辑器是否展示：默认 false；表树按钮 / ⌘E 切换
     /// 全局生效（同步给所有 Tab），新建 Tab 时也按此初始化
     show_editor: bool,
+    /// tab bar 横向滚动句柄：tab 多到溢出时，新建后滚到末尾让新 tab 可见
+    tabs_scroll: ScrollHandle,
     _subscriptions: Vec<gpui::Subscription>,
 }
 
@@ -86,6 +89,7 @@ impl QueryPanel {
             // 默认隐藏 SQL 编辑器：数据浏览/导出是主场景，
             // 用户要写 SQL 时按 ⌘E 或点表树按钮唤出
             show_editor: false,
+            tabs_scroll: ScrollHandle::new(),
             _subscriptions: subs,
         };
         // 默认创建一个 Tab
@@ -191,6 +195,10 @@ impl QueryPanel {
         self.active = self.tabs.len() - 1;
         // 新建后聚焦编辑器：⌘T 直接能开始打字
         self.focus_active_editor(window, cx);
+        // tab 多时溢出隐藏到右边；用大负值 offset 让 tab bar 滚到末尾，
+        // GPUI 会自动 clamp 到 max_offset，新 tab 立刻可见
+        self.tabs_scroll
+            .set_offset(Point::new(px(-99999.0), px(0.0)));
         cx.notify();
     }
 
@@ -367,12 +375,12 @@ impl Render for QueryPanel {
         v_flex()
             .size_full()
             .key_context("QueryPanel")
-            // 监听全局 NewQueryTab / CloseQueryTab action（绑定 ⌘T / ⌘W 见 main.rs）
+            // 监听全局 NewQueryTab / CloseTab action（绑定 ⌘T / ⌘W 见 main.rs）
             .on_action(cx.listener(|this, _: &NewQueryTab, window, cx| {
                 this.add_tab(window, cx);
             }))
             // ⌘W：多 tab 时关当前 tab；仅剩一个 tab 时让事件冒泡到全局 fallback 关窗（VSCode 风格）
-            .on_action(cx.listener(|this, _: &CloseQueryTab, window, cx| {
+            .on_action(cx.listener(|this, _: &CloseTab, window, cx| {
                 if this.tabs.len() > 1 {
                     let idx = this.active;
                     this.close_tab(idx, window, cx);
@@ -401,6 +409,7 @@ impl Render for QueryPanel {
                                 .flex_1()
                                 .min_w_0()
                                 .overflow_x_scroll()
+                                .track_scroll(&self.tabs_scroll)
                                 .children(tab_bar_items)
                                 // + 新建按钮跟在最后一个 tab 之后
                                 .child(

@@ -15,8 +15,8 @@
 use std::sync::Arc;
 
 use gpui::{
-    AnyView, App, ClickEvent, Context, Entity, IntoElement, ParentElement, Render, SharedString,
-    Styled, Subscription, Window, div, prelude::*, px,
+    AnyView, App, ClickEvent, Context, Entity, IntoElement, ParentElement, Point, Render,
+    ScrollHandle, SharedString, Styled, Subscription, Window, div, prelude::*, px,
 };
 use gpui_component::{
     ActiveTheme, IconName, Sizable as _,
@@ -90,6 +90,8 @@ pub struct DbClientView {
     center: CenterMode,
     /// 连接管理面板（始终持有，按需展示）
     picker: Entity<ConnectionListPanel>,
+    /// 顶部连接 tab bar 横向滚动句柄：连接多到溢出时新开后滚到末尾
+    sessions_scroll: ScrollHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -113,6 +115,7 @@ impl DbClientView {
             // 启动时显示连接管理（用户挑选打开哪个）
             center: CenterMode::ConnectionPicker,
             picker,
+            sessions_scroll: ScrollHandle::new(),
             _subscriptions: subs,
         }
     }
@@ -176,6 +179,9 @@ impl DbClientView {
         self.sessions.push(new_session);
         self.active_session = Some(self.sessions.len() - 1);
         self.center = CenterMode::Session;
+        // tab 多溢出时让新连接 tab 滚入视图（GPUI 自动 clamp 到 max_offset）
+        self.sessions_scroll
+            .set_offset(Point::new(px(-99999.0), px(0.0)));
         cx.notify();
     }
 
@@ -472,7 +478,8 @@ impl Render for DbClientView {
             .id("conn-tabs-scroll")
             .flex_1()
             .min_w_0()
-            .overflow_x_scroll();
+            .overflow_x_scroll()
+            .track_scroll(&self.sessions_scroll);
 
         for (idx, title, kind_label, is_active, color_tag) in session_titles {
             let tab_id = SharedString::from(format!("conn-tab-{idx}"));

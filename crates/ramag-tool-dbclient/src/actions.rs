@@ -22,14 +22,6 @@ pub struct RunStatementAtCursor;
 #[action(namespace = ramag_dbclient)]
 pub struct NewQueryTab;
 
-/// 关闭当前 Query Tab（默认 ⌘W / Cmd+W）
-///
-/// 多 tab 时 QueryPanel 会消费事件关闭当前 tab；
-/// 仅剩 1 个 tab 时事件冒泡到 main.rs 的全局 fallback 关闭窗口（VSCode 风格）
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, JsonSchema, Action)]
-#[action(namespace = ramag_dbclient)]
-pub struct CloseQueryTab;
-
 /// 导出当前结果集为 CSV
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, JsonSchema, Action)]
 #[action(namespace = ramag_dbclient)]

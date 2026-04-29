@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use gpui::{App, Global, Hsla, hsla};
+use gpui::{App, Global, Hsla, WindowAppearance, hsla};
 use gpui_component::{Theme, ThemeMode};
 use ramag_domain::traits::Storage;
 
@@ -15,6 +15,21 @@ impl Global for StorageGlobal {}
 /// 从 cx 取出 StorageGlobal（main 可能没注入，返回 None 时不持久化）
 pub fn storage_from_cx(cx: &App) -> Option<Arc<dyn Storage>> {
     cx.try_global::<StorageGlobal>().map(|g| g.0.clone())
+}
+
+/// 当前主题是否处于"跟随系统"状态
+///
+/// - true：preference 未显式设过 dark/light；系统外观变化时自动同步
+/// - false：用户显式选过 Dark/Light；忽略系统外观变化
+pub struct FollowSystem(pub bool);
+impl Global for FollowSystem {}
+
+pub fn is_following_system(cx: &App) -> bool {
+    cx.try_global::<FollowSystem>().map(|g| g.0).unwrap_or(false)
+}
+
+pub fn set_following_system(cx: &mut App, follow: bool) {
+    cx.set_global(FollowSystem(follow));
 }
 
 /// Ramag 自定义主题模式
@@ -30,6 +45,42 @@ impl Mode {
             Mode::Dark => Mode::Light,
             Mode::Light => Mode::Dark,
         }
+    }
+}
+
+/// macOS WindowAppearance → ramag Mode
+pub fn mode_from_appearance(appearance: WindowAppearance) -> Mode {
+    match appearance {
+        WindowAppearance::Dark | WindowAppearance::VibrantDark => Mode::Dark,
+        _ => Mode::Light,
+    }
+}
+
+/// 启动时根据 preference + 系统外观初始化主题
+///
+/// - preference == None / "system" → 跟随系统：用 `appearance` 决定 Mode，follow_system=true
+/// - preference == "dark" / "light" → 用户偏好：直接用该值，follow_system=false
+pub fn init_theme(preference: Option<&str>, appearance: WindowAppearance, cx: &mut App) {
+    let (mode, follow) = match preference {
+        Some("dark") => (Mode::Dark, false),
+        Some("light") => (Mode::Light, false),
+        _ => (mode_from_appearance(appearance), true),
+    };
+    apply_theme(mode, cx);
+    set_following_system(cx, follow);
+}
+
+/// 系统外观变化的回调入口（由 Shell.observe_window_appearance 触发）
+///
+/// 仅当 follow_system 时才实际重应用主题；用户已显式选过的不动
+pub fn on_system_appearance_changed(appearance: WindowAppearance, cx: &mut App) {
+    if !is_following_system(cx) {
+        return;
+    }
+    let mode = mode_from_appearance(appearance);
+    if current_mode(cx) != mode {
+        apply_theme(mode, cx);
+        cx.refresh_windows();
     }
 }
 

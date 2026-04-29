@@ -20,13 +20,16 @@ pub(super) fn format_thousands(n: u64) -> String {
 
 /// 渲染单个列结构子节点：🔑 主键 + 列名 + * NOT NULL + raw_type
 /// 长列名 / 长类型不截断，依赖外层横向滚动容器查看
+///
+/// 行高强制 28px：与上层 uniform_list 行级虚拟化要求等高（同 Redis Key 树）
 pub(super) fn render_column_row(col: &Column, fg: gpui::Hsla, muted_fg: gpui::Hsla) -> AnyElement {
     let pk_label = if col.is_primary_key { "🔑 " } else { "" };
     let null_mark = if col.nullable { "" } else { " *" };
     h_flex()
+        .h(px(28.0))
+        .flex_none()
         .pl(px(56.0))
         .pr_2()
-        .py(px(2.0))
         .gap_2()
         .items_center()
         .child(
@@ -49,17 +52,18 @@ pub(super) fn render_column_row(col: &Column, fg: gpui::Hsla, muted_fg: gpui::Hs
 /// 加载中 / 错误的占位行（缩进与列子节点一致）
 ///
 /// 渲染策略：单行 + 超长 ellipsis 截断（与列名行一致）
-/// - 索引 / 外键的描述行可能很长（多列复合索引），不限制就会折行破坏视觉一致
-/// - 用户要看完整内容拖宽侧栏即可
+/// 行高强制 28px：与上层 uniform_list 行级虚拟化要求等高
 pub(super) fn render_columns_placeholder(
     text: impl Into<SharedString>,
     color: gpui::Hsla,
 ) -> AnyElement {
     div()
         .w_full()
+        .h(px(28.0))
+        .flex_none()
         .pl(px(56.0))
         .pr_2()
-        .py_1()
+        .pt(px(6.0))
         .text_xs()
         .text_color(color)
         .whitespace_nowrap()

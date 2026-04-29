@@ -31,3 +31,7 @@ tracing = { workspace = true }
 # 内嵌 ramag 自己的 svg（home/database/wand-sparkles 等）到二进制
 rust-embed = { version = "8", features = ["interpolate-folder-path"] }
 anyhow = { workspace = true }
+
+# Action 派生需要：CloseTab 等共享 action 用 schemars/serde 实现 GPUI Action trait
+schemars = { workspace = true }
+serde = { workspace = true }

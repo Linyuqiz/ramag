@@ -15,7 +15,7 @@ use gpui_component::RopeExt;
 use gpui_component::input::{CompletionProvider, InputState};
 use lsp_types::{
     CompletionContext, CompletionItem, CompletionItemKind, CompletionResponse, CompletionTextEdit,
-    InsertReplaceEdit,
+    Documentation, InsertReplaceEdit, MarkupContent, MarkupKind,
 };
 use parking_lot::RwLock;
 use ropey::Rope;
@@ -253,16 +253,28 @@ fn extract_tables_with_schema(sql: &str) -> Vec<(Option<String>, String)> {
 }
 
 /// 构造一个 CompletionItem 的小帮手，统一格式
+///
+/// `documentation` 走 markdown 写整段说明（全名 + 类型 + 归属）；
+/// 上游 `CompletionMenu` 在选中项右侧渲染 docs 面板（`render_markdown`），
+/// 即使主弹窗 320px 卡死、长名被截断，用户上下移动光标到该项时
+/// 右边 docs 面板会显示完整信息。这是上游对长内容的官方推荐做法。
 fn make_item(
     label: String,
     kind: CompletionItemKind,
     detail: Option<&str>,
+    documentation: Option<String>,
     range: lsp_types::Range,
 ) -> CompletionItem {
     CompletionItem {
         label: label.clone(),
         kind: Some(kind),
         detail: detail.map(|s| s.to_string()),
+        documentation: documentation.map(|md| {
+            Documentation::MarkupContent(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: md,
+            })
+        }),
         text_edit: Some(CompletionTextEdit::InsertAndReplace(InsertReplaceEdit {
             new_text: label,
             insert: range,
@@ -326,14 +338,45 @@ impl CompletionProvider for SqlCompletionProvider {
 
         match context {
             // 1. Table 上下文：建议表名（默认 schema 优先）
+            // documentation 写 markdown 全名 + 所属 schema —— 即使弹窗被截 320px，
+            // 选中项右侧 docs 面板能显示完整信息
             SqlContext::Table => {
                 let cache = self.cache.read();
-                for name in cache.all_tables() {
+                let default_schema = cache.default_schema.clone();
+                // 默认 schema 的表先入队，其他 schema 在后；保留 schema 上下文
+                let mut order: Vec<(&String, &String)> = Vec::new();
+                if let Some(d) = default_schema.as_ref() {
+                    if let Some(ts) = cache.tables.get(d) {
+                        for t in ts {
+                            order.push((d, t));
+                        }
+                    }
+                }
+                for (s, ts) in cache.tables.iter() {
+                    if Some(s) == default_schema.as_ref() {
+                        continue;
+                    }
+                    for t in ts {
+                        order.push((s, t));
+                    }
+                }
+                for (schema, name) in order {
                     if name.to_ascii_lowercase().starts_with(&prefix_lower) {
+                        // 不用反引号 inline code（上游 markdown 渲染会染成饱和蓝块）；
+                        // 用粗体名字 + 普通文本归属，配色更柔和
+                        let doc = format!(
+                            "**{name}**\n\nTable · schema **{schema}**{default_marker}",
+                            default_marker = if Some(schema) == default_schema.as_ref() {
+                                "（默认库）"
+                            } else {
+                                ""
+                            }
+                        );
                         items.push(make_item(
                             name.clone(),
                             CompletionItemKind::CLASS,
                             Some("table"),
+                            Some(doc),
                             replace_range,
                         ));
                         if items.len() >= 30 {
@@ -350,7 +393,7 @@ impl CompletionProvider for SqlCompletionProvider {
                 let cache = self.cache.read();
                 let mut seen = std::collections::HashSet::new();
                 for table_name in &tables_in_use {
-                    for ((_schema, t), cols) in cache.columns.iter() {
+                    for ((schema, t), cols) in cache.columns.iter() {
                         if !t.eq_ignore_ascii_case(table_name) {
                             continue;
                         }
@@ -359,10 +402,15 @@ impl CompletionProvider for SqlCompletionProvider {
                                 continue;
                             }
                             if col.to_ascii_lowercase().starts_with(&prefix_lower) {
+                                // 同表名补全：避免反引号 inline code 染成蓝块
+                                let doc = format!(
+                                    "**{col}**\n\nColumn · in **{schema}.{t}**"
+                                );
                                 items.push(make_item(
                                     col.clone(),
                                     CompletionItemKind::FIELD,
                                     Some("column"),
+                                    Some(doc),
                                     replace_range,
                                 ));
                                 if items.len() >= 30 {
@@ -385,6 +433,7 @@ impl CompletionProvider for SqlCompletionProvider {
                 items.push(make_item(
                     kw.to_string(),
                     CompletionItemKind::KEYWORD,
+                    None,
                     None,
                     replace_range,
                 ));
@@ -475,6 +524,7 @@ impl CompletionProvider for ColumnFilterCompletionProvider {
                 name.clone(),
                 CompletionItemKind::FIELD,
                 Some("column"),
+                Some(format!("**{name}**\n\nColumn · 当前结果集列")),
                 replace_range,
             ));
             if items.len() >= 50 {

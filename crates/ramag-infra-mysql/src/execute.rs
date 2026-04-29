@@ -320,7 +320,9 @@ async fn execute_query(conn: &mut PoolConnection<MySql>, sql: &str) -> Result<Qu
         .await
         .map_err(map_sqlx_error)?;
 
-    // 列名 / 列类型取第一行的（空结果集时尝试用 query.describe 但代价高，先简化处理）
+    // 列名 / 列类型：常规路径取第一行（无额外 IO）；
+    // 空结果集 fallback 走 Connection::describe 拿列定义（额外 1 次 round-trip）
+    // 否则 UI 会因 columns.is_empty() 误判为 DML，渲染成 "0 行受影响"
     // 类型用 sqlx::TypeInfo::name()，MySQL 返回大写如 "BIGINT" / "VARCHAR" / "DATETIME"
     let (columns, column_types): (Vec<String>, Vec<String>) = if let Some(first) = rows.first() {
         first
@@ -329,7 +331,19 @@ async fn execute_query(conn: &mut PoolConnection<MySql>, sql: &str) -> Result<Qu
             .map(|c| (c.name().to_string(), c.type_info().name().to_string()))
             .unzip()
     } else {
-        (Vec::new(), Vec::new())
+        // 空结果时 describe 一次拿列；SHOW/DESC 等不支持 prepare 的命令会失败，
+        // 此时退回空列（这些命令通常都有应答，几乎不会进此分支）
+        match (**conn).describe(sql).await {
+            Ok(desc) => desc
+                .columns
+                .iter()
+                .map(|c| (c.name().to_string(), c.type_info().name().to_string()))
+                .unzip(),
+            Err(e) => {
+                warn!(error = %e, "describe empty-result SQL failed (non-fatal)");
+                (Vec::new(), Vec::new())
+            }
+        }
     };
 
     let domain_rows: Vec<Row> = rows

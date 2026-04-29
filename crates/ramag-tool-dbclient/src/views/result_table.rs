@@ -174,21 +174,8 @@ pub(super) fn render_table(
             .into_any_element();
     }
 
-    if total_rows == 0 {
-        return v_flex()
-            .size_full()
-            .items_center()
-            .justify_center()
-            .gap_1()
-            .child(div().text_sm().text_color(fg).child("查询无结果"))
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(muted_fg)
-                    .child(format!("{} 列 · 耗时 {elapsed} ms", columns.len())),
-            )
-            .into_any_element();
-    }
+    // 注：0 行不再 early return；让 header + 空 body + 状态栏正常渲染，
+    // 用户能看到列头与列类型，避免"查无结果"占位遮蔽元信息
 
     // 列宽 / 行号宽 / 总宽
     let col_widths: Vec<gpui::Pixels> = (0..columns.len())

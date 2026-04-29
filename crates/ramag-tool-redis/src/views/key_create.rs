@@ -74,9 +74,11 @@ impl KeyCreateForm {
     ) -> Self {
         let key_name = cx.new(|cx| InputState::new(window, cx).placeholder("如 user:1001:cache"));
         let value = cx.new(|cx| {
-            // multi_line 让输入框支持多行（List/Hash/ZSet 每行一项）
+            // multi_line + rows：明确多行高度，避免渲染成单行假象
+            // List/Hash/ZSet 每行一项；String 也可粘贴多段长文本
             InputState::new(window, cx)
                 .multi_line(true)
+                .rows(8)
                 .placeholder("（按类型填写：详见下方提示）")
         });
         let ttl_secs = cx.new(|cx| InputState::new(window, cx).placeholder("（可选，秒）"));

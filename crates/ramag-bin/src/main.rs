@@ -22,11 +22,12 @@ use ramag_infra_mysql::MysqlDriver;
 use ramag_infra_redis::RedisDriver;
 use ramag_infra_storage::RedbStorage;
 use ramag_tool_dbclient::{
-    CloseQueryTab, DbClientTool, ExplainQuery, FindInResults, FormatSql, NewQueryTab, RunQuery,
+    DbClientTool, ExplainQuery, FindInResults, FormatSql, NewQueryTab, RunQuery,
     RunStatementAtCursor, SaveSqlFile, ToggleHistory, ToggleSqlEditor, create_dbclient_view,
 };
 use ramag_ui::{
-    HomeEvent, HomeView, Mode, NavTarget, RamagAssets, Shell, StorageGlobal, apply_theme,
+    CloseTab, HomeEvent, HomeView, Mode, NavTarget, RamagAssets, Shell, StorageGlobal, apply_theme,
+    init_theme,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -56,8 +57,8 @@ fn main() {
     // Redis 数据层（共用 storage，独立 driver）
     let redis_service: Arc<RedisService> = build_redis_service(storage.clone());
 
-    // 启动前读偏好里保存的主题模式（默认 Dark）
-    let initial_mode = read_theme_pref(&storage);
+    // 启动前读偏好里保存的主题模式（None / "system" → 跟随系统，需要 window.appearance() 才能定）
+    let initial_pref = read_theme_preference(&storage);
 
     // === Tool 注册 ===
     let registry = build_tool_registry();
@@ -72,12 +73,16 @@ fn main() {
     let registry_for_reopen = registry.clone();
     let conn_service_for_reopen = conn_service.clone();
     let redis_service_for_reopen = redis_service.clone();
+    let storage_for_reopen = storage.clone();
     app.on_reopen(move |cx: &mut App| {
         if cx.windows().is_empty() {
+            // dock 重开时再次读 preference（用户期间可能改过；保持一致性）
+            let pref = read_theme_preference(&storage_for_reopen);
             open_main_window(
                 registry_for_reopen.clone(),
                 conn_service_for_reopen.clone(),
                 redis_service_for_reopen.clone(),
+                pref,
                 cx,
             );
         }
@@ -85,8 +90,9 @@ fn main() {
 
     app.run(move |cx: &mut App| {
         gpui_component::init(cx);
-        // 应用主题（从偏好读取，默认 Dark；必须在打开窗口前）
-        apply_theme(initial_mode, cx);
+        // 先 apply 一个临时主题占位（避免窗口打开瞬间空白）；
+        // 实际主题在 open_main_window 内拿到 window.appearance() 后由 init_theme 确定
+        apply_theme(Mode::Dark, cx);
         // 把 storage 注入到 cx 全局，让 ActivityBar 切换主题时能持久化
         cx.set_global(StorageGlobal(storage.clone()));
         cx.activate(true);
@@ -95,10 +101,10 @@ fn main() {
         // 上自动显示快捷键并响应（GPUI macOS menu 实现是从 keymap 反查 keystroke）
         cx.on_action(|_: &Quit, cx| cx.quit());
 
-        // ⌘W 全局 fallback：先让视图层处理（QueryPanel 多 tab 时关 tab），
-        // 没有消费（HomeView / 仅剩 1 个 tab）就走到这里关窗
+        // ⌘W 全局 fallback：先让视图层处理（MySQL QueryPanel / Redis Session 关 tab），
+        // 没有消费（HomeView / 仅剩主区 tab）就走到这里关窗
         // macOS 习惯：关最后一个窗后保留 app（on_reopen 已处理 dock 点击重开）
-        cx.on_action(|_: &CloseQueryTab, cx: &mut App| {
+        cx.on_action(|_: &CloseTab, cx: &mut App| {
             if let Some(handle) = cx.active_window() {
                 let _ = handle.update(cx, |_, window, _| window.remove_window());
             }
@@ -110,7 +116,7 @@ fn main() {
             KeyBinding::new("cmd-enter", RunQuery, None),
             KeyBinding::new("cmd-shift-enter", RunStatementAtCursor, None),
             KeyBinding::new("cmd-t", NewQueryTab, None),
-            KeyBinding::new("cmd-w", CloseQueryTab, None),
+            KeyBinding::new("cmd-w", CloseTab, None),
             KeyBinding::new("cmd-f", FindInResults, None),
             KeyBinding::new("cmd-shift-f", FormatSql, None),
             KeyBinding::new("cmd-shift-e", ExplainQuery, None),
@@ -129,6 +135,7 @@ fn main() {
             registry.clone(),
             conn_service.clone(),
             redis_service.clone(),
+            initial_pref.clone(),
             cx,
         );
     });
@@ -139,6 +146,7 @@ fn open_main_window(
     registry: Arc<ToolRegistry>,
     conn_service: Arc<ConnectionService>,
     redis_service: Arc<RedisService>,
+    theme_pref: Option<String>,
     cx: &mut App,
 ) {
     // 启动时窗口最大化（macOS 等价于 zoom 到屏幕可用区）
@@ -160,6 +168,11 @@ fn open_main_window(
                 ..Default::default()
             },
             move |window, cx| {
+                // 0. 拿到 window.appearance 后正式 init 主题：
+                //    - preference 已设 dark/light → 使用该值，关闭跟随系统
+                //    - preference 空/system → 用系统当前外观，开启跟随系统（之后系统切换会自动同步）
+                init_theme(theme_pref.as_deref(), window.appearance(), cx);
+
                 // 1. 创建 Home 视图
                 let home_view =
                     cx.new(|cx| HomeView::new(registry.clone(), conn_service.clone(), cx));
@@ -222,18 +235,14 @@ fn build_connection_service() -> anyhow::Result<(Arc<ConnectionService>, Arc<dyn
     Ok((svc, storage))
 }
 
-/// 启动时读取主题偏好；任何错误都 fallback 到 Dark
-fn read_theme_pref(storage: &Arc<dyn Storage>) -> Mode {
+/// 启动时读取主题偏好的原始字符串
+///
+/// 返回 None / Some("system") → 跟随系统；Some("dark"|"light") → 用户已显式选过
+/// 任何错误（rt 创建失败 / storage 读失败）都返回 None，等价于"跟随系统"
+fn read_theme_preference(storage: &Arc<dyn Storage>) -> Option<String> {
     let storage = storage.clone();
-    let rt = match tokio::runtime::Runtime::new() {
-        Ok(rt) => rt,
-        Err(_) => return Mode::Dark,
-    };
-    let s = rt.block_on(async move { storage.get_preference("theme_mode").await.ok().flatten() });
-    match s.as_deref() {
-        Some("light") => Mode::Light,
-        _ => Mode::Dark,
-    }
+    let rt = tokio::runtime::Runtime::new().ok()?;
+    rt.block_on(async move { storage.get_preference("theme_mode").await.ok().flatten() })
 }
 
 /// 注册所有 Tool 到 Registry

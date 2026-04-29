@@ -80,15 +80,15 @@ pub async fn list_tables(pool: &MySqlPool, schema: &str) -> Result<Vec<Table>> {
             // 非 BASE TABLE 一律归为视图：覆盖 VIEW + SYSTEM VIEW 两种
             // 它们在 UI 上的渲染（图标 / DDL 行为 / 行为差异）一致
             let is_view = !table_type.eq_ignore_ascii_case("BASE TABLE");
+            // 所有表（含 VIEW / SYSTEM VIEW）行为统一：都显示行数估算
+            // NULL（VIEW 多数）↦ 0：服务端没给数就当 0，UI 显示 (~0)
+            // 这与 SYSTEM VIEW 真实给的 0 视觉一致；不精确就不精确（用户要求）
+            // 精确行数请 SELECT COUNT(*)
+            let row_estimate = Some(row_estimate.unwrap_or(0));
             Table {
                 name,
                 schema: schema.to_string(),
                 comment: comment.filter(|c| !c.is_empty()),
-                // row_estimate 服务端给啥就用啥：
-                // - BASE TABLE 通常有 estimate（不准但有参考意义）
-                // - VIEW 大多 None，少数有
-                // - SYSTEM VIEW 看版本而定
-                // 用户想要精确行数可右键单跑 SELECT COUNT(*)
                 row_estimate,
                 is_view,
             }

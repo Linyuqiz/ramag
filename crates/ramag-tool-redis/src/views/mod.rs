@@ -14,7 +14,6 @@ pub mod key_create;
 pub mod key_detail;
 pub mod key_tree;
 pub mod list_element_form;
-pub mod monitor_panel;
 pub mod pubsub_panel;
 pub mod set_element_form;
 pub mod stream_entry_form;

@@ -31,7 +31,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputState},
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::DropdownMenu as _,
     notification::Notification,
     v_flex,
 };
@@ -698,15 +698,8 @@ impl Render for QueryTab {
 
         let running = self.running;
         let has_connection = self.connection.is_some();
-        // 工具条不再展示 host/连接名（信息已在顶部 Tab Bar 体现，避免重复）
-        // 仅保留 DB 选择器供用户切换默认库
-        let schema_label = self.active_schema.clone();
-        let current_schema = schema_label.clone();
-        let entity_for_db = cx.entity();
-        // DB 下拉读 cache 的"全量 schema 名 + 是否显示系统库"
-        // 不在这里 snapshot：dropdown_menu 闭包是 Fn 每次打开时调，
-        // 闭包内 cache.read() 拿当下数据，与表树眼睛 toggle 状态自动同步
-        let cache_for_db = self.schema_cache.clone();
+        // 工具条不再展示 host/连接名（信息已在顶部 Tab Bar 体现，避免重复）；
+        // DB 选择器也由左侧表树承担，本工具栏只放过滤 / 删除 / 导出 / 运行
 
         // 仅"执行中"状态在工具条显示实时耗时，其他状态由结果面板底部 status_bar 展示
         // 避免与 status_bar 的"X 行 · 耗时 N ms"重复
@@ -795,75 +788,6 @@ impl Render for QueryTab {
                     .border_b_1()
                     .border_color(border)
                     .bg(secondary_bg)
-                    // DB 选择器：点开下拉手动切换默认库
-                    // 选项 = 左侧表树/cache 已加载的 schema；点项调 set_active_schema
-                    // 没有 schema 时仍渲染（提示用户先连接），避免按钮闪烁
-                    .child({
-                        let label = match &schema_label {
-                            Some(s) => format!("DB: {s}"),
-                            None => "DB: 未选库".to_string(),
-                        };
-                        let cur = current_schema.clone();
-                        let entity = entity_for_db.clone();
-                        let cache = cache_for_db.clone();
-                        Button::new("schema-picker")
-                            .ghost()
-                            .small()
-                            .label(label)
-                            .dropdown_menu(move |menu, _, _| {
-                                use crate::sql_completion::is_system_schema;
-                                let mut menu = menu;
-                                // 实时读 cache：跟表树眼睛 toggle 同步
-                                let (mut opts, show_system) = {
-                                    let c = cache.read();
-                                    (c.all_schemas.clone(), c.show_system)
-                                };
-                                if !show_system {
-                                    opts.retain(|s| !is_system_schema(s));
-                                }
-                                // 业务库优先 / 系统库置底；同组按字典序
-                                opts.sort_by(|a, b| {
-                                    let a_sys = is_system_schema(a);
-                                    let b_sys = is_system_schema(b);
-                                    a_sys.cmp(&b_sys).then_with(|| a.cmp(b))
-                                });
-                                if opts.is_empty() {
-                                    menu = menu.label("（暂无可选库）");
-                                } else {
-                                    let mut last_was_business = false;
-                                    let mut inserted_separator = false;
-                                    for s in opts.iter() {
-                                        let is_sys = is_system_schema(s);
-                                        // 业务库与系统库之间插一条分隔线（仅一次）
-                                        if is_sys && last_was_business && !inserted_separator {
-                                            menu = menu.separator();
-                                            inserted_separator = true;
-                                        }
-                                        last_was_business = !is_sys;
-                                        let is_current = cur.as_deref() == Some(s.as_str());
-                                        let entity_each = entity.clone();
-                                        let s_each = s.clone();
-                                        // 系统库后缀加（系统）以提示，但仍可选
-                                        let label = if is_sys {
-                                            format!("{s}  · 系统")
-                                        } else {
-                                            s.clone()
-                                        };
-                                        menu = menu.item(
-                                            PopupMenuItem::new(label).checked(is_current).on_click(
-                                                move |_, _, app| {
-                                                    let chosen = s_each.clone();
-                                                    entity_each.update(app, |this, cx| {
-                                                        this.set_active_schema(Some(chosen), cx);
-                                                    });
-                                                },
-                                            ),
-                                        );
-                                    }
-                                }
-                                menu
-                            })
-                    })
                     // 过滤栏拆双维度：左 = 列过滤（逗号分隔多列）/ 右 = 行过滤（单关键字）
                     // 两者独立叠加；flex_1 平分中间剩余空间
                     // 列输入外包一层 div 拦截 ↑/↓：单行 Input 默认不挂 MoveUp/MoveDown

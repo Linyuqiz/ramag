@@ -239,7 +239,7 @@ impl Render for ConnectionListPanel {
                     .outline()
                     .small()
                     .icon(IconName::Plus)
-                    .label("新建连接")
+                    .tooltip("新建连接")
                     .on_click(cx.listener(|_this, _: &ClickEvent, _, cx| {
                         cx.emit(ListEvent::RequestNew);
                     })),
@@ -469,41 +469,34 @@ fn connection_row(
                 .text_ellipsis()
                 .child(user_db),
         )
-        // 操作按钮（编辑 / 删除）
-        // 不用 Button：fork 里 ButtonCustomVariant.foreground 是 dead field
-        // （text_color 实际用 colors.color），无法做"透明底 + 蓝色文字"的轻量按钮。
-        // 直接 div + on_click 做可点击文本，accent 蓝色 = 可点击，无下划线。
-        // mouse_down 拦截避免点击事件冒泡到父行触发"打开连接"。
+        // 操作按钮（编辑 / 删除）：图标按钮 + tooltip，与项目其他面板一致
+        // mouse_down 拦截避免点击事件冒泡到父行触发"打开连接"
         .child(
             h_flex()
                 .flex_none()
-                .gap(px(12.0))
+                .gap(px(4.0))
                 .w(px(80.0))
                 .justify_end()
                 .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .child(
-                    div()
-                        .id(edit_id)
-                        .text_xs()
-                        .text_color(accent)
-                        .cursor_pointer()
-                        .hover(|this| this.opacity(0.7))
+                    Button::new(edit_id)
+                        .ghost()
+                        .small()
+                        .icon(ramag_ui::icons::pencil())
+                        .tooltip("编辑连接")
                         .on_click(cx.listener(move |_this, _: &ClickEvent, _, cx| {
                             cx.emit(ListEvent::RequestEdit(conn_for_edit.clone()));
-                        }))
-                        .child("编辑"),
+                        })),
                 )
                 .child(
-                    div()
-                        .id(del_id)
-                        .text_xs()
-                        .text_color(accent)
-                        .cursor_pointer()
-                        .hover(|this| this.opacity(0.7))
+                    Button::new(del_id)
+                        .ghost()
+                        .small()
+                        .icon(ramag_ui::icons::trash())
+                        .tooltip("删除连接")
                         .on_click(cx.listener(move |_this, _: &ClickEvent, _, cx| {
                             cx.emit(ListEvent::RequestDelete(conn_id_for_del.clone()));
-                        }))
-                        .child("删除"),
+                        })),
                 ),
         );
 

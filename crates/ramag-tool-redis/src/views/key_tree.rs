@@ -12,11 +12,13 @@
 //!   该节点同时是叶子+命名空间，单击仅展开；点击右侧类型 badge 加载值
 
 use std::collections::HashSet;
+use std::ops::Range;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    ClickEvent, Context, Entity, EventEmitter, IntoElement, ParentElement, Render, SharedString,
-    Styled, Window, div, prelude::*, px,
+    AppContext as _, ClickEvent, Context, Entity, EventEmitter, IntoElement, ParentElement, Render,
+    SharedString, Styled, UniformListScrollHandle, Window, div, prelude::*, px, uniform_list,
 };
 use gpui_component::{
     ActiveTheme, Icon, IconName, Sizable as _,
@@ -24,7 +26,6 @@ use gpui_component::{
     h_flex,
     input::{Input, InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
-    scroll::ScrollableElement as _,
     v_flex,
 };
 use ramag_app::RedisService;
@@ -99,6 +100,9 @@ pub struct KeyTreePanel {
     selected: Option<String>,
     /// 是否到达 MAX_KEYS 截断
     truncated: bool,
+    /// 虚拟列表滚动句柄：树扁平化后用 uniform_list 行级虚拟化，
+    /// 支持 5w+ key 仍流畅（与 MySQL 结果集同款方案）
+    uniform_scroll: UniformListScrollHandle,
     _subscriptions: Vec<gpui::Subscription>,
 }
 
@@ -133,6 +137,7 @@ impl KeyTreePanel {
             query: String::new(),
             selected: None,
             truncated: false,
+            uniform_scroll: UniformListScrollHandle::new(),
             _subscriptions: subs,
         }
     }
@@ -344,7 +349,7 @@ impl Render for KeyTreePanel {
             format!("匹配 {visible_leaf_count} / {total}")
         };
 
-        // 顶部第 1 行：DB 选择 + 总数（仿 MySQL 表树的 schema 节点 + 行数显示）
+        // 顶部第 1 行：DB 选择（共 N 个 key 计数迁到底部 status bar，避免顶部信息密度过高）
         let current_db = self.db;
         let session_entity = cx.entity();
         let db_picker_label = format!("DB {current_db} ▾");
@@ -383,13 +388,6 @@ impl Render for KeyTreePanel {
                         }
                         m
                     }),
-            )
-            .child(div().flex_1())
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(muted_fg)
-                    .child(count_label.clone()),
             );
 
         // 顶部第 2 行：搜索 + 新建 Key + 全展开 / 全折叠 / 刷新
@@ -418,20 +416,29 @@ impl Render for KeyTreePanel {
                         cx.emit(KeyTreeEvent::RequestCreate);
                     })),
             )
-            .child(
-                Button::new("redis-key-expand-all")
+            // 单按钮切换"全部展开 / 全部折叠"：图标按当前状态切换
+            // - 当前都折叠 → FolderClosed 图标，点击 = 全部展开
+            // - 当前有展开 → FolderOpen 图标，点击 = 全部折叠
+            .child({
+                let any_expanded = !self.expanded.is_empty();
+                let (icon, tip) = if any_expanded {
+                    (IconName::FolderOpen, "全部折叠命名空间")
+                } else {
+                    (IconName::FolderClosed, "全部展开命名空间")
+                };
+                Button::new("redis-key-toggle-all")
                     .ghost()
                     .xsmall()
-                    .icon(IconName::ChevronDown)
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.expand_all(cx))),
-            )
-            .child(
-                Button::new("redis-key-collapse-all")
-                    .ghost()
-                    .xsmall()
-                    .icon(IconName::ChevronRight)
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.collapse_all(cx))),
-            )
+                    .icon(icon)
+                    .tooltip(tip)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        if any_expanded {
+                            this.collapse_all(cx);
+                        } else {
+                            this.expand_all(cx);
+                        }
+                    }))
+            })
             .child(
                 Button::new("redis-key-refresh")
                     .ghost()
@@ -447,45 +454,82 @@ impl Render for KeyTreePanel {
         let theme_bg = theme.background;
         let theme_muted = theme.muted;
 
-        // 树形渲染：扁平化后逐行画
-        let mut rows = v_flex().w_full().gap(px(0.0));
-        for row_data in visible {
-            rows = rows.child(self.render_node_row(
-                &row_data,
-                &selected,
-                fg,
-                muted_fg,
-                row_hover,
-                accent,
-                theme_bg,
-                theme_muted,
-                cx,
-            ));
-        }
+        // 树形渲染：扁平化为 Vec<VisibleRow>，喂给 uniform_list 行级虚拟化
+        // 行高固定 28px（见 render_node_row），仅渲染屏幕可见行，万级 key 不卡
+        let visible_rc: Rc<Vec<VisibleRow>> = Rc::new(visible);
+        let row_count = visible_rc.len();
 
-        if !self.loading && total == 0 && self.config.is_some() && self.error.is_none() {
-            rows = rows.child(
+        // 空态：连接已建立但 SCAN 返回 0 个 key
+        let empty_hint = !self.loading
+            && total == 0
+            && self.config.is_some()
+            && self.error.is_none();
+
+        let body: gpui::AnyElement = if row_count == 0 {
+            // 空态/未连接/loading 都让 body 占满剩余空间，避免 status bar 顶到中间
+            if empty_hint {
                 div()
+                    .flex_1()
+                    .min_h_0()
                     .py(px(28.0))
                     .text_center()
                     .text_sm()
                     .text_color(muted_fg)
-                    .child("DB 内没有 key"),
-            );
-        }
+                    .child("DB 内没有 key")
+                    .into_any_element()
+            } else {
+                div().flex_1().min_h_0().into_any_element()
+            }
+        } else {
+            let visible_for_closure = visible_rc.clone();
+            let selected_for_closure = selected.clone();
+            uniform_list(
+                "redis-key-tree-rows",
+                row_count,
+                cx.processor(move |this, range: Range<usize>, _w, cx| {
+                    range
+                        .map(|i| {
+                            let row_data = &visible_for_closure[i];
+                            this.render_node_row(
+                                row_data,
+                                &selected_for_closure,
+                                fg,
+                                muted_fg,
+                                row_hover,
+                                accent,
+                                theme_bg,
+                                theme_muted,
+                                cx,
+                            )
+                            .into_any_element()
+                        })
+                        .collect::<Vec<_>>()
+                }),
+            )
+            .track_scroll(&self.uniform_scroll)
+            .flex_1()
+            .into_any_element()
+        };
+
+        // 底部状态栏：共 N 个 key / 匹配 X / Y / 加载中 / 错误（与连接 / loading / search 状态对应）
+        let status_bar = div()
+            .flex_none()
+            .w_full()
+            .px(px(10.0))
+            .py(px(4.0))
+            .border_t_1()
+            .border_color(border)
+            .text_xs()
+            .text_color(muted_fg)
+            .child(count_label);
 
         v_flex()
             .size_full()
             .bg(bg)
             .child(db_row)
             .child(header)
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scrollbar()
-                    .child(rows),
-            )
+            .child(body)
+            .child(status_bar)
     }
 }
 
@@ -566,14 +610,16 @@ impl KeyTreePanel {
             fg
         };
 
+        // 显式行高 28px：uniform_list 行级虚拟化要求等高（与 MySQL 结果集 32px 同思路）
         let mut row_el = h_flex()
             .id(row_id)
             .w_full()
+            .h(px(28.0))
+            .flex_none()
             .items_center()
             .gap(px(6.0))
             .pl(px(8.0 + row.depth as f32 * INDENT_PX))
             .pr(px(10.0))
-            .py(px(3.0))
             .cursor_pointer()
             .child(chevron)
             .when_some(type_badge, |this, b| this.child(b))

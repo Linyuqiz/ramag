@@ -191,11 +191,15 @@ impl Render for ActivityBar {
 }
 
 /// 切到指定主题并持久化偏好
+///
+/// 用户显式选择 → 标记 follow_system=false，之后系统外观变化不再自动同步
+/// 想恢复"跟随系统"需要清除 preference（暂未提供 UI；后续可加"重置"项）
 fn set_theme(mode: crate::theme::Mode, app: &mut gpui::App) {
-    if crate::theme::current_mode(app) == mode {
+    if crate::theme::current_mode(app) == mode && !crate::theme::is_following_system(app) {
         return;
     }
     crate::theme::apply_theme(mode, app);
+    crate::theme::set_following_system(app, false);
     app.refresh_windows();
     if let Some(storage) = crate::theme::storage_from_cx(app) {
         let value = match mode {

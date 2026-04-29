@@ -59,6 +59,10 @@ impl Shell {
                 }
             },
         ));
+        // 监听系统外观变化：跟随系统时实时同步主题（用户显式选过则忽略）
+        subs.push(cx.observe_window_appearance(window, |_this, window, cx| {
+            crate::theme::on_system_appearance_changed(window.appearance(), cx);
+        }));
 
         Self {
             activity_bar,

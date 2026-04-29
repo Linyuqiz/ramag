@@ -13,11 +13,11 @@
 use std::sync::Arc;
 
 use gpui::{
-    ClickEvent, Context, EventEmitter, IntoElement, ParentElement, Render, SharedString, Styled,
-    Window, div, prelude::*, px,
+    ClickEvent, Context, EventEmitter, FocusHandle, Focusable, IntoElement, ParentElement, Render,
+    SharedString, Styled, Window, div, prelude::*, px,
 };
 use gpui_component::{
-    ActiveTheme, Sizable as _,
+    ActiveTheme, IconName, Sizable as _,
     button::{Button, ButtonVariants as _},
     h_flex,
     scroll::ScrollableElement as _,
@@ -60,6 +60,24 @@ pub enum KeyDetailEvent {
     /// 请求新增 Stream 条目（弹窗）
     /// (key 名)
     RequestAddStreamEntry(String),
+    /// 请求删除 Key（由上层 Session 弹二次确认）
+    /// (key 名)
+    RequestDeleteKey(String),
+    /// 请求删除 Hash 字段（由上层 Session 弹二次确认）
+    /// (key 名, field 名)
+    RequestDeleteHashField(String, String),
+    /// 请求删除 List 元素（由上层 Session 弹二次确认）
+    /// (key 名, 元素值, 序号)
+    RequestDeleteListElement(String, String, usize),
+    /// 请求删除 Set 成员（由上层 Session 弹二次确认）
+    /// (key 名, 成员值)
+    RequestDeleteSetElement(String, String),
+    /// 请求删除 ZSet 成员（由上层 Session 弹二次确认）
+    /// (key 名, 成员值)
+    RequestDeleteZSetMember(String, String),
+    /// 请求删除 Stream 条目（由上层 Session 弹二次确认）
+    /// (key 名, entry_id)
+    RequestDeleteStreamEntry(String, String),
 }
 
 pub struct KeyDetailPanel {
@@ -80,12 +98,21 @@ pub struct KeyDetailPanel {
     /// 单 Key 字节估算（MEMORY USAGE，需用户主动点击触发）
     key_size_bytes: Option<u64>,
     estimating_size: bool,
+    /// 面板整体焦点：上层 Session 在切到 Detail tab 时调 focus_panel
+    /// 让 ⌘W / 其他 action 能通过焦点链路由到 Session 的 on_action 监听
+    focus_handle: FocusHandle,
 }
 
 impl EventEmitter<KeyDetailEvent> for KeyDetailPanel {}
 
+impl Focusable for KeyDetailPanel {
+    fn focus_handle(&self, _: &gpui::App) -> FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
 impl KeyDetailPanel {
-    pub fn new(service: Arc<RedisService>) -> Self {
+    pub fn new(service: Arc<RedisService>, cx: &mut Context<Self>) -> Self {
         Self {
             service,
             config: None,
@@ -97,6 +124,7 @@ impl KeyDetailPanel {
             error: None,
             view_mode: ViewMode::default(),
             key_size_bytes: None,
+            focus_handle: cx.focus_handle(),
             estimating_size: false,
         }
     }
@@ -196,6 +224,32 @@ impl KeyDetailPanel {
         if let Some(k) = self.key.clone() {
             self.load_key(k, cx);
         }
+    }
+
+    /// 当前正在展示的 key 名（None = 未选中任何 key）
+    /// 上层 Session 在弹窗保存后用它判断"是否需要刷新当前详情"
+    pub fn current_key(&self) -> Option<&str> {
+        self.key.as_deref()
+    }
+
+    /// 清空当前展示（恢复"未选中 Key"占位态）
+    /// 用户点 KeyDetail tab 的 ✕ 关闭按钮时，Session 调用此方法
+    pub fn clear_key(&mut self, cx: &mut Context<Self>) {
+        self.key = None;
+        self.value = None;
+        self.ttl_ms = None;
+        self.loading = false;
+        self.error = None;
+        self.key_size_bytes = None;
+        self.estimating_size = false;
+        cx.notify();
+    }
+
+    /// 把整面板焦点拿到（Session 切到 Detail tab 时调）
+    /// 让 ⌘W / 其他 action 能通过焦点链路由到 Session 的 on_action
+    pub fn focus_panel(&self, window: &mut Window, cx: &mut Context<Self>) {
+        self.focus_handle.focus(window, cx);
+        cx.notify();
     }
 
     /// 估算当前 Key 占用字节（MEMORY USAGE）→ 写入 self.key_size_bytes
@@ -309,7 +363,8 @@ impl KeyDetailPanel {
         self.delete_element(vec!["ZREM".into(), key, member], "zrem", cx);
     }
 
-    fn handle_delete(&mut self, cx: &mut Context<Self>) {
+    /// 真正发 DEL 命令删除当前 key（由上层 Session 在二次确认通过后调用）
+    pub fn delete_key_now(&mut self, cx: &mut Context<Self>) {
         let Some(config) = self.config.clone() else {
             return;
         };
@@ -353,6 +408,7 @@ impl Render for KeyDetailPanel {
             return v_flex()
                 .size_full()
                 .bg(bg)
+                .track_focus(&self.focus_handle)
                 .items_center()
                 .justify_center()
                 .gap(px(6.0))
@@ -432,14 +488,16 @@ impl Render for KeyDetailPanel {
                             )),
                     ),
             )
-            // [+ X] 按容器类型：Hash → 字段；List/Set/ZSet → 元素
+            // [+] 按容器类型：Hash → 字段；List/Set/ZSet → 元素；Stream → 条目
+            // 统一用 Plus 图标 + tooltip 描述具体语义
             .when(matches!(self.value, Some(RedisValue::Hash(_))), |this| {
                 let key_for_emit = key.clone();
                 this.child(
                     Button::new("redis-hash-add-field")
                         .outline()
                         .small()
-                        .label("+ 字段")
+                        .icon(IconName::Plus)
+                        .tooltip("新增 Hash 字段")
                         .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                             cx.emit(KeyDetailEvent::RequestAddHashField(key_for_emit.clone()));
                         })),
@@ -451,7 +509,8 @@ impl Render for KeyDetailPanel {
                     Button::new("redis-list-add-elem")
                         .outline()
                         .small()
-                        .label("+ 元素")
+                        .icon(IconName::Plus)
+                        .tooltip("新增 List 元素")
                         .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                             cx.emit(KeyDetailEvent::RequestAddListElement(key_for_emit.clone()));
                         })),
@@ -463,7 +522,8 @@ impl Render for KeyDetailPanel {
                     Button::new("redis-set-add-elem")
                         .outline()
                         .small()
-                        .label("+ 元素")
+                        .icon(IconName::Plus)
+                        .tooltip("新增 Set 元素")
                         .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                             cx.emit(KeyDetailEvent::RequestAddSetElement(key_for_emit.clone()));
                         })),
@@ -475,7 +535,8 @@ impl Render for KeyDetailPanel {
                     Button::new("redis-zset-add-elem")
                         .outline()
                         .small()
-                        .label("+ 元素")
+                        .icon(IconName::Plus)
+                        .tooltip("新增 ZSet 成员")
                         .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                             cx.emit(KeyDetailEvent::RequestAddZSetElement(key_for_emit.clone()));
                         })),
@@ -487,19 +548,24 @@ impl Render for KeyDetailPanel {
                     Button::new("redis-stream-add-entry")
                         .outline()
                         .small()
-                        .label("+ 条目")
+                        .icon(IconName::Plus)
+                        .tooltip("新增 Stream 条目")
                         .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                             cx.emit(KeyDetailEvent::RequestAddStreamEntry(key_for_emit.clone()));
                         })),
                 )
             })
-            .child(
+            .child({
+                let key_for_emit = key.clone();
                 Button::new("redis-key-delete")
                     .danger()
                     .small()
-                    .label("删除")
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.handle_delete(cx))),
-            );
+                    .icon(ramag_ui::icons::trash())
+                    .tooltip("删除 Key")
+                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                        cx.emit(KeyDetailEvent::RequestDeleteKey(key_for_emit.clone()));
+                    }))
+            });
 
         let body: gpui::AnyElement = if self.loading {
             div()
@@ -537,6 +603,7 @@ impl Render for KeyDetailPanel {
         v_flex()
             .size_full()
             .bg(bg)
+            .track_focus(&self.focus_handle)
             .child(header)
             .child(
                 v_flex()
@@ -571,21 +638,24 @@ fn render_value(
         RedisValue::Float(f) => simple_label(&format!("{f} (double)"), fg).into_any_element(),
         RedisValue::Bool(b) => simple_label(&format!("{b} (bool)"), fg).into_any_element(),
         RedisValue::List(items) => {
-            render_list_block(cx, items, fg, muted_fg, accent, border).into_any_element()
+            render_list_block(cx, key.to_string(), items, fg, muted_fg, accent, border)
+                .into_any_element()
         }
         RedisValue::Hash(pairs) => {
             render_hash_block(cx, key.to_string(), pairs, fg, muted_fg, accent, border)
                 .into_any_element()
         }
         RedisValue::Set(items) => {
-            render_set_block(cx, items, fg, muted_fg, accent, border).into_any_element()
+            render_set_block(cx, key.to_string(), items, fg, muted_fg, accent, border)
+                .into_any_element()
         }
         RedisValue::ZSet(pairs) => {
             render_zset_block(cx, key.to_string(), pairs, fg, muted_fg, accent, border)
                 .into_any_element()
         }
         RedisValue::Stream(entries) => {
-            render_stream_block(cx, entries, fg, muted_fg, accent, border).into_any_element()
+            render_stream_block(cx, key.to_string(), entries, fg, muted_fg, accent, border)
+                .into_any_element()
         }
         // Array 暂仍走只读（命令应答的兜底，不直接来自 key value）
         RedisValue::Array(items) => list_block(items, fg, muted_fg, border).into_any_element(),
@@ -769,39 +839,31 @@ impl KeyDetailPanel {
             row
         };
 
-        // 编辑按钮（仅 Text 类型）
-        let edit_btn: Option<gpui::AnyElement> = match v {
-            RedisValue::Text(s) => {
-                let key_for_emit = key.to_string();
-                let text_for_emit = s.clone();
-                Some(
-                    Button::new("redis-string-edit")
-                        .outline()
-                        .small()
-                        .label("编辑值")
-                        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                            cx.emit(KeyDetailEvent::RequestEditValue(
-                                key_for_emit.clone(),
-                                text_for_emit.clone(),
-                            ));
-                        }))
-                        .into_any_element(),
-                )
-            }
+        // 双击编辑数据（仅 Text 类型支持）
+        let edit_target: Option<(String, String)> = match v {
+            RedisValue::Text(s) => Some((key.to_string(), s.clone())),
             _ => None,
         };
+        let is_text = edit_target.is_some();
 
         v_flex()
             .w_full()
             .gap(px(8.0))
-            // 工具条：tabs + 编辑按钮（右对齐）
+            // 工具条：tabs + 双击提示（仅 Text 类型显示）
             .child(
                 h_flex()
                     .w_full()
                     .items_center()
                     .child(tabs_row)
                     .child(div().flex_1())
-                    .when_some(edit_btn, |this, b| this.child(b)),
+                    .when(is_text, |this| {
+                        this.child(
+                            div()
+                                .text_xs()
+                                .text_color(muted_fg)
+                                .child("双击下方内容编辑"),
+                        )
+                    }),
             )
             // Gzip 提示
             .when_some(gzip_hint, |this, hint| {
@@ -817,9 +879,10 @@ impl KeyDetailPanel {
                         .child(hint),
                 )
             })
-            // 内容（多行文本，monospace，可滚动靠外层）
-            .child(
-                div()
+            // 内容（多行文本，monospace）；Text 类型双击触发编辑
+            .child({
+                let content_div = div()
+                    .id("redis-scalar-content")
                     .w_full()
                     .p(px(10.0))
                     .border_1()
@@ -828,8 +891,22 @@ impl KeyDetailPanel {
                     .text_sm()
                     .text_color(fg)
                     .font_family("monospace")
-                    .child(content_text),
-            )
+                    .child(content_text);
+                match edit_target {
+                    Some((k, s)) => content_div
+                        .cursor_pointer()
+                        .on_click(cx.listener(move |_, e: &ClickEvent, _, cx| {
+                            if e.click_count() >= 2 {
+                                cx.emit(KeyDetailEvent::RequestEditValue(
+                                    k.clone(),
+                                    s.clone(),
+                                ));
+                            }
+                        }))
+                        .into_any_element(),
+                    None => content_div.into_any_element(),
+                }
+            })
     }
 }
 
@@ -883,8 +960,10 @@ fn human_readable_bytes(n: u64) -> String {
 }
 
 /// List 块渲染（带 [🗑] 行内删除按钮）
+#[allow(clippy::too_many_arguments)]
 fn render_list_block(
     panel: &mut Context<KeyDetailPanel>,
+    key: String,
     items: &[RedisValue],
     fg: gpui::Hsla,
     muted_fg: gpui::Hsla,
@@ -903,6 +982,7 @@ fn render_list_block(
             RedisValue::Text(s) => s.clone(),
             other => other.display_preview(8192),
         };
+        let key_for_emit = key.clone();
         let del_id = SharedString::from(format!("list-del-{i}"));
         rows = rows.child(
             h_flex()
@@ -937,8 +1017,12 @@ fn render_list_block(
                         .cursor_pointer()
                         .hover(|this| this.opacity(0.7))
                         .child("删除")
-                        .on_click(panel.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.delete_list_element(raw_value.clone(), cx);
+                        .on_click(panel.listener(move |_, _: &ClickEvent, _, cx| {
+                            cx.emit(KeyDetailEvent::RequestDeleteListElement(
+                                key_for_emit.clone(),
+                                raw_value.clone(),
+                                i,
+                            ));
                         })),
                 ),
         );
@@ -947,8 +1031,10 @@ fn render_list_block(
 }
 
 /// Set 块渲染（带 [🗑] 行内删除按钮）
+#[allow(clippy::too_many_arguments)]
 fn render_set_block(
     panel: &mut Context<KeyDetailPanel>,
+    key: String,
     items: &[RedisValue],
     fg: gpui::Hsla,
     muted_fg: gpui::Hsla,
@@ -967,6 +1053,7 @@ fn render_set_block(
             RedisValue::Text(s) => s.clone(),
             other => other.display_preview(8192),
         };
+        let key_for_emit = key.clone();
         let del_id = SharedString::from(format!("set-del-{i}"));
         rows = rows.child(
             h_flex()
@@ -1001,8 +1088,11 @@ fn render_set_block(
                         .cursor_pointer()
                         .hover(|this| this.opacity(0.7))
                         .child("删除")
-                        .on_click(panel.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.delete_set_element(raw_member.clone(), cx);
+                        .on_click(panel.listener(move |_, _: &ClickEvent, _, cx| {
+                            cx.emit(KeyDetailEvent::RequestDeleteSetElement(
+                                key_for_emit.clone(),
+                                raw_member.clone(),
+                            ));
                         })),
                 ),
         );
@@ -1035,6 +1125,7 @@ fn render_zset_block(
         };
         let score_str = format!("{score:.6}");
         let key_for_edit = key.clone();
+        let key_for_del = key.clone();
         let raw_for_edit = raw_member.clone();
         let raw_for_del = raw_member.clone();
         let edit_id = SharedString::from(format!("zset-edit-{i}"));
@@ -1092,8 +1183,11 @@ fn render_zset_block(
                                 .cursor_pointer()
                                 .hover(|this| this.opacity(0.7))
                                 .child("删除")
-                                .on_click(panel.listener(move |this, _: &ClickEvent, _, cx| {
-                                    this.delete_zset_member(raw_for_del.clone(), cx);
+                                .on_click(panel.listener(move |_, _: &ClickEvent, _, cx| {
+                                    cx.emit(KeyDetailEvent::RequestDeleteZSetMember(
+                                        key_for_del.clone(),
+                                        raw_for_del.clone(),
+                                    ));
                                 })),
                         ),
                 ),
@@ -1194,9 +1288,11 @@ fn render_hash_block(
                                 .cursor_pointer()
                                 .hover(|this| this.opacity(0.7))
                                 .child("删除")
-                                .on_click(panel.listener(move |this, _: &ClickEvent, _, cx| {
-                                    let _ = key_for_del.clone();
-                                    this.delete_hash_field(field_for_del.clone(), cx);
+                                .on_click(panel.listener(move |_, _: &ClickEvent, _, cx| {
+                                    cx.emit(KeyDetailEvent::RequestDeleteHashField(
+                                        key_for_del.clone(),
+                                        field_for_del.clone(),
+                                    ));
                                 })),
                         ),
                 ),
@@ -1206,8 +1302,10 @@ fn render_hash_block(
 }
 
 /// Stream 块渲染（KeyDetailPanel 方法版）：每条 entry 显示 ID + 字段对 + [删除]
+#[allow(clippy::too_many_arguments)]
 fn render_stream_block(
     panel: &mut Context<KeyDetailPanel>,
+    key: String,
     entries: &[StreamEntry],
     fg: gpui::Hsla,
     muted_fg: gpui::Hsla,
@@ -1243,6 +1341,7 @@ fn render_stream_block(
         }
         let entry_id = e.id.clone();
         let id_for_del = entry_id.clone();
+        let key_for_del = key.clone();
         let del_btn_id = SharedString::from(format!("stream-del-{idx}"));
         blocks = blocks.child(
             v_flex()
@@ -1273,8 +1372,11 @@ fn render_stream_block(
                                 .cursor_pointer()
                                 .hover(|this| this.opacity(0.7))
                                 .child("删除")
-                                .on_click(panel.listener(move |this, _: &ClickEvent, _, cx| {
-                                    this.delete_stream_entry(id_for_del.clone(), cx);
+                                .on_click(panel.listener(move |_, _: &ClickEvent, _, cx| {
+                                    cx.emit(KeyDetailEvent::RequestDeleteStreamEntry(
+                                        key_for_del.clone(),
+                                        id_for_del.clone(),
+                                    ));
                                 })),
                         ),
                 )
