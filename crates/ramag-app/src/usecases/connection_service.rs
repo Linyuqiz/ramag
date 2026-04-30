@@ -70,6 +70,13 @@ impl ConnectionService {
         self.driver_for(config)?.server_version(config).await
     }
 
+    /// 失效指定连接的池缓存（用户编辑 config 后必须调，否则旧池还按旧 host/db 工作）
+    pub fn evict_pool(&self, config: &ConnectionConfig) {
+        if let Ok(driver) = self.driver_for(config) {
+            driver.evict_pool(&config.id);
+        }
+    }
+
     /// 测试 + 保存（一键操作）
     pub async fn test_and_save(&self, config: &ConnectionConfig) -> Result<()> {
         self.driver_for(config)?.test_connection(config).await?;

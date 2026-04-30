@@ -310,8 +310,10 @@ where
         && let Some(use_sql) = b.use_database_sql(schema)
     {
         debug!(?use_sql, "switching default schema before query");
-        sqlx::query(&use_sql)
-            .execute(&mut *conn)
+        // 走 raw text protocol（不 prepare）：MySQL 的 `USE <db>` 在 prepared statement
+        // 协议下会报 "This command is not supported in the prepared statement protocol yet"，
+        // 必须用 COM_QUERY 直发。Executor::execute(&str) 就是 simple query 路径
+        conn.execute(use_sql.as_str())
             .await
             .map_err(|e| map_err(b, e))?;
     }

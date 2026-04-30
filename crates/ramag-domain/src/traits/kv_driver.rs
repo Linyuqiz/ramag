@@ -20,7 +20,7 @@
 
 use async_trait::async_trait;
 
-use crate::entities::{ConnectionConfig, RedisType, RedisValue, ScanResult};
+use crate::entities::{ConnectionConfig, ConnectionId, RedisType, RedisValue, ScanResult};
 use crate::error::Result;
 
 /// KV 数据库驱动统一抽象
@@ -108,4 +108,10 @@ pub trait KvDriver: Send + Sync {
     ///
     /// 返回原始 INFO 文本（多 section 由 `\r\n` 分隔），由调用方解析展示
     async fn info(&self, config: &ConnectionConfig, sections: &[&str]) -> Result<String>;
+
+    /// 失效指定连接的池缓存
+    ///
+    /// 用户编辑连接 config 后必须调，否则 driver 内部缓存的旧池会按旧 host/db 继续工作。
+    /// 默认空实现：driver 不缓存连接池的可省略
+    fn evict_pool(&self, _id: &ConnectionId) {}
 }

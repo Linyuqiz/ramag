@@ -22,7 +22,7 @@ use gpui_component::{
 };
 use parking_lot::RwLock;
 use ramag_app::ConnectionService;
-use ramag_domain::entities::{Column, ConnectionConfig, ForeignKey, Index, Schema};
+use ramag_domain::entities::{Column, ConnectionConfig, DriverKind, ForeignKey, Index, Schema};
 
 use crate::sql_completion::{SchemaCache, is_system_schema};
 
@@ -201,6 +201,15 @@ impl TableTreePanel {
                         let names: Vec<String> = schemas.iter().map(|s| s.name.clone()).collect();
                         this.schema_cache.write().all_schemas = names;
                         this.schemas = schemas;
+                        // 首次加载完成后自动激活默认 schema：
+                        // - PG：优先 public，否则第一个非系统 schema
+                        // - MySQL：connection.database（schema=database 同义），否则第一个非系统
+                        // - Redis 不走这条路径
+                        if this.active_schema.is_none() {
+                            if let Some(default_name) = pick_default_schema(&conn, &this.schemas) {
+                                this.toggle_schema(default_name, cx);
+                            }
+                        }
                     }
                     Err(e) => {
                         error!(error = %e, "list schemas failed");
@@ -246,12 +255,19 @@ impl TableTreePanel {
                 entry.loading = false;
                 match result {
                     Ok(tables) => {
-                        // 顺手把表名同步到补全 cache（一次 IO 两份用）
+                        // 顺手把表名同步到补全 cache（一次 IO 两份用）；
+                        // 同时按 is_view 单独索引视图集合，供 result_panel 禁用写按钮使用
                         let names: Vec<String> = tables.iter().map(|t| t.name.clone()).collect();
-                        this.schema_cache
-                            .write()
-                            .tables
-                            .insert(schema_for_async.clone(), names);
+                        let view_set: std::collections::HashSet<String> = tables
+                            .iter()
+                            .filter(|t| t.is_view)
+                            .map(|t| t.name.clone())
+                            .collect();
+                        {
+                            let mut cache = this.schema_cache.write();
+                            cache.tables.insert(schema_for_async.clone(), names);
+                            cache.views.insert(schema_for_async.clone(), view_set);
+                        }
                         entry.tables = tables;
                     }
                     Err(e) => {
@@ -267,6 +283,15 @@ impl TableTreePanel {
 
     fn handle_table_click(&mut self, schema: String, table: String, cx: &mut Context<Self>) {
         self.selected = Some((schema.clone(), table.clone()));
+        // 点击的表所属 schema 与当前 active 不同 → 同步切到这个 schema：
+        // 1. picker 顶部 label 跟着更新（视觉一致）
+        // 2. 通过 SchemaActivated 通知父级走 USE/SET search_path，让裸表名 SQL 解析也对齐
+        if self.active_schema.as_deref() != Some(schema.as_str()) {
+            self.active_schema = Some(schema.clone());
+            cx.emit(TreeEvent::SchemaActivated {
+                schema: schema.clone(),
+            });
+        }
         cx.emit(TreeEvent::TableSelected { schema, table });
         cx.notify();
     }
@@ -728,11 +753,25 @@ impl Render for TableTreePanel {
         // 顶部第 1 行：schema picker（与 Redis 的 DB picker 对齐布局）
         // 显示当前 active schema；下拉列出 schemas 切换；空态显示"未选库"
         // 系统库 toggle 控制下拉里是否显示系统库
+        //
+        // PG 特殊：连接绑死一个 database，库内多 schema。picker 显示 `database / schema`
+        // 让用户清楚自己连的是哪个库（database 是连接级只读，仅 schema 可切换）
+        let driver = self.connection.as_ref().map(|c| c.driver);
+        let pg_database: Option<String> = self
+            .connection
+            .as_ref()
+            .filter(|c| matches!(c.driver, DriverKind::Postgres))
+            .and_then(|c| c.database.clone());
         let active_label = self
             .active_schema
             .clone()
             .unwrap_or_else(|| "未选库".to_string());
-        let picker_label = format!("DB {active_label} ▾");
+        let picker_label = match (driver, pg_database.as_deref()) {
+            (Some(DriverKind::Postgres), Some(db)) => {
+                format!("DB {db} / {active_label} ▾")
+            }
+            _ => format!("DB {active_label} ▾"),
+        };
         let entity_for_picker = cx.entity().clone();
         let picker_schemas: Vec<String> = self
             .schemas
@@ -1001,5 +1040,40 @@ impl Render for TableTreePanel {
                     .child(header_text),
             )
             .into_any_element()
+    }
+}
+
+/// 打开连接后挑选默认要激活的 schema
+///
+/// 选择优先级：
+/// - **PostgreSQL**：优先 `public`（PG 默认 schema），不在则取第一个非系统 schema
+/// - **MySQL**：连接配置里的 `database` 字段（MySQL 视 schema 与 database 同义），
+///   若该值不在 schemas 列表则 fallback 到第一个非系统 schema
+/// - **Redis**：返回 None（Redis 走 RedisSessionPanel，不进 SQL 表树）
+fn pick_default_schema(conn: &ConnectionConfig, schemas: &[Schema]) -> Option<String> {
+    let first_user_schema = || {
+        schemas
+            .iter()
+            .find(|s| !is_system_schema(&s.name))
+            .map(|s| s.name.clone())
+    };
+    match conn.driver {
+        DriverKind::Postgres => {
+            if schemas.iter().any(|s| s.name == "public") {
+                Some("public".to_string())
+            } else {
+                first_user_schema()
+            }
+        }
+        DriverKind::Mysql => {
+            if let Some(db) = conn.database.as_deref().filter(|s| !s.is_empty())
+                && schemas.iter().any(|s| s.name == db)
+            {
+                Some(db.to_string())
+            } else {
+                first_user_schema()
+            }
+        }
+        DriverKind::Redis => None,
     }
 }

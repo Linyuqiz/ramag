@@ -171,6 +171,10 @@ pub fn is_system_schema(name: &str) -> bool {
 pub struct SchemaCache {
     /// schema → 表名列表
     pub tables: HashMap<String, Vec<String>>,
+    /// schema → 视图名集合（包括普通视图 / 物化视图 / SYSTEM VIEW）
+    /// 由 TableTreePanel 在 list_tables 时按 Table::is_view 提取写入；
+    /// result_panel 用它判断当前查询的目标表是否视图，从而禁用写操作按钮
+    pub views: HashMap<String, std::collections::HashSet<String>>,
     /// (schema, table) → 列名列表（Phase 3 用，当前未填）
     pub columns: HashMap<(String, String), Vec<String>>,
     /// 默认 schema（连接配置里的 database 字段）
@@ -181,6 +185,19 @@ pub struct SchemaCache {
     /// 表树侧"显示系统库"toggle 的当前状态
     /// 默认 false（隐藏）；DB 下拉读取此值决定是否展示系统库
     pub show_system: bool,
+}
+
+impl SchemaCache {
+    /// 判断 schema.table 是否视图（不区分大小写匹配）。schema 为 None 时不判断，返回 false
+    pub fn is_view(&self, schema: Option<&str>, table: &str) -> bool {
+        let Some(s) = schema else {
+            return false;
+        };
+        match self.views.get(s) {
+            Some(set) => set.iter().any(|v| v.eq_ignore_ascii_case(table)),
+            None => false,
+        }
+    }
 }
 
 impl SchemaCache {

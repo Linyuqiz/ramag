@@ -151,7 +151,7 @@ impl ConnectionFormPanel {
         });
         let database = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("可选")
+                .placeholder("如：postgres / mydb")
                 .default_value(p.database.unwrap_or_default())
         });
 
@@ -456,12 +456,13 @@ impl Render for ConnectionFormPanel {
         let driver_selector: Option<gpui::AnyElement> = matches!(self.mode, FormMode::Create)
             .then(|| self.render_driver_selector(cx).into_any_element());
 
-        // driver 相关的标签 / 占位（Redis 与 SQL 类形态略有差异）
+        // driver 相关的标签 / 占位
+        // PG 协议要求连接时必须绑定具体 database，单独标"必填"以区别 MySQL 的可选
         let is_redis = self.driver_id == "redis";
-        let database_label = if is_redis {
-            "DB（0-15）"
-        } else {
-            "默认库（可选）"
+        let database_label = match self.driver_id {
+            "redis" => "DB（0-15）",
+            "postgres" => "默认库（必填）",
+            _ => "默认库（可选）",
         };
         let username_label = if is_redis {
             "用户名（ACL，可选）"

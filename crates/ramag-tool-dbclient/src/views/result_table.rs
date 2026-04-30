@@ -809,6 +809,8 @@ fn open_cell_editor(
     let Some((col_name, initial_text, has_pk)) = panel.cell_info(ri, ci) else {
         return;
     };
+    // 视图作为只读：弹框正常打开（用于查看完整内容），但里头「确认」按钮被禁用
+    let is_view = panel.target_is_view();
     let input = cx.new(|cx_inner| {
         InputState::new(window, cx_inner)
             .multi_line(true)
@@ -817,7 +819,17 @@ fn open_cell_editor(
     });
     panel.set_cell_edit_input(Some(input.clone()));
     let panel_entity = cx.entity();
-    super::cell_edit_dialog::open(panel_entity, ri, ci, col_name, input, has_pk, window, cx);
+    super::cell_edit_dialog::open(
+        panel_entity,
+        ri,
+        ci,
+        col_name,
+        input,
+        has_pk,
+        is_view,
+        window,
+        cx,
+    );
 }
 
 /// 比较两个 Value：Null 视为最小，同型按值比较，跨型用字符串兜底

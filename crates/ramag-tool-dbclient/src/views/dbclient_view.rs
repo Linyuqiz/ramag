@@ -165,6 +165,8 @@ impl DbClientView {
             return;
         }
 
+        // 在 config 被 move 进 session 之前先抓 id 用于版本探测
+        let conn_id = config.id.clone();
         // 按 driver dispatch：SQL 类（MySQL/Postgres）走 ConnectionSession；Redis 走 RedisSessionPanel
         let new_session = match config.driver {
             DriverKind::Mysql | DriverKind::Postgres => {
@@ -184,6 +186,9 @@ impl DbClientView {
         // tab 多溢出时让新连接 tab 滚入视图（GPUI 自动 clamp 到 max_offset）
         self.sessions_scroll
             .set_offset(Point::new(px(-99999.0), px(0.0)));
+        // 用户主动打开后才异步探测版本（不打开的连接不会去建池/试连）
+        self.picker
+            .update(cx, |p, cx| p.prefetch_version(&conn_id, cx));
         cx.notify();
     }
 
@@ -281,10 +286,44 @@ impl DbClientView {
         cx: &mut Context<Self>,
     ) {
         match event {
-            FormEvent::Saved(_conn) => {
+            FormEvent::Saved(conn) => {
                 info!("connection saved, refreshing picker");
                 window.close_dialog(cx);
                 self.picker.update(cx, |p, cx| p.refresh(cx));
+                // 失效 driver 内的连接池缓存：池按 ConnectionId 索引，旧 config 建的池
+                // 还指向旧 host/db，必须丢弃，下次访问按新 config 重建
+                match conn.driver {
+                    DriverKind::Mysql | DriverKind::Postgres => {
+                        self.service.evict_pool(conn);
+                    }
+                    DriverKind::Redis => {
+                        self.redis_service.evict_pool(&conn.id);
+                    }
+                }
+                // 编辑场景：若该连接有正在打开的 Session，旧 config 已过期（如 database 改了）→
+                // 静默关闭旧 Session，避免它继续基于旧池跑查询误导用户
+                if let Some(idx) = self
+                    .sessions
+                    .iter()
+                    .position(|s| s.config(cx).id == conn.id)
+                {
+                    self.sessions.remove(idx);
+                    match self.active_session {
+                        Some(active) if active == idx => {
+                            if self.sessions.is_empty() {
+                                self.active_session = None;
+                                self.center = CenterMode::ConnectionPicker;
+                            } else {
+                                let new_active = active.min(self.sessions.len() - 1);
+                                self.active_session = Some(new_active);
+                            }
+                        }
+                        Some(active) if active > idx => {
+                            self.active_session = Some(active - 1);
+                        }
+                        _ => {}
+                    }
+                }
                 cx.notify();
             }
             FormEvent::Cancelled => {

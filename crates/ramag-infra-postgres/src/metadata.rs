@@ -10,9 +10,11 @@ use tracing::debug;
 use crate::errors::map_postgres_error;
 use crate::types::map_column_kind;
 
-/// 列出当前 database 内所有非系统 schema
+/// 列出当前 database 内所有 schema（含系统 schema）
 ///
-/// 排除 `pg_catalog / information_schema / pg_toast / pg_temp_*` 等系统命名空间
+/// 系统 schema（`pg_catalog` / `information_schema` / `pg_toast` / `pg_temp_*`）由 UI 层
+/// 通过 `is_system_schema()` + 眼睛 toggle 决定显隐，driver 层不做过滤——这样用户开启
+/// "显示系统库"时能直接浏览 PG 内置 catalog（如查 `pg_catalog.pg_indexes` / `information_schema.columns`）
 pub async fn list_schemas(pool: &PgPool) -> Result<Vec<Schema>> {
     debug!("list_schemas (postgres)");
 
@@ -20,8 +22,6 @@ pub async fn list_schemas(pool: &PgPool) -> Result<Vec<Schema>> {
         r#"
         SELECT schema_name, default_character_set_name
         FROM information_schema.schemata
-        WHERE schema_name NOT IN ('pg_catalog', 'information_schema')
-          AND schema_name NOT LIKE 'pg\_%'
         ORDER BY schema_name
         "#,
     )

@@ -12,7 +12,7 @@ use gpui::{
     ClickEvent, Context, Entity, IntoElement, ParentElement, SharedString, Styled, Window, div, px,
 };
 use gpui_component::{
-    ActiveTheme, Sizable as _, WindowExt as _,
+    ActiveTheme, Disableable as _, Sizable as _, WindowExt as _,
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputState},
@@ -24,6 +24,8 @@ use super::result_panel::ResultPanel;
 /// - col_name：弹框标题里的列名
 /// - input：预建多行编辑框（已 default_value）
 /// - has_pk：当前结果集是否能推断主键（影响弹框上方提示）
+/// - is_view：来源是视图（PG/MySQL 都不允许 UPDATE 视图）；弹框照常打开供"查看完整内容"，
+///   但底部「确认」按钮置灰，标题改为"查看 ..."避免误导用户以为可以提交
 pub(super) fn open(
     panel: Entity<ResultPanel>,
     ri: usize,
@@ -31,10 +33,15 @@ pub(super) fn open(
     col_name: String,
     input: Entity<InputState>,
     has_pk: bool,
+    is_view: bool,
     window: &mut Window,
     cx: &mut Context<ResultPanel>,
 ) {
-    let title: SharedString = format!("编辑 行 {} · {}", ri + 1, col_name).into();
+    let title: SharedString = if is_view {
+        format!("查看 行 {} · {}", ri + 1, col_name).into()
+    } else {
+        format!("编辑 行 {} · {}", ri + 1, col_name).into()
+    };
 
     // 弹框打开后立即让 InputState 拿到焦点，用户不用再点一下输入框
     input.update(cx, |state, cx_inner| {
@@ -52,7 +59,7 @@ pub(super) fn open(
         let cancel_btn = Button::new("cell-edit-cancel")
             .ghost()
             .small()
-            .label("取消")
+            .label(if is_view { "关闭" } else { "取消" })
             .on_click({
                 let panel = panel_btn.clone();
                 move |_: &ClickEvent, window, app| {
@@ -65,6 +72,12 @@ pub(super) fn open(
             .primary()
             .small()
             .label("确认")
+            .disabled(is_view)
+            .tooltip(if is_view {
+                "视图不可写入（来源是只读视图）"
+            } else {
+                "提交 UPDATE 到数据库"
+            })
             .on_click({
                 let panel = panel_btn.clone();
                 let input = input_btn.clone();
@@ -88,7 +101,18 @@ pub(super) fn open(
                 let theme = cx.theme();
                 let muted_fg = theme.muted_foreground;
                 let warning = theme.warning;
-                let hint: gpui::AnyElement = if has_pk {
+                let hint: gpui::AnyElement = if is_view {
+                    // 视图来源：弹框是只读查看模式，明确告知用户不能提交
+                    div()
+                        .text_xs()
+                        .text_color(warning)
+                        .pb(px(6.0))
+                        .child(
+                            "⚠ 来源是只读视图，可查看 / 复制单元格内容，\
+                             但不能提交 UPDATE",
+                        )
+                        .into_any_element()
+                } else if has_pk {
                     div()
                         .text_xs()
                         .text_color(muted_fg)

@@ -34,6 +34,7 @@ use tracing::{error, info};
 use crate::actions::{
     CopyCellValue, CopySelectedColumn, ExportCsv, ExportJson, ExportMarkdown, FindInResults,
 };
+use crate::sql_completion::SchemaCache;
 use crate::views::result_table::render_table;
 
 /// UI 表格最多渲染行数（超出截断 + 状态栏提示"已截断"）
@@ -88,6 +89,8 @@ pub struct ResultPanel {
     /// 行内编辑用的执行器（由 QueryTab 注入）；None 表示仅展示模式不能 UPDATE
     service: Option<Arc<ConnectionService>>,
     connection: Option<ConnectionConfig>,
+    /// 表元数据 cache（由 QueryTab 注入）：用于判断 current_table 是否视图，从而禁用写按钮
+    schema_cache: Option<Arc<RwLock<SchemaCache>>>,
     /// 新增草稿行：表格末尾追加可编辑空行 + 状态栏「提交 / 取消」
     pending_insert: Option<PendingInsert>,
     /// 结果表格虚拟列表的垂直滚动句柄（uniform_list 用）
@@ -140,6 +143,7 @@ impl ResultPanel {
             cell_edit_input: None,
             service: None,
             connection: None,
+            schema_cache: None,
             pinned_target: None,
             selected_rows: BTreeSet::new(),
             pending_insert: None,
@@ -269,6 +273,33 @@ impl ResultPanel {
     ) {
         self.service = service;
         self.connection = connection;
+    }
+
+    /// QueryTab 注入 schema cache：用于禁用视图上的写操作按钮
+    pub fn set_schema_cache(&mut self, cache: Option<Arc<RwLock<SchemaCache>>>) {
+        self.schema_cache = cache;
+    }
+
+    /// 当前结果集对应的目标是否视图（视图禁止 INSERT/UPDATE/DELETE）
+    ///
+    /// 判定路径：pinned_target（表树点击注入的精确目标）优先，其次解析 source_sql 的 FROM 表名；
+    /// 命中后查 schema_cache.views。无 schema_cache 或解析不到目标时保守返回 false（允许写）
+    pub(super) fn target_is_view(&self) -> bool {
+        let Some(cache) = &self.schema_cache else {
+            return false;
+        };
+        // 先看精确 pinned_target，再回退到 SQL 解析
+        if let Some((schema, table)) = &self.pinned_target {
+            return cache.read().is_view(schema.as_deref(), table);
+        }
+        let Some(sql) = self.source_sql.as_deref() else {
+            return false;
+        };
+        let tables = crate::sql_completion::extract_tables_in_use_for_prefetch(sql);
+        let Some((schema, table)) = tables.into_iter().next() else {
+            return false;
+        };
+        cache.read().is_view(schema.as_deref(), &table)
     }
 
     /// 单元格编辑弹框：保活 InputState 引用（避免 dialog move 闭包丢失后失活）
@@ -1020,9 +1051,11 @@ impl ResultPanel {
             }
         };
 
+        // 列名按 driver 方言加引号（MySQL 反引号 / PG 双引号），避免 PG 报反引号语法错
+        let driver = conn.driver;
         let cols_sql = values
             .iter()
-            .map(|(c, _)| format!("`{}`", c.replace('`', "``")))
+            .map(|(c, _)| driver.quote_identifier(c))
             .collect::<Vec<_>>()
             .join(", ");
         let vals_sql = values

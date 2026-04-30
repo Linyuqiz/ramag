@@ -175,6 +175,12 @@ macro_rules! impl_driver_for {
                 })
                 .await
             }
+
+            fn evict_pool(&self, id: &::ramag_domain::entities::ConnectionId) {
+                // SQL 类 driver 走 SqlBackend::cache() 拿到 PoolCache 直接 evict
+                // 同步操作（PoolCache 内部是 DashMap）；不走 tokio runtime
+                <$ty as $crate::SqlBackend>::cache(self).evict(id);
+            }
         }
     };
 }

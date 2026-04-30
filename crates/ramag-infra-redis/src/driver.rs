@@ -34,11 +34,6 @@ impl RedisDriver {
             pools: PoolCache::new(),
         }
     }
-
-    /// 配置变更后调用，强制下次重建连接池（含该连接的所有 db 缓存）
-    pub fn evict_pool(&self, id: &ramag_domain::entities::ConnectionId) {
-        self.pools.evict_all_dbs(id);
-    }
 }
 
 impl Default for RedisDriver {
@@ -254,6 +249,11 @@ impl KvDriver for RedisDriver {
             run_info(&mut mgr, &refs).await
         })
         .await
+    }
+
+    fn evict_pool(&self, id: &ramag_domain::entities::ConnectionId) {
+        // 配置变更后强制重建：Redis 池缓存按 (ConnectionId, db) 索引，需清掉所有 db 的池
+        self.pools.evict_all_dbs(id);
     }
 }
 

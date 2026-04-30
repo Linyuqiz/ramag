@@ -112,10 +112,13 @@ impl QueryTab {
             );
             state
         });
+        let cache_for_result = schema_cache.clone();
         let result = cx.new(|cx| {
             let mut p = ResultPanel::new(window, cx);
             // 把执行器注入：单元格编辑弹框「确认修改」需要异步发 UPDATE
             p.set_executor(Some(service.clone()), connection.clone());
+            // schema cache：判断 current_table 是否视图，从而禁用写按钮
+            p.set_schema_cache(Some(cache_for_result));
             p
         });
 
@@ -722,6 +725,8 @@ impl Render for QueryTab {
         let panel_for_btn = self.result.read(cx);
         let has_multi_selected = !panel_for_btn.selected_rows().is_empty();
         let has_selected = has_multi_selected || panel_for_btn.selected_cell().is_some();
+        // 当前结果集对应的目标是视图时，禁用所有写操作按钮（视图不允许 INSERT/UPDATE/DELETE）
+        let target_is_view = panel_for_btn.target_is_view();
         let _ = panel_for_btn;
 
         v_flex()
@@ -869,10 +874,11 @@ impl Render for QueryTab {
                             }))
                     })
                     // 新增按钮：拉表的列元数据 → 表格末尾追加可编辑草稿行（DataGrip 风格）
-                    // 必须有 pinned_target（即从表树点开的单表 SELECT）
+                    // 必须有 pinned_target（即从表树点开的单表 SELECT）；视图禁用
                     .child({
                         let can_insert = self.connection.is_some()
                             && self.pinned_target.is_some()
+                            && !target_is_view
                             && self.result.read(cx).pending_insert().is_none();
                         Button::new("toolbar-insert")
                             .ghost()
@@ -880,6 +886,8 @@ impl Render for QueryTab {
                             .icon(IconName::Plus)
                             .tooltip(if can_insert {
                                 "新增行"
+                            } else if target_is_view {
+                                "新增行（视图不可写入）"
                             } else if self.pinned_target.is_none() {
                                 "新增行（请先从表树点开单表）"
                             } else {
@@ -954,13 +962,17 @@ impl Render for QueryTab {
                     })
                     .child(
                         // 删除按钮：多选优先（批量），无勾选则按选中单元格的行单删
-                        // 都弹二次确认 dialog，确认后异步执行
+                        // 都弹二次确认 dialog，确认后异步执行；视图上禁用
                         Button::new("toolbar-delete")
                             .ghost()
                             .small()
                             .icon(IconName::Minus)
-                            .tooltip("删除选中行")
-                            .disabled(!has_selected)
+                            .tooltip(if target_is_view {
+                                "删除选中行（视图不可写入）"
+                            } else {
+                                "删除选中行"
+                            })
+                            .disabled(!has_selected || target_is_view)
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                                 let panel_ref = this.result.read(cx);
                                 // 多选优先；没多选才看 cell 选中

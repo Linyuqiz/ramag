@@ -71,6 +71,11 @@ impl RedisService {
         self.driver.server_version(config).await
     }
 
+    /// 失效连接的池缓存（含该连接所有 db）；用户编辑 config 后必须调
+    pub fn evict_pool(&self, id: &ConnectionId) {
+        self.driver.evict_pool(id);
+    }
+
     /// 测试 + 保存（一键操作）
     pub async fn test_and_save(&self, config: &ConnectionConfig) -> Result<()> {
         self.driver.test_connection(config).await?;

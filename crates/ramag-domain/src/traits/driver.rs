@@ -9,7 +9,7 @@ use std::sync::atomic::AtomicU64;
 use async_trait::async_trait;
 
 use crate::entities::{
-    Column, ConnectionConfig, ForeignKey, Index, Query, QueryResult, Schema, Table,
+    Column, ConnectionConfig, ConnectionId, ForeignKey, Index, Query, QueryResult, Schema, Table,
 };
 use crate::error::Result;
 
@@ -96,4 +96,10 @@ pub trait Driver: Send + Sync {
         schema: &str,
         table: &str,
     ) -> Result<Vec<ForeignKey>>;
+
+    /// 失效指定连接的池缓存
+    ///
+    /// 用户编辑连接 config 后必须调，否则 driver 内部缓存的旧池会按旧 host/db 继续工作，
+    /// 导致 UI 已切到新 config 但查询仍走旧后端。默认空实现：driver 不缓存连接池的可省略
+    fn evict_pool(&self, _id: &ConnectionId) {}
 }

@@ -9,9 +9,7 @@ use gpui::{
     ClickEvent, Context, EventEmitter, IntoElement, ParentElement, Render, SharedString, Styled,
     Window, div, hsla, prelude::*, px,
 };
-use gpui_component::{
-    ActiveTheme, Icon, Sizable as _, h_flex, scroll::ScrollableElement as _, v_flex,
-};
+use gpui_component::{ActiveTheme, Icon, h_flex, scroll::ScrollableElement as _, v_flex};
 
 use crate::icons;
 use ramag_app::{ConnectionService, ToolRegistry};
@@ -76,7 +74,7 @@ impl Render for HomeView {
                                 "module-db",
                                 icons::database(),
                                 "数据库",
-                                "MySQL · PostgreSQL · Redis · MongoDB",
+                                "",
                                 secondary_bg,
                                 border,
                                 fg,
@@ -91,7 +89,7 @@ impl Render for HomeView {
                                 "module-vc",
                                 icons::git_branch(),
                                 "版本管理",
-                                "Git 仓库 · 提交 · 合并",
+                                "",
                                 secondary_bg,
                                 border,
                                 muted_fg,
@@ -138,7 +136,7 @@ fn render_logo(mono: SharedString, accent: gpui::Hsla, muted_fg: gpui::Hsla) -> 
         )
 }
 
-/// 主模块卡片：可点击，hover 高亮
+/// 主模块卡片：可点击，hover 高亮。水平布局 + shadow 立体感
 #[allow(clippy::too_many_arguments)]
 fn active_module_card(
     id: &'static str,
@@ -154,43 +152,59 @@ fn active_module_card(
     on_click: impl Fn(&ClickEvent, &mut Window, &mut gpui::App) + 'static,
 ) -> impl IntoElement {
     let mut tinted_accent = accent;
-    tinted_accent.a = 0.12;
+    tinted_accent.a = 0.14;
 
-    v_flex()
+    h_flex()
         .id(SharedString::from(id))
         .flex_1()
-        .min_w(px(160.0))
-        .gap(px(8.0))
-        .p(px(14.0))
-        .rounded_md()
+        .min_w(px(220.0))
+        .gap(px(16.0))
+        .items_center()
+        .px(px(20.0))
+        .py(px(20.0))
+        .rounded_lg()
         .bg(bg)
         .border_1()
         .border_color(border)
+        // 默认 shadow_sm 给卡片轻微悬浮感；hover 时升级到 shadow_md 模拟"抬起"
+        .shadow_sm()
         .cursor_pointer()
-        .hover(move |this| this.bg(hover_bg).border_color(accent))
+        .hover(move |this| this.bg(hover_bg).border_color(accent).shadow_md())
         .on_click(on_click)
         .child(
+            // icon 自身也带 shadow，跟卡片层级错开 + 渐变更亮 → 立体小方块感
             div()
-                .w(px(30.0))
-                .h(px(30.0))
-                .rounded(px(6.0))
+                .flex_none()
+                .w(px(44.0))
+                .h(px(44.0))
+                .rounded(px(10.0))
                 .bg(tinted_accent)
+                .shadow_xs()
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(icon.small().text_color(accent)),
+                .child(icon.text_color(accent)),
         )
         .child(
-            div()
-                .text_sm()
-                .font_weight(gpui::FontWeight::SEMIBOLD)
-                .text_color(fg)
-                .child(name),
+            v_flex()
+                .gap(px(2.0))
+                .flex_1()
+                .min_w_0()
+                .child(
+                    div()
+                        .text_base()
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                        .text_color(fg)
+                        .child(name),
+                )
+                // desc 为空字符串时不渲染副标题行
+                .when(!desc.is_empty(), |this| {
+                    this.child(div().text_xs().text_color(muted_fg).child(desc))
+                }),
         )
-        .child(div().text_xs().text_color(muted_fg).child(desc))
 }
 
-/// "Coming Soon" 模块卡片：dim、无 hover、无点击
+/// "Coming Soon" 模块卡片：dim、无 hover、无点击。水平布局与 active 对齐
 fn soon_module_card(
     id: &'static str,
     icon: Icon,
@@ -203,34 +217,47 @@ fn soon_module_card(
     let mut tinted = muted_fg;
     tinted.a = 0.18;
 
-    v_flex()
+    h_flex()
         .id(SharedString::from(id))
         .flex_1()
-        .min_w(px(160.0))
-        .gap(px(8.0))
-        .p(px(14.0))
-        .rounded_md()
+        .min_w(px(220.0))
+        .gap(px(16.0))
+        .items_center()
+        .px(px(20.0))
+        .py(px(20.0))
+        .rounded_lg()
         .bg(bg)
         .border_1()
         .border_color(border)
+        .shadow_sm()
         .opacity(0.55)
         .child(
             div()
-                .w(px(30.0))
-                .h(px(30.0))
-                .rounded(px(6.0))
+                .flex_none()
+                .w(px(44.0))
+                .h(px(44.0))
+                .rounded(px(10.0))
                 .bg(tinted)
+                .shadow_xs()
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(icon.small().text_color(muted_fg)),
+                .child(icon.text_color(muted_fg)),
         )
         .child(
-            div()
-                .text_sm()
-                .font_weight(gpui::FontWeight::SEMIBOLD)
-                .text_color(muted_fg)
-                .child(name),
+            v_flex()
+                .gap(px(2.0))
+                .flex_1()
+                .min_w_0()
+                .child(
+                    div()
+                        .text_base()
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                        .text_color(muted_fg)
+                        .child(name),
+                )
+                .when(!desc.is_empty(), |this| {
+                    this.child(div().text_xs().text_color(muted_fg).child(desc))
+                }),
         )
-        .child(div().text_xs().text_color(muted_fg).child(desc))
 }

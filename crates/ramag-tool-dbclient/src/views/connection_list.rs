@@ -113,45 +113,39 @@ impl ConnectionListPanel {
                     }
                 }
                 cx.notify();
-                // list 加载完后串行拉版本，已缓存的跳过；失败不卡 UI
-                this.fetch_versions(cx);
+                // 不再在 refresh 时批量探测版本：未打开的连接保持沉默，避免反复试连不可达主机
+                // 真正打开（open_session）时由外层显式调 prefetch_version 探测一次
             });
         })
         .detach();
     }
 
-    /// 串行后台拉每个连接的服务端版本（已缓存跳过；失败仅 debug 日志）
-    /// 串行避免一次性建多个池连导致目标库瞬时压力（每条都走 driver 的连接池）
+    /// 仅探测单条连接的服务端版本（已缓存则跳过；失败仅 debug 日志）
     ///
-    /// 按 driver 路由：MySQL → ConnectionService（sqlx）；Redis → RedisService（redis-rs）
-    fn fetch_versions(&mut self, cx: &mut Context<Self>) {
-        let conns: Vec<ConnectionConfig> = self.connections.clone();
+    /// 由 dbclient_view 在用户主动打开连接成功后调用，避免对未打开的连接建池
+    pub fn prefetch_version(&mut self, id: &ConnectionId, cx: &mut Context<Self>) {
+        if self.versions.contains_key(id) {
+            return;
+        }
+        let Some(conn) = self.connections.iter().find(|c| &c.id == id).cloned() else {
+            return;
+        };
         let mysql_svc = self.service.clone();
         let redis_svc = self.redis_service.clone();
         cx.spawn(async move |this, cx| {
-            for conn in conns {
-                let cached = this
-                    .update(cx, |this, _| this.versions.contains_key(&conn.id))
-                    .unwrap_or(true);
-                if cached {
-                    continue;
+            let result = match conn.driver {
+                DriverKind::Mysql | DriverKind::Postgres => mysql_svc.server_version(&conn).await,
+                DriverKind::Redis => redis_svc.server_version(&conn).await,
+            };
+            match result {
+                Ok(v) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.versions.insert(conn.id.clone(), v);
+                        cx.notify();
+                    });
                 }
-                let result = match conn.driver {
-                    DriverKind::Mysql | DriverKind::Postgres => {
-                        mysql_svc.server_version(&conn).await
-                    }
-                    DriverKind::Redis => redis_svc.server_version(&conn).await,
-                };
-                match result {
-                    Ok(v) => {
-                        let _ = this.update(cx, |this, cx| {
-                            this.versions.insert(conn.id.clone(), v);
-                            cx.notify();
-                        });
-                    }
-                    Err(e) => {
-                        debug!(error = %e, conn = %conn.name, "fetch server version failed");
-                    }
+                Err(e) => {
+                    debug!(error = %e, conn = %conn.name, "fetch server version failed");
                 }
             }
         })
@@ -362,6 +356,18 @@ fn connection_row(
         DriverKind::Redis => "Redis",
     };
 
+    // driver 配色（一类一色，便于扫一眼连接列表区分）：
+    // - MySQL：蓝（沿用主题 accent，保持品牌主线）
+    // - PostgreSQL：紫（贴近 PG 海豚品牌色）
+    // - Redis：红（贴近 Redis 官方红）
+    let badge_fg: gpui::Hsla = match conn.driver {
+        DriverKind::Mysql => accent,
+        DriverKind::Postgres => gpui::hsla(265.0 / 360.0, 0.55, 0.55, 1.0),
+        DriverKind::Redis => gpui::hsla(0.0, 0.65, 0.55, 1.0),
+    };
+    let mut badge_bg = badge_fg;
+    badge_bg.a = 0.12;
+
     let row_id = SharedString::from(format!("conn-row-{}-{}", idx, conn.id));
     let edit_id = SharedString::from(format!("conn-edit-{}-{}", idx, conn.id));
     let del_id = SharedString::from(format!("conn-del-{}-{}", idx, conn.id));
@@ -369,9 +375,6 @@ fn connection_row(
     let conn_for_open = conn.clone();
     let conn_for_edit = conn.clone();
     let conn_id_for_del = conn.id.clone();
-
-    let mut accent_tint = accent;
-    accent_tint.a = 0.10;
 
     let host_port = format!("{}:{}", conn.host, conn.port);
     // 用户名空（如 Redis 老版无 ACL）显示 "—"，与 db 字段空时一致，避免 "@ 0" 的视觉割裂
@@ -386,13 +389,22 @@ fn connection_row(
         conn.database.clone().unwrap_or_else(|| "—".into())
     );
 
+    // 名字 = host 时（用户没改默认同步），名字列合并显示 host:port，
+    // 避免右侧 host:port 列重复同样的信息
+    let name_collapsed_with_host = conn.name == conn.host;
+    let primary_label = if name_collapsed_with_host {
+        host_port.clone()
+    } else {
+        conn.name.clone()
+    };
+
     let mut row = h_flex()
         .id(row_id)
         .w_full()
         .items_center()
-        .gap(px(14.0))
+        .gap(px(12.0))
         .px(px(14.0))
-        .py(px(12.0))
+        .py(px(8.0))
         .border_b_1()
         .border_color(border)
         .cursor_pointer()
@@ -411,16 +423,16 @@ fn connection_row(
                     .bg(color),
             )
         })
-        // 类型 badge（固定宽度，整齐对齐）
+        // 类型 badge（固定宽度，整齐对齐；按 driver 一类一色）
         .child(
-            div().flex_none().w(px(56.0)).flex().justify_center().child(
+            div().flex_none().w(px(76.0)).flex().justify_center().child(
                 div()
                     .px(px(8.0))
                     .py(px(2.0))
                     .rounded(px(4.0))
                     .text_xs()
-                    .text_color(accent)
-                    .bg(accent_tint)
+                    .text_color(badge_fg)
+                    .bg(badge_bg)
                     .child(kind_label),
             ),
         )
@@ -434,33 +446,34 @@ fn connection_row(
                 .text_color(fg)
                 .overflow_hidden()
                 .text_ellipsis()
-                .child(conn.name.clone()),
+                .child(primary_label),
         )
-        // 服务端版本（独立列，弱视觉；未拉到时占位空字符串保持列宽对齐）
-        .child(
-            div()
-                .flex_none()
-                .w(px(130.0))
-                .text_xs()
-                .text_color(muted_fg)
-                .overflow_hidden()
-                .text_ellipsis()
-                .child(match version {
-                    Some(v) => format!("{kind_label} {v}"),
-                    None => String::new(),
-                }),
-        )
-        // host:port（固定宽度）
-        .child(
-            div()
-                .flex_none()
-                .w(px(180.0))
-                .text_xs()
-                .text_color(muted_fg)
-                .overflow_hidden()
-                .text_ellipsis()
-                .child(host_port),
-        )
+        // 服务端版本（仅在已成功探测到时显示；未拉到则该列不占空间）
+        .when_some(version, |row, v| {
+            row.child(
+                div()
+                    .flex_none()
+                    .w(px(130.0))
+                    .text_xs()
+                    .text_color(muted_fg)
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .child(format!("{kind_label} {v}")),
+            )
+        })
+        // host:port（仅在名字未与 host 合并时显示，避免重复）
+        .when(!name_collapsed_with_host, |row| {
+            row.child(
+                div()
+                    .flex_none()
+                    .w(px(180.0))
+                    .text_xs()
+                    .text_color(muted_fg)
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .child(host_port),
+            )
+        })
         // user @ db（固定宽度）
         .child(
             div()
