@@ -45,35 +45,37 @@ enum CenterMode {
 
 /// 已打开的会话：按 driver 区分两种内部组件
 ///
-/// MySQL 走原 ConnectionSession（QueryPanel + Tree）；
-/// Redis 走 ramag-tool-redis 的 RedisSessionPanel（Key 树 + 详情）
+/// SQL 类（MySQL / Postgres）走 ConnectionSession（QueryPanel + Tree）；
+/// Redis 走 ramag-tool-redis 的 RedisSessionPanel（Key 树 + 详情）。
+/// 按 SqlBackend 抽象层后，未来加 SQLite 等关系型数据库直接复用 Sql 变体即可
 enum SessionEntity {
-    Mysql(Entity<ConnectionSession>),
+    Sql(Entity<ConnectionSession>),
     Redis(Entity<RedisSessionPanel>),
 }
 
 impl SessionEntity {
     fn config<'a>(&'a self, cx: &'a gpui::App) -> &'a ConnectionConfig {
         match self {
-            SessionEntity::Mysql(e) => e.read(cx).config(),
+            SessionEntity::Sql(e) => e.read(cx).config(),
             SessionEntity::Redis(e) => e.read(cx).config(),
         }
     }
     fn title<'a>(&'a self, cx: &'a gpui::App) -> &'a str {
         match self {
-            SessionEntity::Mysql(e) => e.read(cx).title(),
+            SessionEntity::Sql(e) => e.read(cx).title(),
             SessionEntity::Redis(e) => e.read(cx).title(),
         }
     }
-    fn kind_label(&self) -> &'static str {
+    /// 数据库类型副标签（Tab Bar 副标题）。Sql 变体走 ConnectionSession 自身的 kind_label
+    fn kind_label<'a>(&'a self, cx: &'a gpui::App) -> &'static str {
         match self {
-            SessionEntity::Mysql(_) => "MySQL",
+            SessionEntity::Sql(e) => e.read(cx).kind_label(),
             SessionEntity::Redis(_) => "Redis",
         }
     }
     fn to_any_view(&self) -> AnyView {
         match self {
-            SessionEntity::Mysql(e) => e.clone().into(),
+            SessionEntity::Sql(e) => e.clone().into(),
             SessionEntity::Redis(e) => e.clone().into(),
         }
     }
@@ -163,12 +165,12 @@ impl DbClientView {
             return;
         }
 
-        // 按 driver dispatch：MySQL 走 SQL Session；Redis 走 RedisSessionPanel
+        // 按 driver dispatch：SQL 类（MySQL/Postgres）走 ConnectionSession；Redis 走 RedisSessionPanel
         let new_session = match config.driver {
-            DriverKind::Mysql => {
+            DriverKind::Mysql | DriverKind::Postgres => {
                 let svc = self.service.clone();
                 let entity = cx.new(|cx| ConnectionSession::new(config, svc, window, cx));
-                SessionEntity::Mysql(entity)
+                SessionEntity::Sql(entity)
             }
             DriverKind::Redis => {
                 let svc = self.redis_service.clone();
@@ -422,7 +424,7 @@ impl Render for DbClientView {
                 (
                     i,
                     s.title(cx).to_string(),
-                    s.kind_label(),
+                    s.kind_label(cx),
                     Some(i) == active,
                     s.config(cx).color,
                 )

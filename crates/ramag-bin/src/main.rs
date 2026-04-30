@@ -19,6 +19,7 @@ use gpui_component::Root;
 use ramag_app::{ConnectionService, RedisService, ToolRegistry};
 use ramag_domain::traits::{Driver, KvDriver, Storage};
 use ramag_infra_mysql::MysqlDriver;
+use ramag_infra_postgres::PostgresDriver;
 use ramag_infra_redis::RedisDriver;
 use ramag_infra_storage::RedbStorage;
 use ramag_tool_dbclient::{
@@ -220,18 +221,24 @@ fn open_main_window(
     .detach();
 }
 
-/// 装配数据层：MysqlDriver + RedbStorage + ConnectionService
+/// 装配数据层：所有 SQL driver + RedbStorage + ConnectionService
 ///
-/// 同时返回 storage Arc，让上层可以单独使用（例如读写主题偏好）
+/// SQL 类 driver 注册到 HashMap<DriverKind, Arc<dyn Driver>>；ConnectionService 按
+/// `config.driver` 分发。Redis 走独立 RedisService，不在此 service 内
 fn build_connection_service() -> anyhow::Result<(Arc<ConnectionService>, Arc<dyn Storage>)> {
-    let driver: Arc<dyn Driver> = Arc::new(MysqlDriver::new());
+    use ramag_domain::entities::DriverKind;
+    use std::collections::HashMap;
+
+    let mut drivers: HashMap<DriverKind, Arc<dyn Driver>> = HashMap::new();
+    drivers.insert(DriverKind::Mysql, Arc::new(MysqlDriver::new()));
+    drivers.insert(DriverKind::Postgres, Arc::new(PostgresDriver::new()));
 
     let storage_impl =
         RedbStorage::open_default().map_err(|e| anyhow::anyhow!("初始化 redb 存储失败: {e}"))?;
     info!(path = %storage_impl.path().display(), "storage opened");
     let storage: Arc<dyn Storage> = Arc::new(storage_impl);
 
-    let svc = Arc::new(ConnectionService::new(driver, storage.clone()));
+    let svc = Arc::new(ConnectionService::new(drivers, storage.clone()));
     Ok((svc, storage))
 }
 

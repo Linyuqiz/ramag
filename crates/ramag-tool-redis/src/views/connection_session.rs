@@ -688,7 +688,6 @@ impl RedisSessionPanel {
                 )
         });
     }
-
 }
 
 impl Render for RedisSessionPanel {

@@ -241,16 +241,24 @@ impl ResultPanel {
         self.pinned_target = target;
     }
 
-    /// 当前结果集对应的目标表的反引号字符串：优先用 pinned_target，再回退 SQL 解析
+    /// 当前结果集对应的目标表的引用字符串：优先用 pinned_target，再回退 SQL 解析
+    ///
+    /// 引号字符按 connection.driver 的方言：MySQL 反引号 / PG 双引号
     fn current_table_ref(&self) -> Option<String> {
+        let driver = self.connection.as_ref().map(|c| c.driver)?;
         if let Some((schema, table)) = &self.pinned_target {
-            let escape = |s: &str| s.replace('`', "``");
             return Some(match schema {
-                Some(s) => format!("`{}`.`{}`", escape(s), escape(table)),
-                None => format!("`{}`", escape(table)),
+                Some(s) => format!(
+                    "{}.{}",
+                    driver.quote_identifier(s),
+                    driver.quote_identifier(table)
+                ),
+                None => driver.quote_identifier(table),
             });
         }
-        self.source_sql.as_deref().and_then(extract_first_table_ref)
+        self.source_sql
+            .as_deref()
+            .and_then(|sql| extract_first_table_ref(sql, driver))
     }
 
     /// QueryTab 注入执行器：行内编辑（UPDATE 单元格）需要 service + connection
@@ -920,12 +928,15 @@ impl ResultPanel {
         };
 
         // 主线程一次性把每行的 SQL 算好，避免 spawn 闭包内借 result
+        let driver = conn.driver;
+        // PG 不支持 UPDATE/DELETE 加 LIMIT；MySQL 加 LIMIT 1 防误删
+        let limit_clause = dml_row_limit(driver);
         let plans: Vec<(usize, String)> = indices
             .iter()
             .filter_map(|&ri| {
                 let row = result.rows.get(ri)?;
-                let where_clause = build_pk_where(result, row);
-                let sql = format!("DELETE FROM {table_ref} WHERE {where_clause} LIMIT 1;");
+                let where_clause = build_pk_where(result, row, driver);
+                let sql = format!("DELETE FROM {table_ref} WHERE {where_clause}{limit_clause};");
                 Some((ri, sql))
             })
             .collect();
@@ -1112,8 +1123,9 @@ impl ResultPanel {
         } else {
             "按全列等值"
         };
-        let where_clause = build_pk_where(result, &row);
-        let sql = format!("DELETE FROM {table_ref} WHERE {where_clause} LIMIT 1;");
+        let where_clause = build_pk_where(result, &row, conn.driver);
+        let limit_clause = dml_row_limit(conn.driver);
+        let sql = format!("DELETE FROM {table_ref} WHERE {where_clause}{limit_clause};");
         let q = Query::new(sql);
 
         cx.spawn(async move |this, cx| {
@@ -1212,11 +1224,13 @@ impl ResultPanel {
             "按全列等值"
         };
 
-        let where_clause = build_pk_where(result, &row);
+        let driver = conn.driver;
+        let where_clause = build_pk_where(result, &row, driver);
         let new_literal = escape_new_value_for_old(&cell_val, &new_text);
+        let limit_clause = dml_row_limit(driver);
         let sql = format!(
-            "UPDATE {table_ref} SET `{}` = {new_literal} WHERE {where_clause} LIMIT 1;",
-            col_name.replace('`', "``"),
+            "UPDATE {table_ref} SET {} = {new_literal} WHERE {where_clause}{limit_clause};",
+            driver.quote_identifier(&col_name),
         );
         let new_cell_val = build_new_value_for_old(&cell_val, &new_text);
         let q = Query::new(sql);
@@ -1342,7 +1356,13 @@ fn find_pk_idx(result: &QueryResult) -> Option<usize> {
 
 /// 构造按主键的 WHERE 子句：复用于 generate_delete / generate_update
 /// 找到 PK 列就 `pk = val`，否则回退所有列等值（脆弱但安全，由用户审查）
-fn build_pk_where(result: &QueryResult, row: &ramag_domain::entities::Row) -> String {
+///
+/// `driver` 决定标识符引号字符（MySQL 反引号 / PG 双引号）
+fn build_pk_where(
+    result: &QueryResult,
+    row: &ramag_domain::entities::Row,
+    driver: ramag_domain::entities::DriverKind,
+) -> String {
     if let Some(idx) = find_pk_idx(result) {
         let col = result.columns.get(idx).cloned().unwrap_or_default();
         let val = row
@@ -1350,7 +1370,7 @@ fn build_pk_where(result: &QueryResult, row: &ramag_domain::entities::Row) -> St
             .get(idx)
             .map(|v| v.to_sql_literal())
             .unwrap_or_else(|| "NULL".into());
-        format!("`{}` = {}", col.replace('`', "``"), val)
+        format!("{} = {}", driver.quote_identifier(&col), val)
     } else {
         result
             .columns
@@ -1362,7 +1382,7 @@ fn build_pk_where(result: &QueryResult, row: &ramag_domain::entities::Row) -> St
                     .get(i)
                     .map(|v| v.to_sql_literal())
                     .unwrap_or_else(|| "NULL".into());
-                format!("`{}` = {}", c.replace('`', "``"), v)
+                format!("{} = {}", driver.quote_identifier(c), v)
             })
             .collect::<Vec<_>>()
             .join(" AND ")
@@ -1405,16 +1425,30 @@ fn escape_new_value_for_old(old: &Value, new_text: &str) -> String {
     build_new_value_for_old(old, new_text).to_sql_literal()
 }
 
-/// 从 SQL 提取第一个表引用（带反引号格式化好），用于复制 INSERT 时的目标表
-/// schema.table → `s`.`t`；纯 table → `t`
-fn extract_first_table_ref(sql: &str) -> Option<String> {
+/// 单行 DML（UPDATE/DELETE）的 LIMIT 子句（前缀含一个空格便于直接拼接）
+///
+/// - MySQL：` LIMIT 1` 防误删（如 WHERE 命中多行至少限制成 1 行）
+/// - PostgreSQL：空（PG 不支持 UPDATE/DELETE 加 LIMIT，行级保护靠精确 WHERE / ctid）
+/// - Redis：空（不走 SQL）
+fn dml_row_limit(driver: ramag_domain::entities::DriverKind) -> &'static str {
+    match driver {
+        ramag_domain::entities::DriverKind::Mysql => " LIMIT 1",
+        ramag_domain::entities::DriverKind::Postgres
+        | ramag_domain::entities::DriverKind::Redis => "",
+    }
+}
+
+/// 从 SQL 提取第一个表引用（按 driver 方言加引号），用于复制 INSERT 时的目标表
+fn extract_first_table_ref(
+    sql: &str,
+    driver: ramag_domain::entities::DriverKind,
+) -> Option<String> {
     use crate::sql_completion::extract_tables_in_use_for_prefetch;
     let tables = extract_tables_in_use_for_prefetch(sql);
     let (maybe_schema, table) = tables.into_iter().next()?;
-    let escape = |s: &str| s.replace('`', "``");
-    let table_q = format!("`{}`", escape(&table));
+    let table_q = driver.quote_identifier(&table);
     Some(match maybe_schema {
-        Some(s) => format!("`{}`.{}", escape(&s), table_q),
+        Some(s) => format!("{}.{}", driver.quote_identifier(&s), table_q),
         None => table_q,
     })
 }

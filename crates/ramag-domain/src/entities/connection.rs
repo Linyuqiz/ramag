@@ -27,15 +27,35 @@ impl std::fmt::Display for ConnectionId {
 
 /// 数据库类型枚举
 ///
-/// v0.1 MySQL，v0.4 起加入 Redis；未来可扩展 PG/SQLite 等
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// v0.1 MySQL，v0.4 起加入 Redis，v0.3+ 加入 PostgreSQL；未来可扩展 SQLite 等
+///
+/// `Hash` 派生让 `ConnectionService` 用 `HashMap<DriverKind, Arc<dyn Driver>>` 多 driver dispatch
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DriverKind {
     Mysql,
+    /// PostgreSQL（关系型，与 Mysql 共用 SqlBackend 抽象层）
+    Postgres,
     /// Redis（KV 形态，使用 KvDriver trait 而非 Driver trait）
     Redis,
     // 后续阶段添加：
-    // Postgres,
     // Sqlite,
+}
+
+impl DriverKind {
+    /// 包裹 SQL 标识符（表名/列名/schema 名）用方言规定的引号
+    ///
+    /// - MySQL：反引号 `` ` `` （内部反引号转义为 ````` ``)
+    /// - PostgreSQL：双引号 `"`（内部双引号转义为 `""`）
+    /// - Redis：不适用（KV 不走 SQL），原样返回
+    ///
+    /// UI 层（如 cell_edit_dialog 拼 UPDATE）按 connection.driver 调用
+    pub fn quote_identifier(&self, ident: &str) -> String {
+        match self {
+            DriverKind::Mysql => format!("`{}`", ident.replace('`', "``")),
+            DriverKind::Postgres => format!("\"{}\"", ident.replace('"', "\"\"")),
+            DriverKind::Redis => ident.to_string(),
+        }
+    }
 }
 
 /// 连接颜色标签：用作环境提示（dev/prod 区分）
@@ -148,6 +168,30 @@ impl ConnectionConfig {
             username: String::new(),
             password: String::new(),
             database: None,
+            remark: None,
+            color: ConnectionColor::default(),
+        }
+    }
+
+    /// 构造一个 PostgreSQL 连接配置（默认端口 5432）
+    ///
+    /// PG 必须连接到具体 database（不能不指定），调用方必须提供非空 `database`
+    pub fn new_postgres(
+        name: impl Into<String>,
+        host: impl Into<String>,
+        port: u16,
+        user: impl Into<String>,
+        database: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: ConnectionId::new(),
+            name: name.into(),
+            driver: DriverKind::Postgres,
+            host: host.into(),
+            port,
+            username: user.into(),
+            password: String::new(),
+            database: Some(database.into()),
             remark: None,
             color: ConnectionColor::default(),
         }

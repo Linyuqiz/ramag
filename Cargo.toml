@@ -4,7 +4,9 @@ members = [
     "crates/ramag-domain",
     "crates/ramag-app",
     "crates/ramag-infra-mysql",
+    "crates/ramag-infra-postgres",
     "crates/ramag-infra-redis",
+    "crates/ramag-infra-sql-shared",
     "crates/ramag-infra-storage",
     "crates/ramag-tool-dbclient",
     "crates/ramag-tool-redis",
@@ -25,7 +27,9 @@ repository = "https://github.com/axemc/ramag"
 ramag-domain = { path = "crates/ramag-domain" }
 ramag-app = { path = "crates/ramag-app" }
 ramag-infra-mysql = { path = "crates/ramag-infra-mysql" }
+ramag-infra-postgres = { path = "crates/ramag-infra-postgres" }
 ramag-infra-redis = { path = "crates/ramag-infra-redis" }
+ramag-infra-sql-shared = { path = "crates/ramag-infra-sql-shared" }
 ramag-infra-storage = { path = "crates/ramag-infra-storage" }
 ramag-tool-dbclient = { path = "crates/ramag-tool-dbclient" }
 ramag-tool-redis = { path = "crates/ramag-tool-redis" }

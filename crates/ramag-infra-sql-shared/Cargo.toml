@@ -1,0 +1,25 @@
+[package]
+name = "ramag-infra-sql-shared"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Ramag SQL 共享层（多种关系型 DB driver 复用：runtime / sql 工具 / SqlBackend trait + Driver 宏）"
+
+[lints]
+workspace = true
+
+[dependencies]
+ramag-domain = { workspace = true }
+
+# sqlx 仅用 trait（Database / Pool / Row 等），不启用具体 DB feature
+sqlx = { workspace = true }
+
+async-trait = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+
+dashmap = { workspace = true }
+once_cell = { workspace = true }
+
+tracing = { workspace = true }

@@ -52,4 +52,3 @@ pub fn pencil() -> Icon {
 pub fn trash() -> Icon {
     Icon::default().path("icons/trash-2.svg")
 }
-

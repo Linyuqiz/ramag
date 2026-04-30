@@ -137,7 +137,9 @@ impl ConnectionListPanel {
                     continue;
                 }
                 let result = match conn.driver {
-                    DriverKind::Mysql => mysql_svc.server_version(&conn).await,
+                    DriverKind::Mysql | DriverKind::Postgres => {
+                        mysql_svc.server_version(&conn).await
+                    }
                     DriverKind::Redis => redis_svc.server_version(&conn).await,
                 };
                 match result {
@@ -356,6 +358,7 @@ fn connection_row(
 
     let kind_label = match conn.driver {
         DriverKind::Mysql => "MySQL",
+        DriverKind::Postgres => "PostgreSQL",
         DriverKind::Redis => "Redis",
     };
 

@@ -559,6 +559,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
+name = "bigdecimal"
+version = "0.4.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d6867f1565b3aad85681f1015055b087fcfd840d6aeee6eee7f2da317603695"
+dependencies = [
+ "autocfg",
+ "libm",
+ "num-bigint",
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
 name = "bindgen"
 version = "0.71.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4887,6 +4900,7 @@ dependencies = [
  "ramag-app",
  "ramag-domain",
  "ramag-infra-mysql",
+ "ramag-infra-postgres",
  "ramag-infra-redis",
  "ramag-infra-storage",
  "ramag-tool-dbclient",
@@ -4916,18 +4930,29 @@ dependencies = [
 name = "ramag-infra-mysql"
 version = "0.0.1"
 dependencies = [
- "anyhow",
  "async-trait",
  "chrono",
- "dashmap",
- "futures",
- "once_cell",
  "ramag-domain",
+ "ramag-infra-sql-shared",
  "serde_json",
  "sqlx",
- "thiserror 2.0.18",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "ramag-infra-postgres"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "ramag-domain",
+ "ramag-infra-sql-shared",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -4943,6 +4968,20 @@ dependencies = [
  "ramag-domain",
  "redis",
  "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "ramag-infra-sql-shared"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "dashmap",
+ "futures",
+ "once_cell",
+ "ramag-domain",
+ "sqlx",
  "tokio",
  "tracing",
 ]
@@ -4983,6 +5022,7 @@ dependencies = [
  "parking_lot",
  "ramag-app",
  "ramag-domain",
+ "ramag-infra-sql-shared",
  "ramag-tool-redis",
  "ramag-ui",
  "rfd",
@@ -6197,6 +6237,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee6798b1838b6a0f69c007c133b8df5866302197e404e8b6ee8ed3e3a5e68dc6"
 dependencies = [
  "base64",
+ "bigdecimal",
  "bytes",
  "chrono",
  "crc",
@@ -6274,6 +6315,7 @@ checksum = "aa003f0038df784eb8fecbbac13affe3da23b45194bd57dba231c8f48199c526"
 dependencies = [
  "atoi",
  "base64",
+ "bigdecimal",
  "bitflags 2.11.1",
  "byteorder",
  "bytes",
@@ -6318,6 +6360,7 @@ checksum = "db58fcd5a53cf07c184b154801ff91347e4c30d17a3562a635ff028ad5deda46"
 dependencies = [
  "atoi",
  "base64",
+ "bigdecimal",
  "bitflags 2.11.1",
  "byteorder",
  "chrono",
@@ -6335,6 +6378,7 @@ dependencies = [
  "log",
  "md-5",
  "memchr",
+ "num-bigint",
  "once_cell",
  "rand 0.8.6",
  "serde",

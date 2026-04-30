@@ -1,3 +1,7 @@
+// 测试代码大量使用 unwrap/expect/panic（断言失败即阻断），是 Rust 测试的常态
+// cfg_attr(test, ...) 只在 test 配置下放行，不影响生产代码的严格审计
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
 //! Ramag 本地存储实现
 //!
 //! 用 redb 嵌入式数据库存连接配置 / 查询历史 / 收藏夹。

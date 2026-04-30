@@ -13,6 +13,8 @@ workspace = true
 ramag-domain = { workspace = true }
 ramag-app = { workspace = true }
 ramag-ui = { workspace = true }
+# 关系型 DB 共享层：复用 split_statements / inject_limit_if_needed（按 driver 切换 dollar-quoted 等方言选项）
+ramag-infra-sql-shared = { workspace = true }
 # Redis 视图组件（dbclient 是统一连接入口；Redis 会话面板在此 crate 内复用）
 ramag-tool-redis = { workspace = true }
 

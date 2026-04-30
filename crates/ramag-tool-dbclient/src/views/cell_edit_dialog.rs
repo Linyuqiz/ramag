@@ -93,16 +93,17 @@ pub(super) fn open(
                         .text_xs()
                         .text_color(muted_fg)
                         .pb(px(6.0))
-                        .child("确认后将提交 UPDATE 到数据库（按主键定位 + LIMIT 1）")
+                        .child("确认后将提交 UPDATE 到数据库（按主键定位单行）")
                         .into_any_element()
                 } else {
-                    // 无主键时全列等值匹配 + LIMIT 1，可能改到重复行；用警告色
+                    // 无主键时全列等值匹配；MySQL 拼 LIMIT 1 兜底，PG 没有 LIMIT 子句
+                    // 都可能命中重复行，统一警告
                     div()
                         .text_xs()
                         .text_color(warning)
                         .pb(px(6.0))
                         .child(
-                            "⚠ 该结果集无主键列：将按所有列等值匹配 + LIMIT 1，\
+                            "⚠ 该结果集无主键列：将按所有列等值匹配，\
                              如有重复行可能改到非预期那一条，请确认数据唯一性",
                         )
                         .into_any_element()

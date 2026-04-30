@@ -1,0 +1,33 @@
+[package]
+name = "ramag-infra-postgres"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Ramag PostgreSQL 驱动实现（实现 SqlBackend，由宏一行 impl Driver）"
+
+[lints]
+workspace = true
+
+[dependencies]
+ramag-domain = { workspace = true }
+# 关系型 DB 共享层：runtime / SqlBackend / impl_driver_for! 宏
+ramag-infra-sql-shared = { workspace = true }
+
+# PostgreSQL driver（在共享 sqlx 上额外启用 postgres + bigdecimal）
+# - postgres：PG 协议支持
+# - bigdecimal：NUMERIC 类型解码（保留精度，转 String）
+sqlx = { workspace = true, features = ["postgres", "bigdecimal"] }
+
+async-trait = { workspace = true }
+tokio = { workspace = true }
+
+chrono = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+
+# uuid 类型展示用（PG uuid 列）
+uuid = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

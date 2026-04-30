@@ -54,7 +54,7 @@ pub enum FormEvent {
 /// MongoDB / SQLite 暂不在路线图，先从选择器中移除避免误导
 const DRIVERS: &[(&str, &str, bool)] = &[
     ("mysql", "MySQL", true),
-    ("postgres", "PostgreSQL", false),
+    ("postgres", "PostgreSQL", true),
     ("redis", "Redis", true),
 ];
 
@@ -199,17 +199,30 @@ impl ConnectionFormPanel {
     /// 切换 driver（仅可用 driver 才会通过 UI 触发）
     ///
     /// 端口字段联动：仅当用户没改动过端口（仍是另一 driver 的默认值）时才自动切换
-    /// - mysql ↔ redis：3306 ↔ 6379
+    /// - mysql=3306 / postgres=5432 / redis=6379
     fn set_driver(&mut self, id: &'static str, window: &mut Window, cx: &mut Context<Self>) {
         if self.driver_id == id {
             return;
         }
         let cur_port = self.port.read(cx).value().to_string();
-        let new_port: Option<&'static str> = match (self.driver_id, id) {
-            ("mysql", "redis") if cur_port == "3306" || cur_port.is_empty() => Some("6379"),
-            ("redis", "mysql") if cur_port == "6379" || cur_port.is_empty() => Some("3306"),
-            _ => None,
+        let is_default_for = |port: &str, driver: &str| -> bool {
+            matches!(
+                (driver, port),
+                ("mysql", "3306") | ("postgres", "5432") | ("redis", "6379")
+            )
         };
+        // 用户没改过端口（保持当前 driver 默认）才自动切换到新 driver 默认
+        let new_port: Option<&'static str> =
+            if cur_port.is_empty() || is_default_for(&cur_port, self.driver_id) {
+                match id {
+                    "mysql" => Some("3306"),
+                    "postgres" => Some("5432"),
+                    "redis" => Some("6379"),
+                    _ => None,
+                }
+            } else {
+                None
+            };
         if let Some(np) = new_port {
             self.port
                 .update(cx, |state, cx| state.set_value(np, window, cx));
@@ -246,16 +259,20 @@ impl ConnectionFormPanel {
         let driver =
             id_to_driver_kind(self.driver_id).ok_or_else(|| "请选择数据库类型".to_string())?;
 
-        // 用户名：MySQL 必填；Redis 可空（老版无 ACL 时用空用户名）
-        if matches!(driver, DriverKind::Mysql) && username.is_empty() {
+        // 用户名：MySQL/Postgres 必填；Redis 可空（老版无 ACL 时用空用户名）
+        if matches!(driver, DriverKind::Mysql | DriverKind::Postgres) && username.is_empty() {
             return Err("请填写用户名".into());
         }
         // Redis 的 DB 字段限制 0-255 数字
-        if matches!(driver, DriverKind::Redis) {
-            if let Some(ref s) = database {
-                s.parse::<u8>()
-                    .map_err(|_| "DB 必须是 0 - 255 的数字（默认 Redis 上限 0-15）".to_string())?;
-            }
+        if matches!(driver, DriverKind::Redis)
+            && let Some(ref s) = database
+        {
+            s.parse::<u8>()
+                .map_err(|_| "DB 必须是 0 - 255 的数字（默认 Redis 上限 0-15）".to_string())?;
+        }
+        // Postgres 必须连接具体 database（不能不指定）
+        if matches!(driver, DriverKind::Postgres) && database.is_none() {
+            return Err("PostgreSQL 必须填写默认库".into());
         }
         let id = match &self.mode {
             FormMode::Create => ConnectionId::new(),
@@ -357,12 +374,12 @@ impl ConnectionFormPanel {
         self.test_state = TestState::Testing;
         cx.notify();
 
-        // 按 driver 走对应的 service.test：MySQL → ConnectionService；Redis → RedisService
-        let mysql_svc = self.service.clone();
+        // 按 driver 走对应的 service.test：SQL 类（MySQL/Postgres）→ ConnectionService；Redis → RedisService
+        let sql_svc = self.service.clone();
         let redis_svc = self.redis_service.clone();
         cx.spawn(async move |this, cx| {
             let result = match config.driver {
-                DriverKind::Mysql => mysql_svc.test(&config).await,
+                DriverKind::Mysql | DriverKind::Postgres => sql_svc.test(&config).await,
                 DriverKind::Redis => redis_svc.test(&config).await,
             };
             let _ = this.update(cx, |this, cx| {
@@ -599,12 +616,10 @@ fn field_row(label: &str, input: Input) -> impl IntoElement {
 }
 
 /// DriverKind → driver_id 字符串（用于 UI 选择器内部状态）
-///
-/// Redis 不在 DBClient 工具的表单选择器内呈现（Redis 走独立的 Redis 工具），
-/// 此处仍要覆盖以满足穷举 match；id 选用 "redis" 与未来 Redis 表单约定保持一致
 fn driver_kind_to_id(kind: DriverKind) -> &'static str {
     match kind {
         DriverKind::Mysql => "mysql",
+        DriverKind::Postgres => "postgres",
         DriverKind::Redis => "redis",
     }
 }
@@ -613,6 +628,7 @@ fn driver_kind_to_id(kind: DriverKind) -> &'static str {
 fn id_to_driver_kind(id: &str) -> Option<DriverKind> {
     match id {
         "mysql" => Some(DriverKind::Mysql),
+        "postgres" => Some(DriverKind::Postgres),
         "redis" => Some(DriverKind::Redis),
         _ => None,
     }

@@ -7,7 +7,7 @@ use ramag_domain::error::Result;
 use sqlx::MySqlPool;
 use tracing::debug;
 
-use crate::errors::map_sqlx_error;
+use crate::errors::map_mysql_error;
 use crate::types::map_column_type;
 
 // 注意：MySQL 的 INFORMATION_SCHEMA 列定义为 utf8 而 sqlx 把某些环境下的回包识别成
@@ -33,7 +33,7 @@ pub async fn list_schemas(pool: &MySqlPool) -> Result<Vec<Schema>> {
     )
     .fetch_all(pool)
     .await
-    .map_err(map_sqlx_error)?;
+    .map_err(|e| map_mysql_error(&e))?;
 
     Ok(rows
         .into_iter()
@@ -72,7 +72,7 @@ pub async fn list_tables(pool: &MySqlPool, schema: &str) -> Result<Vec<Table>> {
     .bind(schema)
     .fetch_all(pool)
     .await
-    .map_err(map_sqlx_error)?;
+    .map_err(|e| map_mysql_error(&e))?;
 
     Ok(rows
         .into_iter()
@@ -96,19 +96,24 @@ pub async fn list_tables(pool: &MySqlPool, schema: &str) -> Result<Vec<Table>> {
         .collect())
 }
 
+/// COLUMNS 表一行的元组类型（避免 clippy::type_complexity 警告）
+///
+/// 列：name / data_type / column_type / is_nullable / column_default / column_comment / column_key
+type ColumnRow = (
+    String,
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    String,
+);
+
 /// 列出指定表的所有列
 pub async fn list_columns(pool: &MySqlPool, schema: &str, table: &str) -> Result<Vec<Column>> {
     debug!(?schema, ?table, "list_columns");
 
-    let rows: Vec<(
-        String,
-        String,
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-        String,
-    )> = sqlx::query_as(
+    let rows: Vec<ColumnRow> = sqlx::query_as(
         r#"
             SELECT
                 CONVERT(COLUMN_NAME USING utf8mb4),
@@ -127,7 +132,7 @@ pub async fn list_columns(pool: &MySqlPool, schema: &str, table: &str) -> Result
     .bind(table)
     .fetch_all(pool)
     .await
-    .map_err(map_sqlx_error)?;
+    .map_err(|e| map_mysql_error(&e))?;
 
     Ok(rows
         .into_iter()
@@ -167,7 +172,7 @@ pub async fn list_indexes(pool: &MySqlPool, schema: &str, table: &str) -> Result
     .bind(table)
     .fetch_all(pool)
     .await
-    .map_err(map_sqlx_error)?;
+    .map_err(|e| map_mysql_error(&e))?;
 
     // 按 INDEX_NAME 聚合 columns
     let mut grouped: std::collections::BTreeMap<String, Index> = std::collections::BTreeMap::new();
@@ -219,7 +224,7 @@ pub async fn list_foreign_keys(
     .bind(table)
     .fetch_all(pool)
     .await
-    .map_err(map_sqlx_error)?;
+    .map_err(|e| map_mysql_error(&e))?;
 
     let mut grouped: std::collections::BTreeMap<String, ForeignKey> =
         std::collections::BTreeMap::new();
@@ -242,7 +247,7 @@ pub async fn ping(pool: &MySqlPool) -> Result<()> {
     let _: (i64,) = sqlx::query_as("SELECT 1")
         .fetch_one(pool)
         .await
-        .map_err(map_sqlx_error)?;
+        .map_err(|e| map_mysql_error(&e))?;
     Ok(())
 }
 
@@ -253,6 +258,6 @@ pub async fn server_version(pool: &MySqlPool) -> Result<String> {
     let (v,): (String,) = sqlx::query_as("SELECT VERSION()")
         .fetch_one(pool)
         .await
-        .map_err(map_sqlx_error)?;
+        .map_err(|e| map_mysql_error(&e))?;
     Ok(v)
 }

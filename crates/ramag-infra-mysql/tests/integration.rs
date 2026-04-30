@@ -13,6 +13,9 @@
 //! cargo test -p ramag-infra-mysql --test integration -- --nocapture
 //! ```
 
+// 测试代码局部豁免 unwrap/expect/panic：失败即用例失败，不需要 graceful 处理
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use ramag_domain::entities::{ConnectionConfig, ConnectionId, DriverKind, Query};
 use ramag_domain::traits::Driver;
 use ramag_infra_mysql::MysqlDriver;

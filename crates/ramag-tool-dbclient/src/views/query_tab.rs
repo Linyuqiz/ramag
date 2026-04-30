@@ -326,12 +326,13 @@ impl QueryTab {
         self.submit_sql(trimmed, title_sql, true, cx);
     }
 
-    /// 仅执行光标所在的那条 SQL（按 `;` 切分；避开字符串/注释里的 `;`）
+    /// 仅执行光标所在的那条 SQL（按 `;` 切分；避开字符串/注释/dollar-quoted 里的 `;`）
     /// 编辑器只有一条语句时，等价于 handle_run
     fn handle_run_at_cursor(&mut self, cx: &mut Context<Self>) {
         let sql = self.current_sql(cx);
         let cursor = self.editor.read(cx).cursor();
-        let stmt = extract_statement_at_cursor(&sql, cursor);
+        let driver = self.connection.as_ref().map(|c| c.driver);
+        let stmt = extract_statement_at_cursor(&sql, cursor, driver);
         let trimmed = stmt.trim().to_string();
         if trimmed.is_empty() {
             return;
@@ -389,7 +390,7 @@ impl QueryTab {
         // EXPLAIN 不注入；driver 端的 Query.auto_limit 作为兜底（防止其他路径漏掉）
         let auto_limit_active = is_run && self.auto_limit_enabled;
         let sql_to_run = if auto_limit_active {
-            inject_limits(&sql_to_run, AUTO_LIMIT)
+            inject_limits(&sql_to_run, AUTO_LIMIT, conn.driver)
         } else {
             sql_to_run
         };
@@ -1110,9 +1111,14 @@ fn format_elapsed(d: Duration) -> String {
 pub(super) const AUTO_LIMIT: usize = 10_000;
 
 /// 给"裸 SELECT / SHOW / DESC"自动注入 LIMIT，避免误把全表拉回来。
-/// 多语句时按 `;` 切分逐条处理。已经有 `LIMIT` / `WITH` / 非 SELECT 的语句保持原样。
-pub(crate) fn inject_limits(sql: &str, max_rows: usize) -> String {
-    let stmts = split_sql_statements(sql);
+/// 多语句时按 `;` 切分逐条处理；PG 切分时识别 dollar-quoted 函数体内的 `;`。
+/// 已经有 `LIMIT` / `WITH` / 非 SELECT 的语句保持原样。
+pub(crate) fn inject_limits(
+    sql: &str,
+    max_rows: usize,
+    driver: ramag_domain::entities::DriverKind,
+) -> String {
+    let stmts = split_sql_statements(sql, driver);
     if stmts.is_empty() {
         return sql.to_string();
     }
@@ -1222,68 +1228,41 @@ fn is_ident(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_'
 }
 
-/// 同 driver 层切分语句（避开字符串/注释），但本地化避免依赖 infra-mysql
-fn split_sql_statements(sql: &str) -> Vec<String> {
-    let bytes = sql.as_bytes();
-    let mut out: Vec<String> = Vec::new();
-    let mut start = 0;
-    let mut i = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
-        match b {
-            b'\'' | b'"' | b'`' => {
-                let q = b;
-                i += 1;
-                while i < bytes.len() {
-                    if bytes[i] == b'\\' && i + 1 < bytes.len() {
-                        i += 2;
-                        continue;
-                    }
-                    if bytes[i] == q {
-                        i += 1;
-                        break;
-                    }
-                    i += 1;
-                }
-            }
-            b'-' if i + 1 < bytes.len() && bytes[i + 1] == b'-' => {
-                while i < bytes.len() && bytes[i] != b'\n' {
-                    i += 1;
-                }
-            }
-            b'/' if i + 1 < bytes.len() && bytes[i + 1] == b'*' => {
-                i += 2;
-                while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-                    i += 1;
-                }
-                i = (i + 2).min(bytes.len());
-            }
-            b';' => {
-                let seg = sql[start..i].trim();
-                if !seg.is_empty() {
-                    out.push(seg.to_string());
-                }
-                start = i + 1;
-                i += 1;
-            }
-            _ => i += 1,
+/// 多语句切分：复用 sql-shared 的实现，按 driver 选择是否识别 PG dollar-quoted
+fn split_sql_statements(sql: &str, driver: ramag_domain::entities::DriverKind) -> Vec<String> {
+    let opts = match driver {
+        ramag_domain::entities::DriverKind::Postgres => {
+            ramag_infra_sql_shared::sql::SplitOptions::postgres()
         }
-    }
-    let tail = sql[start..].trim();
-    if !tail.is_empty() {
-        out.push(tail.to_string());
-    }
-    out
+        _ => ramag_infra_sql_shared::sql::SplitOptions::mysql(),
+    };
+    ramag_infra_sql_shared::sql::split_statements(sql, opts)
 }
 
-/// 从 MySQL 错误消息里提取 "at line N" 的行号；找不到返回 None
+/// 从错误消息里提取行号（兼容 MySQL / PostgreSQL 两种格式）
+///
+/// - MySQL：消息含 `... at line N`（不区分大小写也匹配 ` AT LINE `）
+/// - PostgreSQL：消息含 `LINE N:`（PG 错误的次行标准格式）
+///
+/// 找到任一格式立即返回；都找不到返回 None
 pub(crate) fn parse_mysql_error_line(msg: &str) -> Option<usize> {
-    // 形如 "... at line 3" / "at line 12"
-    let needle = " at line ";
-    let idx = msg.find(needle)?;
-    let tail = &msg[idx + needle.len()..];
-    let num: String = tail.chars().take_while(|c| c.is_ascii_digit()).collect();
-    num.parse().ok()
+    // 1. MySQL "at line N"
+    if let Some(idx) = msg.find(" at line ") {
+        let tail = &msg[idx + " at line ".len()..];
+        let num: String = tail.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if let Ok(n) = num.parse::<usize>() {
+            return Some(n);
+        }
+    }
+    // 2. PG "LINE N:"（首字母大写；PG 错误 detail 中标准格式）
+    if let Some(idx) = msg.find("LINE ") {
+        let tail = &msg[idx + "LINE ".len()..];
+        let num: String = tail.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if let Ok(n) = num.parse::<usize>() {
+            return Some(n);
+        }
+    }
+    None
 }
 
 /// 提取光标所在的那条 SQL 语句（按 `;` 切分）
@@ -1294,7 +1273,15 @@ pub(crate) fn parse_mysql_error_line(msg: &str) -> Option<usize> {
 ///
 /// 实现：单遍扫描 byte，记录所有 `;` 边界 → 找到包含 cursor 的边界对
 /// `cursor` 是 UTF-8 byte offset；越界时按最后一条处理。
-fn extract_statement_at_cursor(sql: &str, cursor: usize) -> &str {
+///
+/// `driver` 决定是否识别 PG dollar-quoted 字符串（`$$ ... $$` / `$tag$ ... $tag$`），
+/// 让 `CREATE FUNCTION ... AS $$ BEGIN ... END $$` 不会被切分错。
+fn extract_statement_at_cursor(
+    sql: &str,
+    cursor: usize,
+    driver: Option<ramag_domain::entities::DriverKind>,
+) -> &str {
+    let pg = matches!(driver, Some(ramag_domain::entities::DriverKind::Postgres));
     let bytes = sql.as_bytes();
     let cursor = cursor.min(bytes.len());
     let mut splits: Vec<usize> = Vec::new(); // `;` 自身的 byte index
@@ -1314,6 +1301,14 @@ fn extract_statement_at_cursor(sql: &str, cursor: usize) -> &str {
                         i += 1;
                         break;
                     }
+                    i += 1;
+                }
+            }
+            b'$' if pg => {
+                // PG dollar-quoted 函数体：内部 `;` 不算语句边界
+                if let Some(end) = ramag_infra_sql_shared::sql::scan_dollar_quoted(bytes, i) {
+                    i = end;
+                } else {
                     i += 1;
                 }
             }
@@ -1437,17 +1432,33 @@ mod tests {
     }
 
     #[test]
+    fn parse_postgres_line() {
+        // PG 错误 detail 里的 "LINE N:" 格式
+        assert_eq!(
+            super::parse_mysql_error_line("syntax error at end of input\nLINE 5: SELECT *"),
+            Some(5)
+        );
+        // 单纯的 "LINE 1:" 也能识别
+        assert_eq!(
+            super::parse_mysql_error_line("LINE 1: SELECT * FORM t"),
+            Some(1)
+        );
+    }
+
+    use ramag_domain::entities::DriverKind;
+
+    #[test]
     fn inject_limit_plain_select() {
-        let s = super::inject_limits("SELECT * FROM t", 1000);
+        let s = super::inject_limits("SELECT * FROM t", 1000, DriverKind::Mysql);
         assert_eq!(s, "SELECT * FROM t LIMIT 1000");
     }
 
     #[test]
     fn inject_limit_skips_existing_limit() {
-        let s = super::inject_limits("SELECT * FROM t LIMIT 10", 1000);
+        let s = super::inject_limits("SELECT * FROM t LIMIT 10", 1000, DriverKind::Mysql);
         assert_eq!(s, "SELECT * FROM t LIMIT 10");
         // 大小写不敏感
-        let s = super::inject_limits("select * from t limit 10", 1000);
+        let s = super::inject_limits("select * from t limit 10", 1000, DriverKind::Mysql);
         assert_eq!(s, "select * from t limit 10");
     }
 
@@ -1455,31 +1466,68 @@ mod tests {
     fn inject_limit_skips_non_select() {
         // INSERT/UPDATE/DELETE/SHOW/DESC 不注入
         assert_eq!(
-            super::inject_limits("UPDATE t SET a=1", 1000),
+            super::inject_limits("UPDATE t SET a=1", 1000, DriverKind::Mysql),
             "UPDATE t SET a=1"
         );
-        assert_eq!(super::inject_limits("SHOW TABLES", 1000), "SHOW TABLES");
+        assert_eq!(
+            super::inject_limits("SHOW TABLES", 1000, DriverKind::Mysql),
+            "SHOW TABLES"
+        );
     }
 
     #[test]
     fn inject_limit_keeps_subquery_limit_alone() {
         // 子查询里的 LIMIT 不算 top-level，外层仍要注入
-        let s = super::inject_limits("SELECT * FROM (SELECT * FROM t LIMIT 10) x", 1000);
+        let s = super::inject_limits(
+            "SELECT * FROM (SELECT * FROM t LIMIT 10) x",
+            1000,
+            DriverKind::Mysql,
+        );
         assert!(s.ends_with("LIMIT 1000"));
     }
 
     #[test]
     fn inject_limit_strips_trailing_semicolon() {
-        let s = super::inject_limits("SELECT * FROM t;", 1000);
+        let s = super::inject_limits("SELECT * FROM t;", 1000, DriverKind::Mysql);
         // 末尾 ; 保留，body 加 LIMIT
         assert_eq!(s, "SELECT * FROM t LIMIT 1000;");
+    }
+
+    #[test]
+    fn inject_limit_postgres_dollar_quoted_function_body_not_split() {
+        // PG 函数体里的 ; 不应当作语句边界（dollar-quoted 切分识别）
+        // 函数体本身不是 SELECT，整体不注入 LIMIT
+        let sql = "CREATE FUNCTION f() RETURNS int AS $$ BEGIN RETURN 1; END; $$ LANGUAGE plpgsql";
+        let s = super::inject_limits(sql, 1000, DriverKind::Postgres);
+        assert_eq!(s, sql);
+    }
+
+    #[test]
+    fn extract_stmt_postgres_dollar_quoted_keeps_function_body_intact() {
+        // 光标在函数体内（含 ; 的位置），PG 模式应识别 dollar-quoted 不切分
+        let sql = "CREATE FUNCTION f() RETURNS int AS $$ BEGIN RETURN 1; END; $$ LANGUAGE plpgsql; SELECT 2";
+        let pg = Some(DriverKind::Postgres);
+        // 光标在 BEGIN 之后（函数体内）
+        let stmt = super::extract_statement_at_cursor(sql, 45, pg);
+        assert!(stmt.contains("CREATE FUNCTION"));
+        assert!(stmt.contains("END"));
+    }
+
+    #[test]
+    fn extract_stmt_postgres_dollar_quoted_picks_next_statement() {
+        // 函数定义之后还有 SELECT 2；光标在 SELECT 2 处应拿到这条
+        let sql = "CREATE FUNCTION f() RETURNS int AS $$ BEGIN RETURN 1; END; $$ LANGUAGE plpgsql; SELECT 2";
+        let pg = Some(DriverKind::Postgres);
+        // 光标在最后的 SELECT 2 上
+        let stmt = super::extract_statement_at_cursor(sql, sql.len() - 1, pg).trim();
+        assert_eq!(stmt, "SELECT 2");
     }
 
     #[test]
     fn extract_stmt_single() {
         // 没有分号 → 整段
         assert_eq!(
-            super::extract_statement_at_cursor("SELECT 1", 5).trim(),
+            super::extract_statement_at_cursor("SELECT 1", 5, None).trim(),
             "SELECT 1"
         );
     }
@@ -1489,17 +1537,17 @@ mod tests {
         let sql = "SELECT 1; SELECT 2; SELECT 3";
         // cursor 在 "SELECT 1" 中
         assert_eq!(
-            super::extract_statement_at_cursor(sql, 3).trim(),
+            super::extract_statement_at_cursor(sql, 3, None).trim(),
             "SELECT 1"
         );
         // cursor 在 "SELECT 2" 中（位置 12 = 'L' of 2nd SELECT）
         assert_eq!(
-            super::extract_statement_at_cursor(sql, 12).trim(),
+            super::extract_statement_at_cursor(sql, 12, None).trim(),
             "SELECT 2"
         );
         // cursor 在末尾 "SELECT 3"
         assert_eq!(
-            super::extract_statement_at_cursor(sql, 25).trim(),
+            super::extract_statement_at_cursor(sql, 25, None).trim(),
             "SELECT 3"
         );
     }
@@ -1509,11 +1557,11 @@ mod tests {
         // 字符串里的 ; 不切分
         let sql = "SELECT 'a;b'; SELECT 2";
         assert_eq!(
-            super::extract_statement_at_cursor(sql, 5).trim(),
+            super::extract_statement_at_cursor(sql, 5, None).trim(),
             "SELECT 'a;b'"
         );
         assert_eq!(
-            super::extract_statement_at_cursor(sql, 18).trim(),
+            super::extract_statement_at_cursor(sql, 18, None).trim(),
             "SELECT 2"
         );
     }
@@ -1522,12 +1570,12 @@ mod tests {
     fn extract_stmt_ignores_semicolon_in_comment() {
         let sql = "SELECT 1 -- comment ;\n; SELECT 2";
         // cursor 在第一条
-        let first = super::extract_statement_at_cursor(sql, 5);
+        let first = super::extract_statement_at_cursor(sql, 5, None);
         assert!(first.contains("SELECT 1"));
         assert!(!first.contains("SELECT 2"));
         // cursor 在第二条
         assert_eq!(
-            super::extract_statement_at_cursor(sql, 26).trim(),
+            super::extract_statement_at_cursor(sql, 26, None).trim(),
             "SELECT 2"
         );
     }

@@ -17,8 +17,7 @@
 use std::sync::Arc;
 
 use ramag_domain::entities::{
-    ConnectionConfig, ConnectionId, DriverKind, KeyMeta, RedisType, RedisValue,
-    ScanResult,
+    ConnectionConfig, ConnectionId, DriverKind, KeyMeta, RedisType, RedisValue, ScanResult,
 };
 use ramag_domain::error::Result;
 use ramag_domain::traits::{KvDriver, Storage};
@@ -177,5 +176,4 @@ impl RedisService {
     pub async fn info(&self, config: &ConnectionConfig, sections: &[&str]) -> Result<String> {
         self.driver.info(config, sections).await
     }
-
 }

@@ -22,16 +22,13 @@ use ramag_app::ConnectionService;
 use ramag_domain::entities::{ConnectionConfig, DriverKind};
 use tracing::{info, warn};
 
-use crate::sql_completion::SchemaCache;
+use crate::sql_completion::{SchemaCache, is_system_schema};
 use crate::views::query_panel::QueryPanel;
 use crate::views::table_tree::{TableTreePanel, TreeEvent};
 
 /// 补全 cache 的 TTL：超过这个时长后台异步重拉一次
 /// 兜底「别人改了表 / 我没看到的 schema」这类 cache 漂移
 const CACHE_TTL: Duration = Duration::from_secs(60);
-
-/// 系统库（不参与补全 cache）
-const SYSTEM_DBS: &[&str] = &["mysql", "information_schema", "performance_schema", "sys"];
 
 /// 表树初始宽度（用户可拖拽分隔条改）
 const TREE_WIDTH_INITIAL: f32 = 280.0;
@@ -84,6 +81,8 @@ impl ConnectionSession {
         // 同步到所有 Tab（写裸表名 SQL 时不会再报 No database selected）
         let queries_clone = queries.clone();
         let tree_for_sync = tree.clone();
+        // 当前 session 的 driver（mysql/pg），订阅闭包内决定方言写法时用
+        let driver_kind = config.driver;
         subs.push(cx.subscribe_in(
             &tree,
             window,
@@ -93,8 +92,11 @@ impl ConnectionSession {
                     queries_clone.update(cx, |q, cx| {
                         q.set_active_schema(Some(schema.clone()), cx);
                     });
+                    // 按 driver 方言加引号（mysql 反引号 / pg 双引号）
+                    let qschema = driver_kind.quote_identifier(schema);
+                    let qtable = driver_kind.quote_identifier(table);
                     let sql = format!(
-                        "SELECT * FROM `{schema}`.`{table}` LIMIT {};",
+                        "SELECT * FROM {qschema}.{qtable} LIMIT {};",
                         super::query_tab::AUTO_LIMIT,
                     );
                     let target = Some((schema.clone(), table.clone()));
@@ -114,14 +116,8 @@ impl ConnectionSession {
                     is_view,
                 } => {
                     info!(schema = %schema, table = %table, is_view, "show create");
-                    // 视图走 SHOW CREATE VIEW；基础表走 SHOW CREATE TABLE
-                    // MySQL 8 上 SHOW CREATE TABLE 也能看到视图定义但列名不同（"View"）
-                    // 用对的语法保证元信息列准确
-                    let sql = if *is_view {
-                        format!("SHOW CREATE VIEW `{schema}`.`{table}`;")
-                    } else {
-                        format!("SHOW CREATE TABLE `{schema}`.`{table}`;")
-                    };
+                    // 按 driver 选 DDL 查询语句（mysql SHOW CREATE / pg 拼装版）
+                    let sql = super::ddl::build_ddl_query(driver_kind, schema, table, *is_view);
                     queries_clone.update(cx, |q, cx| {
                         q.open_in_new_tab_and_run(sql, window, cx);
                     });
@@ -195,6 +191,7 @@ impl ConnectionSession {
     pub fn kind_label(&self) -> &'static str {
         match self.config.driver {
             DriverKind::Mysql => "MySQL",
+            DriverKind::Postgres => "PostgreSQL",
             DriverKind::Redis => "Redis",
         }
     }
@@ -255,7 +252,7 @@ async fn warm_once(
             Ok(ss) => ss
                 .into_iter()
                 .map(|s| s.name)
-                .filter(|n| !SYSTEM_DBS.contains(&n.as_str()))
+                .filter(|n| !is_system_schema(n))
                 .collect(),
             Err(e) => {
                 warn!(error = %e, "warm cache: list_schemas failed");

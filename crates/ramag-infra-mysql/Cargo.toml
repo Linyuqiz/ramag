@@ -11,22 +11,15 @@ workspace = true
 
 [dependencies]
 ramag-domain = { workspace = true }
+# 关系型 DB 共享层：runtime 桥接 / SqlBackend trait / impl_driver_for! 宏
+ramag-infra-sql-shared = { workspace = true }
 
 # MySQL 驱动
 sqlx = { workspace = true }
 
-# 异步运行时（GPUI 用 smol，sqlx 必须 tokio，桥接）
+# trait 上的 async fn
 async-trait = { workspace = true }
 tokio = { workspace = true }
-futures = { workspace = true }
-
-# 连接池缓存（按 ConnectionId 共享 sqlx::MySqlPool）
-dashmap = { workspace = true }
-once_cell = { workspace = true }
-
-# 错误
-anyhow = { workspace = true }
-thiserror = { workspace = true }
 
 # 时间类型
 chrono = { workspace = true }
