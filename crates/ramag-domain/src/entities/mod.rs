@@ -3,6 +3,7 @@
 //! 核心业务概念的数据结构定义，纯 Rust 类型，可序列化。
 
 pub mod connection;
+pub mod git;
 pub mod history;
 pub mod query;
 pub mod redis_keyspace;
@@ -10,6 +11,12 @@ pub mod redis_value;
 pub mod schema;
 
 pub use connection::{ConnectionColor, ConnectionConfig, ConnectionId, DriverKind};
+pub use git::{
+    BlameLine, Branch, BranchKind, Commit, CommitId, ConflictContent, DiffKind, DiffLine,
+    DiffLineKind, FileChangeKind, FileDiff, FileStatus, Hunk, LogOptions, RebaseAction, RebaseTodo,
+    ReflogEntry, Remote, RepoConfig, RepoId, RepoOperation, ResetKind, Signature, Stash, StashId,
+    Tag, TagKind, WorkingTreeStatus,
+};
 pub use history::{QueryRecord, QueryRecordId, QueryStatus};
 pub use query::{Query, QueryResult, Row, Value, Warning};
 pub use redis_keyspace::{KeyMeta, RedisType, ScanResult};

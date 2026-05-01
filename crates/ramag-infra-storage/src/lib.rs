@@ -41,7 +41,9 @@ use redb::{
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
 
-use ramag_domain::entities::{ConnectionConfig, ConnectionId, QueryRecord, QueryRecordId};
+use ramag_domain::entities::{
+    ConnectionConfig, ConnectionId, QueryRecord, QueryRecordId, RepoConfig, RepoId,
+};
 use ramag_domain::error::{DomainError, Result};
 use ramag_domain::traits::Storage;
 
@@ -53,11 +55,18 @@ use crate::encryption::Cipher;
 /// value: JSON 序列化后的 EncryptedConnection
 const CONNECTIONS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("connections");
 
+/// redb 表定义：Git 仓库配置（VCS 工具的最近列表）
+///
+/// key: RepoId（UUID 字符串）
+/// value: JSON 序列化后的 RepoConfig（无加密 —— 仓库路径 / 名字非敏感）
+const REPOS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("repos");
+
 /// 查询历史表
 ///
 /// key: 形如 `{rfc3339_timestamp}_{record_id}` 的复合 key
 ///   - 时间戳前缀让 redb 按时间有序遍历
 ///   - record_id 后缀避免毫秒级冲突
+///
 /// value: JSON 序列化的 QueryRecord
 const HISTORY_TABLE: TableDefinition<&str, &str> = TableDefinition::new("query_history");
 
@@ -160,6 +169,9 @@ impl RedbStorage {
             let _ = write_txn
                 .open_table(CONNECTIONS_TABLE)
                 .map_err(|e| DomainError::Storage(format!("打开 connections 表失败：{e}")))?;
+            let _ = write_txn
+                .open_table(REPOS_TABLE)
+                .map_err(|e| DomainError::Storage(format!("打开 repos 表失败：{e}")))?;
             let _ = write_txn
                 .open_table(HISTORY_TABLE)
                 .map_err(|e| DomainError::Storage(format!("打开 history 表失败：{e}")))?;
@@ -329,6 +341,114 @@ impl Storage for RedbStorage {
         .await
     }
 
+    // ==================== Git 仓库（VCS 最近列表） ====================
+
+    async fn list_repos(&self) -> Result<Vec<RepoConfig>> {
+        let db = self.db.clone();
+        run_blocking(move || {
+            let read_txn = db
+                .begin_read()
+                .map_err(|e| DomainError::Storage(format!("启动读事务失败：{e}")))?;
+            let table = read_txn
+                .open_table(REPOS_TABLE)
+                .map_err(|e| DomainError::Storage(format!("打开 repos 表失败：{e}")))?;
+
+            let mut out: Vec<RepoConfig> = Vec::new();
+            for entry in table
+                .iter()
+                .map_err(|e| DomainError::Storage(e.to_string()))?
+            {
+                let (_, v) = entry.map_err(|e| DomainError::Storage(e.to_string()))?;
+                let cfg: RepoConfig = serde_json::from_str(v.value())
+                    .map_err(|e| DomainError::Storage(format!("反序列化仓库失败：{e}")))?;
+                out.push(cfg);
+            }
+            // 按 name 字母序：列表顺序稳定，不随打开顺序漂移
+            out.sort_by(|a, b| a.name.cmp(&b.name));
+            debug!(count = out.len(), "list_repos done");
+            Ok(out)
+        })
+        .await
+    }
+
+    async fn save_repo(&self, config: &RepoConfig) -> Result<()> {
+        let db = self.db.clone();
+        let config = config.clone();
+        run_blocking(move || {
+            let json = serde_json::to_string(&config)
+                .map_err(|e| DomainError::Storage(format!("序列化仓库失败：{e}")))?;
+            let id_str = config.id.to_string();
+            let target_path = config.path.clone();
+
+            let write_txn = db
+                .begin_write()
+                .map_err(|e| DomainError::Storage(format!("启动写事务失败：{e}")))?;
+            {
+                let mut table = write_txn
+                    .open_table(REPOS_TABLE)
+                    .map_err(|e| DomainError::Storage(format!("打开 repos 表表失败：{e}")))?;
+
+                // 同 path 去重：driver 每次 open_repo 创建新 UUID，重启后再打开同物理仓库
+                // 会产生新 RepoId → 不去重的话每次都新增一条。这里在同一事务内先把所有
+                // path 匹配的旧记录全部删掉，再插入新记录，保证同 path 仅一条
+                let mut stale_keys: Vec<String> = Vec::new();
+                for entry in table
+                    .iter()
+                    .map_err(|e| DomainError::Storage(e.to_string()))?
+                {
+                    let (k, v) = entry.map_err(|e| DomainError::Storage(e.to_string()))?;
+                    if let Ok(cfg) = serde_json::from_str::<RepoConfig>(v.value())
+                        && cfg.path == target_path
+                        && k.value() != id_str
+                    {
+                        stale_keys.push(k.value().to_string());
+                    }
+                }
+                for k in stale_keys {
+                    table
+                        .remove(k.as_str())
+                        .map_err(|e| DomainError::Storage(format!("清理重复记录失败：{e}")))?;
+                }
+
+                table
+                    .insert(id_str.as_str(), json.as_str())
+                    .map_err(|e| DomainError::Storage(format!("写入仓库失败：{e}")))?;
+            }
+            write_txn
+                .commit()
+                .map_err(|e| DomainError::Storage(format!("提交事务失败：{e}")))?;
+
+            info!(repo_id = %config.id, name = %config.name, "repo saved");
+            Ok(())
+        })
+        .await
+    }
+
+    async fn delete_repo(&self, id: &RepoId) -> Result<()> {
+        let db = self.db.clone();
+        let id_str = id.to_string();
+        run_blocking(move || {
+            let write_txn = db
+                .begin_write()
+                .map_err(|e| DomainError::Storage(format!("启动写事务失败：{e}")))?;
+            {
+                let mut table = write_txn
+                    .open_table(REPOS_TABLE)
+                    .map_err(|e| DomainError::Storage(format!("打开 repos 表失败：{e}")))?;
+                table
+                    .remove(id_str.as_str())
+                    .map_err(|e| DomainError::Storage(format!("删除仓库失败：{e}")))?;
+            }
+            write_txn
+                .commit()
+                .map_err(|e| DomainError::Storage(format!("提交事务失败：{e}")))?;
+
+            info!(repo_id = %id_str, "repo deleted");
+            Ok(())
+        })
+        .await
+    }
+
     // ==================== 查询历史 ====================
 
     async fn append_history(&self, record: &QueryRecord) -> Result<()> {
@@ -409,7 +529,7 @@ impl Storage for RedbStorage {
                 }
             }
             // 按 executed_at desc 排序
-            all.sort_by(|a, b| b.executed_at.cmp(&a.executed_at));
+            all.sort_by_key(|r| std::cmp::Reverse(r.executed_at));
             all.truncate(limit);
             Ok(all)
         })
@@ -461,18 +581,7 @@ impl Storage for RedbStorage {
                     .open_table(HISTORY_TABLE)
                     .map_err(|e| DomainError::Storage(format!("打开 history 表失败：{e}")))?;
 
-                if conn_filter.is_none() {
-                    // 全部清空：用 retain 风格——逐个 remove
-                    let all_keys: Vec<String> = table
-                        .iter()
-                        .map_err(|e| DomainError::Storage(e.to_string()))?
-                        .filter_map(|r| r.ok().map(|(k, _)| k.value().to_string()))
-                        .collect();
-                    for k in all_keys {
-                        let _ = table.remove(k.as_str());
-                    }
-                } else {
-                    let target = conn_filter.unwrap();
+                if let Some(target) = conn_filter {
                     let to_remove: Vec<String> = table
                         .iter()
                         .map_err(|e| DomainError::Storage(e.to_string()))?
@@ -487,6 +596,16 @@ impl Storage for RedbStorage {
                         })
                         .collect();
                     for k in to_remove {
+                        let _ = table.remove(k.as_str());
+                    }
+                } else {
+                    // 全部清空：用 retain 风格——逐个 remove
+                    let all_keys: Vec<String> = table
+                        .iter()
+                        .map_err(|e| DomainError::Storage(e.to_string()))?
+                        .filter_map(|r| r.ok().map(|(k, _)| k.value().to_string()))
+                        .collect();
+                    for k in all_keys {
                         let _ = table.remove(k.as_str());
                     }
                 }

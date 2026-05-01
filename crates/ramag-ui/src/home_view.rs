@@ -85,14 +85,20 @@ impl Render for HomeView {
                                     cx.emit(HomeEvent::OpenTool("dbclient".into()));
                                 }),
                             ))
-                            .child(soon_module_card(
+                            .child(active_module_card(
                                 "module-vc",
                                 icons::git_branch(),
                                 "版本管理",
                                 "",
                                 secondary_bg,
                                 border,
+                                fg,
                                 muted_fg,
+                                accent,
+                                card_hover,
+                                cx.listener(|_this, _: &ClickEvent, _, cx| {
+                                    cx.emit(HomeEvent::OpenTool("vcs".into()));
+                                }),
                             )),
                     ),
             ),
@@ -205,6 +211,9 @@ fn active_module_card(
 }
 
 /// "Coming Soon" 模块卡片：dim、无 hover、无点击。水平布局与 active 对齐
+///
+/// 当前所有模块都已升级 active；保留此函数供未来加新占位模块使用
+#[allow(dead_code)]
 fn soon_module_card(
     id: &'static str,
     icon: Icon,

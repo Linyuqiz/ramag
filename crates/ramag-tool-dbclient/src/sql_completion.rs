@@ -208,10 +208,10 @@ impl SchemaCache {
     /// 取所有可补全的表名（默认 schema 优先，其余次之）
     pub fn all_tables(&self) -> Vec<String> {
         let mut out = Vec::new();
-        if let Some(d) = &self.default_schema {
-            if let Some(ts) = self.tables.get(d) {
-                out.extend(ts.iter().cloned());
-            }
+        if let Some(d) = &self.default_schema
+            && let Some(ts) = self.tables.get(d)
+        {
+            out.extend(ts.iter().cloned());
         }
         for (s, ts) in &self.tables {
             if Some(s) != self.default_schema.as_ref() {
@@ -413,11 +413,11 @@ impl CompletionProvider for SqlCompletionProvider {
                 let default_schema = cache.default_schema.clone();
                 // 默认 schema 的表先入队，其他 schema 在后；保留 schema 上下文
                 let mut order: Vec<(&String, &String)> = Vec::new();
-                if let Some(d) = default_schema.as_ref() {
-                    if let Some(ts) = cache.tables.get(d) {
-                        for t in ts {
-                            order.push((d, t));
-                        }
+                if let Some(d) = default_schema.as_ref()
+                    && let Some(ts) = cache.tables.get(d)
+                {
+                    for t in ts {
+                        order.push((d, t));
                     }
                 }
                 for (s, ts) in cache.tables.iter() {
@@ -688,8 +688,10 @@ mod tests {
 
     #[test]
     fn cache_default_schema_first() {
-        let mut c = SchemaCache::default();
-        c.default_schema = Some("midas".to_string());
+        let mut c = SchemaCache {
+            default_schema: Some("midas".to_string()),
+            ..Default::default()
+        };
         c.tables.insert(
             "midas".to_string(),
             vec!["users".to_string(), "orders".to_string()],

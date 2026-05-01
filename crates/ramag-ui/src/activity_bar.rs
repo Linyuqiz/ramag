@@ -74,6 +74,7 @@ impl ActivityBar {
     fn icon_for_tool(tool_id: &str) -> Icon {
         match tool_id {
             "dbclient" => icons::database(),
+            "vcs" => icons::git_branch(),
             "jsonfmt" => Icon::new(IconName::File),
             "url" => Icon::new(IconName::Globe),
             "hash" => Icon::new(IconName::MemoryStick),

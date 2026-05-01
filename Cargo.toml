@@ -8,8 +8,10 @@ members = [
     "crates/ramag-infra-redis",
     "crates/ramag-infra-sql-shared",
     "crates/ramag-infra-storage",
+    "crates/ramag-infra-git",
     "crates/ramag-tool-dbclient",
     "crates/ramag-tool-redis",
+    "crates/ramag-tool-vcs",
     "crates/ramag-ui",
     "crates/ramag-bin",
 ]
@@ -31,8 +33,10 @@ ramag-infra-postgres = { path = "crates/ramag-infra-postgres" }
 ramag-infra-redis = { path = "crates/ramag-infra-redis" }
 ramag-infra-sql-shared = { path = "crates/ramag-infra-sql-shared" }
 ramag-infra-storage = { path = "crates/ramag-infra-storage" }
+ramag-infra-git = { path = "crates/ramag-infra-git" }
 ramag-tool-dbclient = { path = "crates/ramag-tool-dbclient" }
 ramag-tool-redis = { path = "crates/ramag-tool-redis" }
+ramag-tool-vcs = { path = "crates/ramag-tool-vcs" }
 ramag-ui = { path = "crates/ramag-ui" }
 
 # GPUI 框架（来自 zed-industries/zed git 主干）
@@ -83,6 +87,18 @@ redis = { version = "0.32", default-features = false, features = [
     "tokio-rustls-comp",
     "tls-rustls-webpki-roots",
     "connection-manager",
+] }
+
+# Git 库：纯 Rust gitoxide（性能 2-10× libgit2，Zed 自己也用）
+# - max-performance-safe：内置 SHA-1 优化（受 Apache 2.0 兼容许可证约束）
+# - 暂不开 worktree-mutation features（v0.1 用读取为主，写操作走 gix-wrapper 调 git CLI 兜底）
+gix = { version = "0.74", default-features = false, features = [
+    "max-performance-safe",
+    "blocking-network-client",
+    "blocking-http-transport-reqwest-rust-tls",
+    "revision",
+    "blob-diff",
+    "status",
 ] }
 
 # 嵌入式本地存储

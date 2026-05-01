@@ -68,6 +68,7 @@ struct TableRowFrame {
 /// 渲染单次查询结果表格
 ///
 /// 入口由 ResultPanel::render 调用，接收所有需要的主题色和上下文
+#[allow(clippy::too_many_arguments)]
 pub(super) fn render_table(
     panel: &ResultPanel,
     result: QueryResult,
@@ -504,7 +505,7 @@ fn render_data_row(
     cx: &mut Context<ResultPanel>,
 ) -> AnyElement {
     let row = &frame.display_rows[idx];
-    let bg = if idx % 2 == 0 {
+    let bg = if idx.is_multiple_of(2) {
         frame.muted_bg.opacity(0.0)
     } else {
         frame.muted_bg.opacity(0.35)

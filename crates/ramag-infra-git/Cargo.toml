@@ -1,0 +1,29 @@
+[package]
+name = "ramag-infra-git"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Ramag Git driver (gix backend, syncronous → async bridge)"
+
+[dependencies]
+ramag-domain = { workspace = true }
+
+# 纯 Rust gitoxide：性能优于 libgit2，async 桥接由本 crate runtime.rs 处理
+gix = { workspace = true }
+
+# 同步 → async 桥接
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+# 通用
+chrono = { workspace = true }
+parking_lot = { workspace = true }
+dashmap = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

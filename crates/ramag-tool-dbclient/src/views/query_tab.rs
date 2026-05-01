@@ -502,7 +502,6 @@ impl QueryTab {
     /// 是的话后台拉默认 schema 的最新表名刷新 cache，让补全立刻能看到新表
     fn maybe_refresh_cache_after_ddl(&self, sql: &str, cx: &mut Context<Self>) {
         let first = sql
-            .trim_start()
             .split_whitespace()
             .next()
             .map(|w| w.to_ascii_uppercase())
@@ -592,11 +591,11 @@ impl QueryTab {
     /// 清掉编辑器的错误高亮（运行成功 / 内容变化时）
     fn clear_sql_diagnostics(&mut self, cx: &mut Context<Self>) {
         self.editor.update(cx, |state, cx| {
-            if let Some(diag) = state.diagnostics_mut() {
-                if !diag.is_empty() {
-                    diag.clear();
-                    cx.notify();
-                }
+            if let Some(diag) = state.diagnostics_mut()
+                && !diag.is_empty()
+            {
+                diag.clear();
+                cx.notify();
             }
         });
     }

@@ -17,7 +17,8 @@ use gpui::{
 };
 use gpui_component::Root;
 use ramag_app::{ConnectionService, RedisService, ToolRegistry};
-use ramag_domain::traits::{Driver, KvDriver, Storage};
+use ramag_domain::traits::{Driver, GitDriver, KvDriver, Storage};
+use ramag_infra_git::GitDriverImpl;
 use ramag_infra_mysql::MysqlDriver;
 use ramag_infra_postgres::PostgresDriver;
 use ramag_infra_redis::RedisDriver;
@@ -26,6 +27,7 @@ use ramag_tool_dbclient::{
     DbClientTool, ExplainQuery, FindInResults, FormatSql, NewQueryTab, RunQuery,
     RunStatementAtCursor, SaveSqlFile, ToggleHistory, ToggleSqlEditor, create_dbclient_view,
 };
+use ramag_tool_vcs::{VcsTool, create_vcs_view};
 use ramag_ui::{
     CloseTab, HomeEvent, HomeView, Mode, NavTarget, RamagAssets, Shell, StorageGlobal, apply_theme,
     init_theme,
@@ -83,6 +85,7 @@ fn main() {
                 registry_for_reopen.clone(),
                 conn_service_for_reopen.clone(),
                 redis_service_for_reopen.clone(),
+                storage_for_reopen.clone(),
                 pref,
                 cx,
             );
@@ -136,6 +139,7 @@ fn main() {
             registry.clone(),
             conn_service.clone(),
             redis_service.clone(),
+            storage.clone(),
             initial_pref.clone(),
             cx,
         );
@@ -147,6 +151,7 @@ fn open_main_window(
     registry: Arc<ToolRegistry>,
     conn_service: Arc<ConnectionService>,
     redis_service: Arc<RedisService>,
+    storage: Arc<dyn Storage>,
     theme_pref: Option<String>,
     cx: &mut App,
 ) {
@@ -182,11 +187,16 @@ fn open_main_window(
                 let dbclient_view =
                     create_dbclient_view(conn_service.clone(), redis_service.clone(), window, cx);
 
+                // 2.5. 创建 VCS 视图（Git 客户端）
+                let git_driver: Arc<dyn GitDriver> = Arc::new(GitDriverImpl::new());
+                let vcs_view = create_vcs_view(git_driver, storage.clone(), window, cx);
+
                 // 3. 创建 Shell 并注入视图
                 let shell = cx.new(|cx| {
                     let mut shell = Shell::new(registry.clone(), window, cx);
                     shell.set_home_view(home_view.clone().into());
                     shell.register_tool_view(DbClientTool::ID, dbclient_view);
+                    shell.register_tool_view(VcsTool::ID, vcs_view.into());
 
                     // 监听 HomeView 的事件，转换成 Shell 导航
                     let _sub: Subscription = cx.subscribe_in(
@@ -259,6 +269,7 @@ fn read_theme_preference(storage: &Arc<dyn Storage>) -> Option<String> {
 fn build_tool_registry() -> Arc<ToolRegistry> {
     let registry = Arc::new(ToolRegistry::new());
     registry.register(Arc::new(DbClientTool::new()));
+    registry.register(Arc::new(VcsTool::new()));
     registry
 }
 

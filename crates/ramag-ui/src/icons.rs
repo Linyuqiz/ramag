@@ -52,3 +52,38 @@ pub fn pencil() -> Icon {
 pub fn trash() -> Icon {
     Icon::default().path("icons/trash-2.svg")
 }
+
+#[inline]
+pub fn git_commit() -> Icon {
+    Icon::default().path("icons/git-commit.svg")
+}
+
+#[inline]
+pub fn git_merge() -> Icon {
+    Icon::default().path("icons/git-merge.svg")
+}
+
+#[inline]
+pub fn circle_dot() -> Icon {
+    Icon::default().path("icons/circle-dot.svg")
+}
+
+#[inline]
+pub fn scroll_text() -> Icon {
+    Icon::default().path("icons/scroll-text.svg")
+}
+
+#[inline]
+pub fn columns_2() -> Icon {
+    Icon::default().path("icons/columns-2.svg")
+}
+
+#[inline]
+pub fn rows_2() -> Icon {
+    Icon::default().path("icons/rows-2.svg")
+}
+
+#[inline]
+pub fn list_filter() -> Icon {
+    Icon::default().path("icons/list-filter.svg")
+}

@@ -26,6 +26,7 @@ use super::result_panel::ResultPanel;
 /// - has_pk：当前结果集是否能推断主键（影响弹框上方提示）
 /// - is_view：来源是视图（PG/MySQL 都不允许 UPDATE 视图）；弹框照常打开供"查看完整内容"，
 ///   但底部「确认」按钮置灰，标题改为"查看 ..."避免误导用户以为可以提交
+#[allow(clippy::too_many_arguments)]
 pub(super) fn open(
     panel: Entity<ResultPanel>,
     ri: usize,

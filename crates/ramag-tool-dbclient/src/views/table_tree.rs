@@ -108,8 +108,7 @@ impl TableTreePanel {
                 .clean_on_escape()
         });
         // 搜索框文本变化时重渲染
-        let mut subs = Vec::new();
-        subs.push(cx.subscribe(&search, |_this, _, _e: &InputEvent, cx| cx.notify()));
+        let subs = vec![cx.subscribe(&search, |_this, _, _e: &InputEvent, cx| cx.notify())];
 
         Self {
             service,
@@ -205,10 +204,10 @@ impl TableTreePanel {
                         // - PG：优先 public，否则第一个非系统 schema
                         // - MySQL：connection.database（schema=database 同义），否则第一个非系统
                         // - Redis 不走这条路径
-                        if this.active_schema.is_none() {
-                            if let Some(default_name) = pick_default_schema(&conn, &this.schemas) {
-                                this.toggle_schema(default_name, cx);
-                            }
+                        if this.active_schema.is_none()
+                            && let Some(default_name) = pick_default_schema(&conn, &this.schemas)
+                        {
+                            this.toggle_schema(default_name, cx);
                         }
                     }
                     Err(e) => {

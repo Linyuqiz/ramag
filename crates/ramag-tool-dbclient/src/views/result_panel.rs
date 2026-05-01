@@ -1175,10 +1175,10 @@ impl ResultPanel {
                             );
                         } else {
                             // 本地同步移除该行 + 清掉选中（避免 OOB）
-                            if let ResultState::Ok(r) = &mut this.state {
-                                if ri < r.rows.len() {
-                                    r.rows.remove(ri);
-                                }
+                            if let ResultState::Ok(r) = &mut this.state
+                                && ri < r.rows.len()
+                            {
+                                r.rows.remove(ri);
                             }
                             this.selected_cell = None;
                             this.pending_notification = Some(
@@ -1280,12 +1280,11 @@ impl ResultPanel {
                             );
                         } else {
                             // 本地同步该 cell：避免重新拉数据
-                            if let ResultState::Ok(r) = &mut this.state {
-                                if let Some(row) = r.rows.get_mut(ri) {
-                                    if let Some(slot) = row.values.get_mut(ci) {
-                                        *slot = new_cell_val;
-                                    }
-                                }
+                            if let ResultState::Ok(r) = &mut this.state
+                                && let Some(row) = r.rows.get_mut(ri)
+                                && let Some(slot) = row.values.get_mut(ci)
+                            {
+                                *slot = new_cell_val;
                             }
                             this.pending_notification = Some(
                                 Notification::success(format!(

@@ -5,7 +5,9 @@
 
 use async_trait::async_trait;
 
-use crate::entities::{ConnectionConfig, ConnectionId, QueryRecord, QueryRecordId};
+use crate::entities::{
+    ConnectionConfig, ConnectionId, QueryRecord, QueryRecordId, RepoConfig, RepoId,
+};
 use crate::error::Result;
 
 /// 本地存储统一抽象
@@ -24,6 +26,33 @@ pub trait Storage: Send + Sync {
 
     /// 删除一个连接配置
     async fn delete_connection(&self, id: &ConnectionId) -> Result<()>;
+
+    // === Git 仓库（VCS 工具的「最近仓库」列表） ===
+
+    /// 列出所有保存的 Git 仓库（VCS 工具的最近仓库列表）
+    ///
+    /// 实现按 `name` 字母序排序：列表顺序稳定，不随打开顺序漂移
+    async fn list_repos(&self) -> Result<Vec<RepoConfig>> {
+        Err(crate::error::DomainError::NotImplemented(
+            "list_repos".into(),
+        ))
+    }
+
+    /// 保存（新增或更新）一个 Git 仓库
+    ///
+    /// VCS 视图打开仓库后会更新 `last_opened_at` 再调此方法（用于排序）
+    async fn save_repo(&self, _config: &RepoConfig) -> Result<()> {
+        Err(crate::error::DomainError::NotImplemented(
+            "save_repo".into(),
+        ))
+    }
+
+    /// 删除一个 Git 仓库（不影响磁盘文件，仅从最近列表中移除）
+    async fn delete_repo(&self, _id: &RepoId) -> Result<()> {
+        Err(crate::error::DomainError::NotImplemented(
+            "delete_repo".into(),
+        ))
+    }
 
     // === 查询历史 ===
 

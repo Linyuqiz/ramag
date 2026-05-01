@@ -1,0 +1,35 @@
+[package]
+name = "ramag-tool-vcs"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Ramag VCS 工具：Git 可视化客户端（仓库管理 / 工作区 / commit / 分支等）"
+
+[lints]
+workspace = true
+
+[dependencies]
+ramag-domain = { workspace = true }
+ramag-app = { workspace = true }
+ramag-ui = { workspace = true }
+
+# GPUI 渲染
+gpui = { workspace = true }
+gpui-component = { workspace = true }
+
+# Action 派生
+serde = { workspace = true }
+schemars = { workspace = true }
+
+# 异步
+futures = { workspace = true }
+
+# 时间显示（commit author / committer 时间）
+chrono = { workspace = true }
+
+# 系统文件对话框（选仓库目录）
+rfd = { workspace = true }
+
+# 日志
+tracing = { workspace = true }
