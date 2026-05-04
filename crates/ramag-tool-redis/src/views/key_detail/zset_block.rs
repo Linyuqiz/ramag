@@ -1,0 +1,121 @@
+//! ZSet 块渲染（行内 [✎][🗑] 图标按钮）+ score 简短格式化
+
+use gpui::{ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div, px};
+use gpui_component::{
+    Sizable as _,
+    button::{Button, ButtonVariants as _},
+    h_flex, v_flex,
+};
+use ramag_domain::entities::RedisValue;
+
+use super::{KeyDetailEvent, KeyDetailPanel};
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn render_zset_block(
+    panel: &mut Context<KeyDetailPanel>,
+    key: String,
+    pairs: &[(RedisValue, f64)],
+    fg: gpui::Hsla,
+    muted_fg: gpui::Hsla,
+    _accent: gpui::Hsla,
+    border: gpui::Hsla,
+) -> impl IntoElement + use<> {
+    let mut rows = v_flex()
+        .w_full()
+        .gap(px(0.0))
+        .border_1()
+        .border_color(border)
+        .rounded(px(4.0));
+    for (i, (m, score)) in pairs.iter().enumerate() {
+        let preview = m.display_preview(256);
+        let raw_member = match m {
+            RedisValue::Text(s) => s.clone(),
+            other => other.display_preview(8192),
+        };
+        // 整数 score 显 "234"；小数显 "1.5"（去尾随零）；避免占满 6 位小数
+        let score_str = pretty_score(*score);
+        let score_for_edit = score_str.clone();
+        let key_for_edit = key.clone();
+        let key_for_del = key.clone();
+        let raw_for_edit = raw_member.clone();
+        let raw_for_del = raw_member.clone();
+        let edit_id = SharedString::from(format!("zset-edit-{i}"));
+        let del_id = SharedString::from(format!("zset-del-{i}"));
+        rows = rows.child(
+            h_flex()
+                .w_full()
+                .px(px(8.0))
+                .py(px(6.0))
+                .border_b_1()
+                .border_color(border)
+                .gap(px(8.0))
+                .child(
+                    div()
+                        .w(px(320.0))
+                        .text_xs()
+                        .text_color(muted_fg)
+                        .font_family("monospace")
+                        .flex_none()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .child(score_str.clone()),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_sm()
+                        .text_color(fg)
+                        .font_family("monospace")
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .child(preview),
+                )
+                .child(
+                    h_flex()
+                        .gap(px(4.0))
+                        .flex_none()
+                        .child(
+                            Button::new(edit_id)
+                                .ghost()
+                                .small()
+                                .icon(ramag_ui::icons::pencil())
+                                .tooltip("改 score")
+                                .on_click(panel.listener(move |_, _: &ClickEvent, _, cx| {
+                                    cx.emit(KeyDetailEvent::RequestEditZSetScore(
+                                        key_for_edit.clone(),
+                                        raw_for_edit.clone(),
+                                        score_for_edit.clone(),
+                                    ));
+                                })),
+                        )
+                        .child(
+                            Button::new(del_id)
+                                .ghost()
+                                .small()
+                                .icon(ramag_ui::icons::trash())
+                                .tooltip("删除该成员")
+                                .on_click(panel.listener(move |_, _: &ClickEvent, _, cx| {
+                                    cx.emit(KeyDetailEvent::RequestDeleteZSetMember(
+                                        key_for_del.clone(),
+                                        raw_for_del.clone(),
+                                    ));
+                                })),
+                        ),
+                ),
+        );
+    }
+    rows
+}
+
+/// 把 ZSet score 格式化为简短可读：整数不带小数，浮点去尾随零，避免 "234.000000" 占满列宽
+///
+/// - 整数（且在 i64 安全范围）→ 不带小数：`234`
+/// - 非整数 → 默认 Display 格式（已自动去尾随零）：`1.5` / `1e30`
+fn pretty_score(s: f64) -> String {
+    if s.is_finite() && s == s.trunc() && s.abs() < 1e15 {
+        format!("{}", s as i64)
+    } else {
+        format!("{s}")
+    }
+}

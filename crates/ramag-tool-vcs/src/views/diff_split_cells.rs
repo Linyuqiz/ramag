@@ -280,9 +280,7 @@ pub(super) fn render_content_spacer(
     muted_fg: gpui::Hsla,
     cx: &mut Context<VcsView>,
 ) -> AnyElement {
-    let row_id = SharedString::from(format!(
-        "vcs-diff-spacer-{side}-{hunk_idx}-{run_start}"
-    ));
+    let row_id = SharedString::from(format!("vcs-diff-spacer-{side}-{hunk_idx}-{run_start}"));
     h_flex()
         .id(row_id)
         .w_full()
@@ -293,9 +291,7 @@ pub(super) fn render_content_spacer(
         .text_xs()
         .text_color(muted_fg)
         .cursor_pointer()
-        .child(format!(
-            "───── 跳过 {skipped} 行未变更（点击展开） ─────"
-        ))
+        .child(format!("───── 跳过 {skipped} 行未变更（点击展开） ─────"))
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             this.expanded_diff_spacers.insert((hunk_idx, run_start));
             cx.notify();

@@ -1,4 +1,10 @@
-//! TTL 编辑弹窗：设置秒数 / 永久（PERSIST）
+//! TTL 编辑弹窗
+//!
+//! 复用 [`super::ttl_picker::TtlPicker`] chip 选择器，与新建 Key 对话框
+//! 同款交互：永久 / 4 个预设 / 自定义。
+//!
+//! 弹窗对外 API（`TtlEditForm::new` + `TtlEditEvent::{Updated, Cancelled}`）
+//! 与旧版完全兼容，调用方 `connection_session.rs` 无需改动。
 
 use std::sync::Arc;
 
@@ -9,17 +15,17 @@ use gpui::{
 use gpui_component::{
     ActiveTheme, Sizable as _,
     button::{Button, ButtonVariants as _},
-    h_flex,
-    input::{Input, InputState},
-    v_flex,
+    h_flex, v_flex,
 };
 use ramag_app::RedisService;
 use ramag_domain::entities::ConnectionConfig;
 use tracing::{error, info};
 
+use crate::views::ttl_picker::TtlPicker;
+
 #[derive(Debug, Clone)]
 pub enum TtlEditEvent {
-    /// TTL 已更新（None=永久）
+    /// TTL 已更新（标签：秒数 / "永久"）
     Updated(String),
     Cancelled,
 }
@@ -36,9 +42,9 @@ pub struct TtlEditForm {
     config: ConnectionConfig,
     db: u8,
     key: String,
-    /// 当前 TTL（毫秒）：用于初始化 input；-1 = 永久
+    /// 当前 PTTL 毫秒（用于顶部"当前 TTL"显示 + picker 初始 mode 回填）
     initial_ttl_ms: Option<i64>,
-    secs_input: Entity<InputState>,
+    picker: Entity<TtlPicker>,
     state: SubmitState,
 }
 
@@ -54,15 +60,10 @@ impl TtlEditForm {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        // 初始值：>0 ms 显示为秒；其他空
-        let initial_secs = match initial_ttl_ms {
-            Some(ms) if ms > 0 => (ms / 1000).to_string(),
-            _ => String::new(),
-        };
-        let secs_input = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder("秒数（如 3600）")
-                .default_value(initial_secs)
+        let picker = cx.new(|cx| TtlPicker::new(window, cx));
+        // 把现有 PTTL 回填到 picker：让用户打开弹窗就看到当前选择
+        picker.update(cx, |p, cx_inner| {
+            p.set_initial_ms(initial_ttl_ms, window, cx_inner);
         });
         Self {
             service,
@@ -70,36 +71,23 @@ impl TtlEditForm {
             db,
             key,
             initial_ttl_ms,
-            secs_input,
+            picker,
             state: SubmitState::Idle,
         }
     }
 
-    fn handle_set(&mut self, cx: &mut Context<Self>) {
-        let raw = self.secs_input.read(cx).value().trim().to_string();
-        if raw.is_empty() {
-            self.state = SubmitState::Failed("请输入秒数（或点击「设为永久」）".into());
-            cx.notify();
-            return;
-        }
-        let secs: i64 = match raw.parse() {
-            Ok(n) if n > 0 => n,
-            _ => {
-                self.state = SubmitState::Failed("秒数必须是正整数".into());
+    fn handle_save(&mut self, cx: &mut Context<Self>) {
+        let ttl_secs = match self.picker.read(cx).collect(cx) {
+            Ok(v) => v,
+            Err(e) => {
+                self.state = SubmitState::Failed(e);
                 cx.notify();
                 return;
             }
         };
-        self.submit_ttl(Some(secs), cx);
-    }
-
-    fn handle_persist(&mut self, cx: &mut Context<Self>) {
-        self.submit_ttl(None, cx);
-    }
-
-    fn submit_ttl(&mut self, ttl_secs: Option<i64>, cx: &mut Context<Self>) {
         self.state = SubmitState::Submitting;
         cx.notify();
+
         let svc = self.service.clone();
         let config = self.config.clone();
         let db = self.db;
@@ -142,10 +130,10 @@ impl Render for TtlEditForm {
         let border = theme.border;
 
         let current_label = match self.initial_ttl_ms {
-            Some(-1) => "永久（无 TTL）".to_string(),
-            Some(-2) => "Key 不存在".to_string(),
-            Some(ms) if ms >= 0 => format!("当前剩余 {} ms", ms),
-            _ => "未知".to_string(),
+            Some(-1) => "当前：永久（无 TTL）".to_string(),
+            Some(-2) => "当前：Key 不存在".to_string(),
+            Some(ms) if ms >= 0 => format!("当前剩余 {} 秒", ms / 1000),
+            _ => "当前：未知".to_string(),
         };
 
         let err = match &self.state {
@@ -178,9 +166,9 @@ impl Render for TtlEditForm {
                             .text_xs()
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .text_color(muted_fg)
-                            .child("新 TTL（秒）"),
+                            .child("新 TTL"),
                     )
-                    .child(div().w_full().child(Input::new(&self.secs_input))),
+                    .child(self.picker.clone()),
             )
             .child(div().h(px(1.0)).bg(border).my(px(2.0)))
             .child(
@@ -201,17 +189,6 @@ impl Render for TtlEditForm {
                             .gap(px(8.0))
                             .flex_none()
                             .child(
-                                Button::new("ttl-persist")
-                                    .ghost()
-                                    .small()
-                                    .label("设为永久")
-                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                        if !matches!(this.state, SubmitState::Submitting) {
-                                            this.handle_persist(cx);
-                                        }
-                                    })),
-                            )
-                            .child(
                                 Button::new("ttl-cancel")
                                     .ghost()
                                     .small()
@@ -221,13 +198,13 @@ impl Render for TtlEditForm {
                                     })),
                             )
                             .child(
-                                Button::new("ttl-set")
+                                Button::new("ttl-save")
                                     .primary()
                                     .small()
                                     .label(if submitting { "保存中..." } else { "保存" })
                                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                         if !matches!(this.state, SubmitState::Submitting) {
-                                            this.handle_set(cx);
+                                            this.handle_save(cx);
                                         }
                                     })),
                             ),

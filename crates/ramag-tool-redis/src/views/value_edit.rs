@@ -138,8 +138,7 @@ impl Render for ValueEditForm {
                     .child(
                         div()
                             .w_full()
-                            .h(px(220.0))
-                            .child(Input::new(&self.value_input)),
+                            .child(Input::new(&self.value_input).h(px(220.0))),
                     ),
             )
             .child(div().h(px(1.0)).bg(border).my(px(2.0)))

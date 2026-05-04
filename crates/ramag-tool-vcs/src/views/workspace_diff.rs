@@ -219,8 +219,8 @@ impl VcsView {
     ) -> AnyElement {
         let _ = kind;
         // Blame toggle：Changes 与 Commit tab 都支持（toggle_blame 内部按 selected_file/commit_file 取 path）
-        let blame_supported =
-            matches!(kind, GroupKind::Staged | GroupKind::Unstaged) || self.viewing_commit.is_some();
+        let blame_supported = matches!(kind, GroupKind::Staged | GroupKind::Unstaged)
+            || self.viewing_commit.is_some();
         let blame_btn = Button::new("vcs-diff-blame-toggle")
             .ghost()
             .xsmall()

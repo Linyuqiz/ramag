@@ -1,27 +1,26 @@
-//! List 元素新增弹窗：每行一个元素，可选 [头部 LPUSH | 尾部 RPUSH]
+//! List 元素新增弹窗
+//!
+//! 复用 [`super::lines_editor::LinesEditor`]（`LinesKind::List`），与新建 Key
+//! 中 List tab 完全一致：行编辑器 + 头部插入方向（LPUSH / RPUSH）chip。
+//!
+//! 提交命令：`LPUSH/RPUSH key v1 v2 ...`（按编辑器内 push_dir）
 
 use std::sync::Arc;
 
 use gpui::{
-    ClickEvent, Context, Entity, EventEmitter, IntoElement, ParentElement, Render, SharedString,
-    Styled, Window, div, prelude::*, px,
+    ClickEvent, Context, Entity, EventEmitter, IntoElement, ParentElement, Render, Styled, Window,
+    div, prelude::*, px,
 };
 use gpui_component::{
     ActiveTheme, Sizable as _,
     button::{Button, ButtonVariants as _},
-    h_flex,
-    input::{Input, InputState},
-    v_flex,
+    h_flex, v_flex,
 };
 use ramag_app::RedisService;
 use ramag_domain::entities::ConnectionConfig;
 use tracing::{error, info};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PushDir {
-    Head,
-    Tail,
-}
+use crate::views::lines_editor::{LinesEditor, LinesKind, PushDir};
 
 #[derive(Debug, Clone)]
 pub enum ListElementFormEvent {
@@ -41,8 +40,7 @@ pub struct ListElementForm {
     config: ConnectionConfig,
     db: u8,
     key: String,
-    value_input: Entity<InputState>,
-    direction: PushDir,
+    editor: Entity<LinesEditor>,
     state: SubmitState,
 }
 
@@ -57,36 +55,24 @@ impl ListElementForm {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let value_input = cx.new(|cx| {
-            InputState::new(window, cx)
-                .multi_line(true)
-                .placeholder("每行一个元素")
-        });
+        let editor = cx.new(|cx| LinesEditor::new(LinesKind::List, window, cx));
         Self {
             service,
             config,
             db,
             key,
-            value_input,
-            direction: PushDir::Tail,
+            editor,
             state: SubmitState::Idle,
         }
     }
 
-    fn set_dir(&mut self, dir: PushDir, cx: &mut Context<Self>) {
-        if self.direction != dir {
-            self.direction = dir;
-            cx.notify();
-        }
-    }
-
     fn handle_save(&mut self, cx: &mut Context<Self>) {
-        let raw = self.value_input.read(cx).value().to_string();
-        let elems: Vec<String> = raw
-            .lines()
-            .map(|l| l.trim_end_matches('\r').to_string())
-            .filter(|l| !l.is_empty())
-            .collect();
+        let editor_ref = self.editor.read(cx);
+        let elems = editor_ref.collect(cx);
+        let cmd = match editor_ref.push_dir() {
+            PushDir::Tail => "RPUSH",
+            PushDir::Head => "LPUSH",
+        };
         if elems.is_empty() {
             self.state = SubmitState::Failed("至少填写 1 个元素".into());
             cx.notify();
@@ -99,10 +85,6 @@ impl ListElementForm {
         let config = self.config.clone();
         let db = self.db;
         let key = self.key.clone();
-        let cmd = match self.direction {
-            PushDir::Head => "LPUSH",
-            PushDir::Tail => "RPUSH",
-        };
         let mut argv = vec![cmd.to_string(), key];
         argv.extend(elems);
         cx.spawn(async move |this, cx| {
@@ -131,45 +113,7 @@ impl Render for ListElementForm {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let muted_fg = theme.muted_foreground;
-        let accent = theme.accent;
-        let fg = theme.foreground;
-        let secondary_bg = theme.secondary;
         let border = theme.border;
-
-        let mut accent_tint = accent;
-        accent_tint.a = 0.10;
-        let mut accent_border = accent;
-        accent_border.a = 0.55;
-
-        let dir = self.direction;
-        let dir_btn = |this_dir: PushDir, label: &'static str, id: &'static str| {
-            let is_selected = this_dir == dir;
-            let mut btn = h_flex()
-                .id(SharedString::from(id))
-                .flex_1()
-                .items_center()
-                .justify_center()
-                .px(px(8.0))
-                .py(px(7.0))
-                .rounded_md()
-                .border_1()
-                .text_sm()
-                .child(label.to_string());
-            if is_selected {
-                btn = btn
-                    .bg(accent_tint)
-                    .border_color(accent_border)
-                    .text_color(accent);
-            } else {
-                btn = btn
-                    .bg(secondary_bg)
-                    .border_color(border)
-                    .text_color(fg)
-                    .cursor_pointer()
-                    .hover(move |this| this.border_color(accent_border));
-            }
-            btn
-        };
 
         let err = match &self.state {
             SubmitState::Idle | SubmitState::Submitting => None,
@@ -188,49 +132,7 @@ impl Render for ListElementForm {
                     .text_color(muted_fg)
                     .child(format!("Key: {}", self.key)),
             )
-            .child(
-                v_flex()
-                    .gap(px(6.0))
-                    .child(
-                        div()
-                            .text_xs()
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .text_color(muted_fg)
-                            .child("插入位置"),
-                    )
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .gap(px(8.0))
-                            .child(dir_btn(PushDir::Head, "头部 LPUSH", "le-head").on_click(
-                                cx.listener(|this, _: &ClickEvent, _, cx| {
-                                    this.set_dir(PushDir::Head, cx)
-                                }),
-                            ))
-                            .child(dir_btn(PushDir::Tail, "尾部 RPUSH", "le-tail").on_click(
-                                cx.listener(|this, _: &ClickEvent, _, cx| {
-                                    this.set_dir(PushDir::Tail, cx)
-                                }),
-                            )),
-                    ),
-            )
-            .child(
-                v_flex()
-                    .gap(px(6.0))
-                    .child(
-                        div()
-                            .text_xs()
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .text_color(muted_fg)
-                            .child("元素（每行一个）"),
-                    )
-                    .child(
-                        div()
-                            .w_full()
-                            .h(px(180.0))
-                            .child(Input::new(&self.value_input)),
-                    ),
-            )
+            .child(self.editor.clone())
             .child(div().h(px(1.0)).bg(border).my(px(2.0)))
             .child(
                 h_flex()

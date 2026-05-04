@@ -1,5 +1,11 @@
-//! Set 元素新增弹窗：每行一个元素 → SADD key m1 m2 ...
+//! Set 成员新增弹窗
+//!
+//! 复用 [`super::lines_editor::LinesEditor`]（`LinesKind::Set`），与新建 Key
+//! 中 Set tab 完全一致：行编辑器 + 提交时客户端去重。
+//!
+//! 提交命令：`SADD key m1 m2 ...`（已去重）
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use gpui::{
@@ -9,13 +15,13 @@ use gpui::{
 use gpui_component::{
     ActiveTheme, Sizable as _,
     button::{Button, ButtonVariants as _},
-    h_flex,
-    input::{Input, InputState},
-    v_flex,
+    h_flex, v_flex,
 };
 use ramag_app::RedisService;
 use ramag_domain::entities::ConnectionConfig;
 use tracing::{error, info};
+
+use crate::views::lines_editor::{LinesEditor, LinesKind};
 
 #[derive(Debug, Clone)]
 pub enum SetElementFormEvent {
@@ -35,7 +41,7 @@ pub struct SetElementForm {
     config: ConnectionConfig,
     db: u8,
     key: String,
-    value_input: Entity<InputState>,
+    editor: Entity<LinesEditor>,
     state: SubmitState,
 }
 
@@ -50,33 +56,31 @@ impl SetElementForm {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let value_input = cx.new(|cx| {
-            InputState::new(window, cx)
-                .multi_line(true)
-                .placeholder("每行一个元素（自动去重）")
-        });
+        let editor = cx.new(|cx| LinesEditor::new(LinesKind::Set, window, cx));
         Self {
             service,
             config,
             db,
             key,
-            value_input,
+            editor,
             state: SubmitState::Idle,
         }
     }
 
     fn handle_save(&mut self, cx: &mut Context<Self>) {
-        let raw = self.value_input.read(cx).value().to_string();
-        let elems: Vec<String> = raw
-            .lines()
-            .map(|l| l.trim_end_matches('\r').to_string())
-            .filter(|l| !l.is_empty())
-            .collect();
+        let elems = self.editor.read(cx).collect(cx);
         if elems.is_empty() {
-            self.state = SubmitState::Failed("至少填写 1 个元素".into());
+            self.state = SubmitState::Failed("至少填写 1 个成员".into());
             cx.notify();
             return;
         }
+        // 客户端去重，保留首次出现顺序（Redis 服务端也会去重，提前去重避免无谓的命令体积）
+        let mut seen: HashSet<String> = HashSet::new();
+        let dedup: Vec<String> = elems
+            .into_iter()
+            .filter(|s| seen.insert(s.clone()))
+            .collect();
+
         self.state = SubmitState::Submitting;
         cx.notify();
         let svc = self.service.clone();
@@ -84,7 +88,7 @@ impl SetElementForm {
         let db = self.db;
         let key = self.key.clone();
         let mut argv = vec!["SADD".to_string(), key];
-        argv.extend(elems);
+        argv.extend(dedup);
         cx.spawn(async move |this, cx| {
             let result = svc.execute_command(&config, db, argv).await;
             let _ = this.update(cx, |this, cx| match result {
@@ -130,23 +134,7 @@ impl Render for SetElementForm {
                     .text_color(muted_fg)
                     .child(format!("Key: {}", self.key)),
             )
-            .child(
-                v_flex()
-                    .gap(px(6.0))
-                    .child(
-                        div()
-                            .text_xs()
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .text_color(muted_fg)
-                            .child("成员（每行一个）"),
-                    )
-                    .child(
-                        div()
-                            .w_full()
-                            .h(px(180.0))
-                            .child(Input::new(&self.value_input)),
-                    ),
-            )
+            .child(self.editor.clone())
             .child(div().h(px(1.0)).bg(border).my(px(2.0)))
             .child(
                 h_flex()

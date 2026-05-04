@@ -279,14 +279,12 @@ fn build_gutter_list(
             let muted_bg = theme.muted;
             let accent = theme.accent;
             let selected = this.selected_diff_lines.clone();
-            let blame_rc: Option<Rc<Vec<ramag_domain::entities::BlameLine>>> = if has_blame
-                && this.showing_blame
-                && !this.blame_lines.is_empty()
-            {
-                Some(Rc::new(this.blame_lines.clone()))
-            } else {
-                None
-            };
+            let blame_rc: Option<Rc<Vec<ramag_domain::entities::BlameLine>>> =
+                if has_blame && this.showing_blame && !this.blame_lines.is_empty() {
+                    Some(Rc::new(this.blame_lines.clone()))
+                } else {
+                    None
+                };
             range
                 .map(|i| match keys[i] {
                     SplitKey::Header { hunk_idx } => render_gutter_header(

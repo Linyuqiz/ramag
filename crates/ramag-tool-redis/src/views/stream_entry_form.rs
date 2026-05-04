@@ -1,6 +1,13 @@
-//! Stream 条目新增弹窗：XADD key * field1 value1 field2 value2 ...
+//! Stream 条目新增弹窗
 //!
-//! 用户输入每行 `field value`（与 Hash 表单同款），自动用 `*` 让服务端生成 ID
+//! 复用 [`super::pairs_editor::PairsEditor`]（`PairsKind::Stream`）作为字段对编辑器，
+//! 与新建 Key 对话框中的 Stream tab 完全一致——结构化双列行编辑器，
+//! 用户不再需要记忆"每行 `field value`，空格分隔"的格式约定。
+//!
+//! 提交命令：`XADD key * field1 value1 field2 value2 ...`（ID 由服务端生成）
+//!
+//! 对外 API（`StreamEntryForm::new` + `StreamEntryFormEvent`）保持与旧版一致，
+//! 调用方 `connection_session.rs` 无需改动。
 
 use std::sync::Arc;
 
@@ -11,13 +18,13 @@ use gpui::{
 use gpui_component::{
     ActiveTheme, Sizable as _,
     button::{Button, ButtonVariants as _},
-    h_flex,
-    input::{Input, InputState},
-    v_flex,
+    h_flex, v_flex,
 };
 use ramag_app::RedisService;
 use ramag_domain::entities::ConnectionConfig;
 use tracing::{error, info};
+
+use crate::views::pairs_editor::{PairsEditor, PairsKind};
 
 #[derive(Debug, Clone)]
 pub enum StreamEntryFormEvent {
@@ -37,7 +44,7 @@ pub struct StreamEntryForm {
     config: ConnectionConfig,
     db: u8,
     key: String,
-    fields_input: Entity<InputState>,
+    editor: Entity<PairsEditor>,
     state: SubmitState,
 }
 
@@ -52,24 +59,19 @@ impl StreamEntryForm {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let fields_input = cx.new(|cx| {
-            InputState::new(window, cx)
-                .multi_line(true)
-                .placeholder("每行 `field value`，空格分隔")
-        });
+        let editor = cx.new(|cx| PairsEditor::new(PairsKind::Stream, window, cx));
         Self {
             service,
             config,
             db,
             key,
-            fields_input,
+            editor,
             state: SubmitState::Idle,
         }
     }
 
     fn handle_save(&mut self, cx: &mut Context<Self>) {
-        let raw = self.fields_input.read(cx).value().to_string();
-        let pairs = match parse_field_pairs(&raw) {
+        let pairs = match self.editor.read(cx).collect(cx) {
             Ok(p) => p,
             Err(e) => {
                 self.state = SubmitState::Failed(e);
@@ -117,32 +119,6 @@ impl StreamEntryForm {
     }
 }
 
-fn parse_field_pairs(raw: &str) -> Result<Vec<(String, String)>, String> {
-    let mut out = Vec::new();
-    for (idx, line) in raw.lines().enumerate() {
-        let line = line.trim_end_matches('\r');
-        if line.trim().is_empty() {
-            continue;
-        }
-        match line.split_once(' ') {
-            Some((f, v)) => {
-                let f = f.trim();
-                if f.is_empty() {
-                    return Err(format!("第 {} 行：field 为空", idx + 1));
-                }
-                out.push((f.to_string(), v.trim_start().to_string()));
-            }
-            None => {
-                return Err(format!(
-                    "第 {} 行格式错误：需要 `field value`（空格分隔）",
-                    idx + 1
-                ));
-            }
-        }
-    }
-    Ok(out)
-}
-
 impl Render for StreamEntryForm {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
@@ -174,14 +150,9 @@ impl Render for StreamEntryForm {
                             .text_xs()
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .text_color(muted_fg)
-                            .child("字段（每行 `field value`）"),
+                            .child("字段"),
                     )
-                    .child(
-                        div()
-                            .w_full()
-                            .h(px(180.0))
-                            .child(Input::new(&self.fields_input)),
-                    ),
+                    .child(self.editor.clone()),
             )
             .child(div().h(px(1.0)).bg(border).my(px(2.0)))
             .child(
@@ -223,27 +194,5 @@ impl Render for StreamEntryForm {
                             ),
                     ),
             )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_basic() {
-        let r = parse_field_pairs("name alice\nage 30").unwrap();
-        assert_eq!(r.len(), 2);
-    }
-
-    #[test]
-    fn parse_value_with_space() {
-        let r = parse_field_pairs("desc hello world").unwrap();
-        assert_eq!(r[0].1, "hello world");
-    }
-
-    #[test]
-    fn parse_missing_value_errors() {
-        assert!(parse_field_pairs("only_field").is_err());
     }
 }
