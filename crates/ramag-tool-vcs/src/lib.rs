@@ -11,9 +11,22 @@
 
 pub mod views;
 
-pub use views::vcs_view::{VcsView, create_vcs_view};
+pub use views::vcs_view::VcsView;
 
-use ramag_domain::traits::{Tool, ToolMeta};
+use std::sync::Arc;
+
+use gpui::{App, AppContext as _, Entity, Window};
+use ramag_domain::traits::{GitDriver, Storage, Tool, ToolMeta};
+
+/// 工厂：main / dbclient_view 一行创建 VcsView 实体（storage 用于 recent_repos 持久化）
+pub fn create_vcs_view(
+    driver: Arc<dyn GitDriver>,
+    storage: Arc<dyn Storage>,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<VcsView> {
+    cx.new(|cx_inner| VcsView::new(driver, storage, window, cx_inner))
+}
 
 /// 版本管理工具（Git 客户端）
 pub struct VcsTool {

@@ -19,7 +19,6 @@ pub mod reflog_view;
 pub mod repo_list;
 pub mod sidebar;
 pub mod sidebar_branches;
-pub mod sidebar_remote;
 pub mod sidebar_stash;
 pub mod sidebar_tags;
 pub mod vcs_tabs;

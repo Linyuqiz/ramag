@@ -30,7 +30,6 @@ futures = { workspace = true }
 
 # Action 派生需要
 serde = { workspace = true }
-serde_json = { workspace = true }
 schemars = { workspace = true }
 
 # 时间显示（历史面板）

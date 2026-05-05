@@ -23,10 +23,6 @@ futures = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
-# 错误
-anyhow = { workspace = true }
-thiserror = { workspace = true }
-
 # 日志
 tracing = { workspace = true }
 

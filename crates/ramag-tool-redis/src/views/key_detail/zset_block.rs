@@ -119,3 +119,39 @@ fn pretty_score(s: f64) -> String {
         format!("{s}")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::pretty_score;
+
+    #[test]
+    fn integer_no_fraction() {
+        assert_eq!(pretty_score(234.0), "234");
+        assert_eq!(pretty_score(0.0), "0");
+        assert_eq!(pretty_score(-7.0), "-7");
+    }
+
+    #[test]
+    fn float_keeps_decimal() {
+        assert_eq!(pretty_score(1.5), "1.5");
+        assert_eq!(pretty_score(-0.25), "-0.25");
+    }
+
+    #[test]
+    fn very_large_uses_default_display() {
+        // 超过 i64 安全范围的整数浮点：用默认 Display（科学计数法）
+        let s = pretty_score(1e16);
+        assert!(s.contains('e') || s.starts_with("10000000"), "got: {s}");
+    }
+
+    #[test]
+    fn nan_uses_default_display() {
+        assert_eq!(pretty_score(f64::NAN), "NaN");
+    }
+
+    #[test]
+    fn infinity_uses_default_display() {
+        assert_eq!(pretty_score(f64::INFINITY), "inf");
+        assert_eq!(pretty_score(f64::NEG_INFINITY), "-inf");
+    }
+}

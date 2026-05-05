@@ -4,29 +4,26 @@
 
 //! Ramag 本地存储实现
 //!
-//! 用 redb 嵌入式数据库存连接配置 / 查询历史 / 收藏夹。
+//! 用 redb 嵌入式数据库存连接配置 / 查询历史 / 偏好。
 //! 敏感字段（密码）用 aes-gcm 加密，主密钥存 macOS 钥匙串。
+//!
+//! # 模块拆分
+//!
+//! 业务实现按 redb 表为单位拆到 [`repos`] 子模块，每个 repo 暴露**同步**函数；
+//! 本文件的 [`RedbStorage`] 实现 [`Storage`] trait 时统一包 `run_blocking` 异步化：
+//!
+//! - [`repos::connection_repo`] 连接配置（密码 AES-GCM 加密落盘）
+//! - [`repos::repo_repo`] Git 仓库（VCS 最近列表）
+//! - [`repos::history_repo`] SQL 查询历史
+//! - [`repos::prefs_repo`] 通用偏好 KV
 //!
 //! # 文件位置
 //!
 //! `~/Library/Application Support/com.ramag.ramag/ramag.redb`（macOS）
-//! `~/.local/share/ramag/ramag.redb`（Linux）
-//!
-//! # 用法
-//!
-//! ```no_run
-//! use std::sync::Arc;
-//! use ramag_domain::traits::Storage;
-//! use ramag_infra_storage::RedbStorage;
-//!
-//! # async fn demo() -> ramag_domain::error::Result<()> {
-//! let storage: Arc<dyn Storage> = Arc::new(RedbStorage::open_default()?);
-//! let connections = storage.list_connections().await?;
-//! # Ok(()) }
-//! ```
 
 pub mod encryption;
 pub mod keyring;
+mod repos;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -35,11 +32,8 @@ use async_trait::async_trait;
 use directories::ProjectDirs;
 use futures::channel::oneshot;
 use parking_lot::RwLock;
-use redb::{
-    Database, ReadableDatabase as _, ReadableTable, ReadableTableMetadata as _, TableDefinition,
-};
-use serde::{Deserialize, Serialize};
-use tracing::{debug, info};
+use redb::Database;
+use tracing::info;
 
 use ramag_domain::entities::{
     ConnectionConfig, ConnectionId, QueryRecord, QueryRecordId, RepoConfig, RepoId,
@@ -48,84 +42,6 @@ use ramag_domain::error::{DomainError, Result};
 use ramag_domain::traits::Storage;
 
 use crate::encryption::Cipher;
-
-/// redb 表定义：连接配置
-///
-/// key: ConnectionId（UUID 字符串）
-/// value: JSON 序列化后的 EncryptedConnection
-const CONNECTIONS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("connections");
-
-/// redb 表定义：Git 仓库配置（VCS 工具的最近列表）
-///
-/// key: RepoId（UUID 字符串）
-/// value: JSON 序列化后的 RepoConfig（无加密 —— 仓库路径 / 名字非敏感）
-const REPOS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("repos");
-
-/// 查询历史表
-///
-/// key: 形如 `{rfc3339_timestamp}_{record_id}` 的复合 key
-///   - 时间戳前缀让 redb 按时间有序遍历
-///   - record_id 后缀避免毫秒级冲突
-///
-/// value: JSON 序列化的 QueryRecord
-const HISTORY_TABLE: TableDefinition<&str, &str> = TableDefinition::new("query_history");
-
-/// 历史保留上限：超过自动裁剪最旧的（防止无限增长）
-const HISTORY_MAX_KEEP: usize = 5000;
-
-/// 通用偏好 KV 表（如主题模式 / 上次连接 ID 等）
-const PREFERENCES_TABLE: TableDefinition<&str, &str> = TableDefinition::new("preferences");
-
-/// 加密后落盘的连接配置
-///
-/// 密码字段被加密成 hex 字符串
-#[derive(Debug, Serialize, Deserialize)]
-struct EncryptedConnection {
-    id: ConnectionId,
-    name: String,
-    driver: ramag_domain::entities::DriverKind,
-    host: String,
-    port: u16,
-    username: String,
-    /// 加密的密码（hex 字符串），明文不入库
-    password_enc: String,
-    database: Option<String>,
-    remark: Option<String>,
-    #[serde(default)]
-    color: ramag_domain::entities::ConnectionColor,
-}
-
-impl EncryptedConnection {
-    fn from_plain(plain: &ConnectionConfig, cipher: &Cipher) -> Result<Self> {
-        Ok(Self {
-            id: plain.id.clone(),
-            name: plain.name.clone(),
-            driver: plain.driver,
-            host: plain.host.clone(),
-            port: plain.port,
-            username: plain.username.clone(),
-            password_enc: cipher.encrypt(&plain.password)?,
-            database: plain.database.clone(),
-            remark: plain.remark.clone(),
-            color: plain.color,
-        })
-    }
-
-    fn into_plain(self, cipher: &Cipher) -> Result<ConnectionConfig> {
-        Ok(ConnectionConfig {
-            id: self.id,
-            name: self.name,
-            driver: self.driver,
-            host: self.host,
-            port: self.port,
-            username: self.username,
-            password: cipher.decrypt(&self.password_enc)?,
-            database: self.database,
-            remark: self.remark,
-            color: self.color,
-        })
-    }
-}
 
 /// 基于 redb 的本地存储实现
 pub struct RedbStorage {
@@ -165,17 +81,9 @@ impl RedbStorage {
         let write_txn = db
             .begin_write()
             .map_err(|e| DomainError::Storage(format!("启动写事务失败：{e}")))?;
-        {
-            let _ = write_txn
-                .open_table(CONNECTIONS_TABLE)
-                .map_err(|e| DomainError::Storage(format!("打开 connections 表失败：{e}")))?;
-            let _ = write_txn
-                .open_table(REPOS_TABLE)
-                .map_err(|e| DomainError::Storage(format!("打开 repos 表失败：{e}")))?;
-            let _ = write_txn
-                .open_table(HISTORY_TABLE)
-                .map_err(|e| DomainError::Storage(format!("打开 history 表失败：{e}")))?;
-        }
+        repos::connection_repo::ensure_table(&write_txn)?;
+        repos::repo_repo::ensure_table(&write_txn)?;
+        repos::history_repo::ensure_table(&write_txn)?;
         write_txn
             .commit()
             .map_err(|e| DomainError::Storage(format!("提交事务失败：{e}")))?;
@@ -206,7 +114,7 @@ fn default_db_path() -> Result<PathBuf> {
 /// 在独立 std 线程跑同步代码，结果通过 oneshot 送回
 ///
 /// 用 std::thread + futures::oneshot 而不是 tokio::task::spawn_blocking，
-/// 这样无论调用方在 tokio / smol / async-std 哪种 runtime 下都能用。
+/// 这样无论调用方在 tokio / smol / async-std 哪种 runtime 下都能用
 async fn run_blocking<F, T>(f: F) -> Result<T>
 where
     F: FnOnce() -> Result<T> + Send + 'static,
@@ -226,274 +134,50 @@ impl Storage for RedbStorage {
     async fn list_connections(&self) -> Result<Vec<ConnectionConfig>> {
         let db = self.db.clone();
         let cipher = self.cipher.clone();
-
-        run_blocking(move || {
-            let read_txn = db
-                .begin_read()
-                .map_err(|e| DomainError::Storage(format!("启动读事务失败：{e}")))?;
-            let table = read_txn
-                .open_table(CONNECTIONS_TABLE)
-                .map_err(|e| DomainError::Storage(format!("打开表失败：{e}")))?;
-
-            let cipher = cipher.read();
-            let mut out = Vec::new();
-            for entry in table
-                .iter()
-                .map_err(|e| DomainError::Storage(e.to_string()))?
-            {
-                let (_, v) = entry.map_err(|e| DomainError::Storage(e.to_string()))?;
-                let enc: EncryptedConnection = serde_json::from_str(v.value())
-                    .map_err(|e| DomainError::Storage(format!("反序列化连接失败：{e}")))?;
-                out.push(enc.into_plain(&cipher)?);
-            }
-            out.sort_by(|a, b| a.name.cmp(&b.name));
-            debug!(count = out.len(), "list_connections done");
-            Ok(out)
-        })
-        .await
+        run_blocking(move || repos::connection_repo::list(db, cipher)).await
     }
 
     async fn get_connection(&self, id: &ConnectionId) -> Result<Option<ConnectionConfig>> {
         let db = self.db.clone();
         let cipher = self.cipher.clone();
         let id_str = id.to_string();
-
-        run_blocking(move || {
-            let read_txn = db
-                .begin_read()
-                .map_err(|e| DomainError::Storage(format!("启动读事务失败：{e}")))?;
-            let table = read_txn
-                .open_table(CONNECTIONS_TABLE)
-                .map_err(|e| DomainError::Storage(format!("打开表失败：{e}")))?;
-
-            match table
-                .get(id_str.as_str())
-                .map_err(|e| DomainError::Storage(e.to_string()))?
-            {
-                Some(v) => {
-                    let cipher = cipher.read();
-                    let enc: EncryptedConnection = serde_json::from_str(v.value())
-                        .map_err(|e| DomainError::Storage(format!("反序列化失败：{e}")))?;
-                    Ok(Some(enc.into_plain(&cipher)?))
-                }
-                None => Ok(None),
-            }
-        })
-        .await
+        run_blocking(move || repos::connection_repo::get(db, cipher, id_str)).await
     }
 
     async fn save_connection(&self, config: &ConnectionConfig) -> Result<()> {
         let db = self.db.clone();
         let cipher = self.cipher.clone();
         let config = config.clone();
-
-        run_blocking(move || {
-            let cipher = cipher.read();
-            let enc = EncryptedConnection::from_plain(&config, &cipher)?;
-            let json = serde_json::to_string(&enc)
-                .map_err(|e| DomainError::Storage(format!("序列化失败：{e}")))?;
-            let id_str = config.id.to_string();
-
-            let write_txn = db
-                .begin_write()
-                .map_err(|e| DomainError::Storage(format!("启动写事务失败：{e}")))?;
-            {
-                let mut table = write_txn
-                    .open_table(CONNECTIONS_TABLE)
-                    .map_err(|e| DomainError::Storage(format!("打开表失败：{e}")))?;
-                table
-                    .insert(id_str.as_str(), json.as_str())
-                    .map_err(|e| DomainError::Storage(format!("写入失败：{e}")))?;
-            }
-            write_txn
-                .commit()
-                .map_err(|e| DomainError::Storage(format!("提交事务失败：{e}")))?;
-
-            info!(connection_id = %config.id, name = %config.name, "connection saved");
-            Ok(())
-        })
-        .await
+        run_blocking(move || repos::connection_repo::save(db, cipher, config)).await
     }
 
     async fn delete_connection(&self, id: &ConnectionId) -> Result<()> {
         let db = self.db.clone();
         let id_str = id.to_string();
-
-        run_blocking(move || {
-            let write_txn = db
-                .begin_write()
-                .map_err(|e| DomainError::Storage(format!("启动写事务失败：{e}")))?;
-            {
-                let mut table = write_txn
-                    .open_table(CONNECTIONS_TABLE)
-                    .map_err(|e| DomainError::Storage(format!("打开表失败：{e}")))?;
-                table
-                    .remove(id_str.as_str())
-                    .map_err(|e| DomainError::Storage(format!("删除失败：{e}")))?;
-            }
-            write_txn
-                .commit()
-                .map_err(|e| DomainError::Storage(format!("提交事务失败：{e}")))?;
-
-            info!(connection_id = %id_str, "connection deleted");
-            Ok(())
-        })
-        .await
+        run_blocking(move || repos::connection_repo::delete(db, id_str)).await
     }
-
-    // ==================== Git 仓库（VCS 最近列表） ====================
 
     async fn list_repos(&self) -> Result<Vec<RepoConfig>> {
         let db = self.db.clone();
-        run_blocking(move || {
-            let read_txn = db
-                .begin_read()
-                .map_err(|e| DomainError::Storage(format!("启动读事务失败：{e}")))?;
-            let table = read_txn
-                .open_table(REPOS_TABLE)
-                .map_err(|e| DomainError::Storage(format!("打开 repos 表失败：{e}")))?;
-
-            let mut out: Vec<RepoConfig> = Vec::new();
-            for entry in table
-                .iter()
-                .map_err(|e| DomainError::Storage(e.to_string()))?
-            {
-                let (_, v) = entry.map_err(|e| DomainError::Storage(e.to_string()))?;
-                let cfg: RepoConfig = serde_json::from_str(v.value())
-                    .map_err(|e| DomainError::Storage(format!("反序列化仓库失败：{e}")))?;
-                out.push(cfg);
-            }
-            // 按 name 字母序：列表顺序稳定，不随打开顺序漂移
-            out.sort_by(|a, b| a.name.cmp(&b.name));
-            debug!(count = out.len(), "list_repos done");
-            Ok(out)
-        })
-        .await
+        run_blocking(move || repos::repo_repo::list(db)).await
     }
 
     async fn save_repo(&self, config: &RepoConfig) -> Result<()> {
         let db = self.db.clone();
         let config = config.clone();
-        run_blocking(move || {
-            let json = serde_json::to_string(&config)
-                .map_err(|e| DomainError::Storage(format!("序列化仓库失败：{e}")))?;
-            let id_str = config.id.to_string();
-            let target_path = config.path.clone();
-
-            let write_txn = db
-                .begin_write()
-                .map_err(|e| DomainError::Storage(format!("启动写事务失败：{e}")))?;
-            {
-                let mut table = write_txn
-                    .open_table(REPOS_TABLE)
-                    .map_err(|e| DomainError::Storage(format!("打开 repos 表表失败：{e}")))?;
-
-                // 同 path 去重：driver 每次 open_repo 创建新 UUID，重启后再打开同物理仓库
-                // 会产生新 RepoId → 不去重的话每次都新增一条。这里在同一事务内先把所有
-                // path 匹配的旧记录全部删掉，再插入新记录，保证同 path 仅一条
-                let mut stale_keys: Vec<String> = Vec::new();
-                for entry in table
-                    .iter()
-                    .map_err(|e| DomainError::Storage(e.to_string()))?
-                {
-                    let (k, v) = entry.map_err(|e| DomainError::Storage(e.to_string()))?;
-                    if let Ok(cfg) = serde_json::from_str::<RepoConfig>(v.value())
-                        && cfg.path == target_path
-                        && k.value() != id_str
-                    {
-                        stale_keys.push(k.value().to_string());
-                    }
-                }
-                for k in stale_keys {
-                    table
-                        .remove(k.as_str())
-                        .map_err(|e| DomainError::Storage(format!("清理重复记录失败：{e}")))?;
-                }
-
-                table
-                    .insert(id_str.as_str(), json.as_str())
-                    .map_err(|e| DomainError::Storage(format!("写入仓库失败：{e}")))?;
-            }
-            write_txn
-                .commit()
-                .map_err(|e| DomainError::Storage(format!("提交事务失败：{e}")))?;
-
-            info!(repo_id = %config.id, name = %config.name, "repo saved");
-            Ok(())
-        })
-        .await
+        run_blocking(move || repos::repo_repo::save(db, config)).await
     }
 
     async fn delete_repo(&self, id: &RepoId) -> Result<()> {
         let db = self.db.clone();
-        let id_str = id.to_string();
-        run_blocking(move || {
-            let write_txn = db
-                .begin_write()
-                .map_err(|e| DomainError::Storage(format!("启动写事务失败：{e}")))?;
-            {
-                let mut table = write_txn
-                    .open_table(REPOS_TABLE)
-                    .map_err(|e| DomainError::Storage(format!("打开 repos 表失败：{e}")))?;
-                table
-                    .remove(id_str.as_str())
-                    .map_err(|e| DomainError::Storage(format!("删除仓库失败：{e}")))?;
-            }
-            write_txn
-                .commit()
-                .map_err(|e| DomainError::Storage(format!("提交事务失败：{e}")))?;
-
-            info!(repo_id = %id_str, "repo deleted");
-            Ok(())
-        })
-        .await
+        let id = id.clone();
+        run_blocking(move || repos::repo_repo::delete(db, id)).await
     }
-
-    // ==================== 查询历史 ====================
 
     async fn append_history(&self, record: &QueryRecord) -> Result<()> {
         let db = self.db.clone();
         let record = record.clone();
-
-        run_blocking(move || {
-            // key = "{rfc3339}_{id}" → 字典序按时间升序
-            let key = format!("{}_{}", record.executed_at.to_rfc3339(), record.id);
-            let value = serde_json::to_string(&record)
-                .map_err(|e| DomainError::Storage(format!("history 序列化失败：{e}")))?;
-
-            let write_txn = db
-                .begin_write()
-                .map_err(|e| DomainError::Storage(format!("启动写事务失败：{e}")))?;
-            {
-                let mut table = write_txn
-                    .open_table(HISTORY_TABLE)
-                    .map_err(|e| DomainError::Storage(format!("打开 history 表失败：{e}")))?;
-                table
-                    .insert(key.as_str(), value.as_str())
-                    .map_err(|e| DomainError::Storage(format!("写入历史失败：{e}")))?;
-
-                // 超过上限：删最早的 N 条
-                let len = table.len().unwrap_or(0) as usize;
-                if len > HISTORY_MAX_KEEP {
-                    let to_remove = len - HISTORY_MAX_KEEP;
-                    let oldest_keys: Vec<String> = table
-                        .iter()
-                        .map_err(|e| DomainError::Storage(e.to_string()))?
-                        .take(to_remove)
-                        .filter_map(|r| r.ok().map(|(k, _)| k.value().to_string()))
-                        .collect();
-                    for k in oldest_keys {
-                        let _ = table.remove(k.as_str());
-                    }
-                }
-            }
-            write_txn
-                .commit()
-                .map_err(|e| DomainError::Storage(format!("提交事务失败：{e}")))?;
-            debug!(record_id = %record.id, "history appended");
-            Ok(())
-        })
-        .await
+        run_blocking(move || repos::history_repo::append(db, record)).await
     }
 
     async fn list_history(
@@ -503,164 +187,32 @@ impl Storage for RedbStorage {
     ) -> Result<Vec<QueryRecord>> {
         let db = self.db.clone();
         let conn_filter = connection_id.cloned();
-
-        run_blocking(move || {
-            let read_txn = db
-                .begin_read()
-                .map_err(|e| DomainError::Storage(format!("启动读事务失败：{e}")))?;
-            let table = read_txn
-                .open_table(HISTORY_TABLE)
-                .map_err(|e| DomainError::Storage(format!("打开 history 表失败：{e}")))?;
-
-            // 倒序取（最新的在最后），limit 控制
-            let mut all: Vec<QueryRecord> = Vec::new();
-            for entry in table
-                .iter()
-                .map_err(|e| DomainError::Storage(e.to_string()))?
-            {
-                let (_, v) = entry.map_err(|e| DomainError::Storage(e.to_string()))?;
-                if let Ok(rec) = serde_json::from_str::<QueryRecord>(v.value()) {
-                    if let Some(ref filter_id) = conn_filter
-                        && rec.connection_id != *filter_id
-                    {
-                        continue;
-                    }
-                    all.push(rec);
-                }
-            }
-            // 按 executed_at desc 排序
-            all.sort_by_key(|r| std::cmp::Reverse(r.executed_at));
-            all.truncate(limit);
-            Ok(all)
-        })
-        .await
+        run_blocking(move || repos::history_repo::list(db, conn_filter, limit)).await
     }
 
     async fn delete_history(&self, id: &QueryRecordId) -> Result<()> {
         let db = self.db.clone();
-        let target_id = id.0.to_string();
-
-        run_blocking(move || {
-            let write_txn = db
-                .begin_write()
-                .map_err(|e| DomainError::Storage(format!("启动写事务失败：{e}")))?;
-            {
-                let mut table = write_txn
-                    .open_table(HISTORY_TABLE)
-                    .map_err(|e| DomainError::Storage(format!("打开 history 表失败：{e}")))?;
-                // 找出 key 包含 target_id 的项删除
-                let keys_to_remove: Vec<String> = table
-                    .iter()
-                    .map_err(|e| DomainError::Storage(e.to_string()))?
-                    .filter_map(|r| r.ok())
-                    .filter(|(k, _)| k.value().contains(&target_id))
-                    .map(|(k, _)| k.value().to_string())
-                    .collect();
-                for k in keys_to_remove {
-                    let _ = table.remove(k.as_str());
-                }
-            }
-            write_txn
-                .commit()
-                .map_err(|e| DomainError::Storage(format!("提交事务失败：{e}")))?;
-            Ok(())
-        })
-        .await
+        let id = id.clone();
+        run_blocking(move || repos::history_repo::delete(db, id)).await
     }
 
     async fn clear_history(&self, connection_id: Option<&ConnectionId>) -> Result<()> {
         let db = self.db.clone();
         let conn_filter = connection_id.cloned();
-
-        run_blocking(move || {
-            let write_txn = db
-                .begin_write()
-                .map_err(|e| DomainError::Storage(format!("启动写事务失败：{e}")))?;
-            {
-                let mut table = write_txn
-                    .open_table(HISTORY_TABLE)
-                    .map_err(|e| DomainError::Storage(format!("打开 history 表失败：{e}")))?;
-
-                if let Some(target) = conn_filter {
-                    let to_remove: Vec<String> = table
-                        .iter()
-                        .map_err(|e| DomainError::Storage(e.to_string()))?
-                        .filter_map(|r| r.ok())
-                        .filter_map(|(k, v)| {
-                            let rec: QueryRecord = serde_json::from_str(v.value()).ok()?;
-                            if rec.connection_id == target {
-                                Some(k.value().to_string())
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
-                    for k in to_remove {
-                        let _ = table.remove(k.as_str());
-                    }
-                } else {
-                    // 全部清空：用 retain 风格——逐个 remove
-                    let all_keys: Vec<String> = table
-                        .iter()
-                        .map_err(|e| DomainError::Storage(e.to_string()))?
-                        .filter_map(|r| r.ok().map(|(k, _)| k.value().to_string()))
-                        .collect();
-                    for k in all_keys {
-                        let _ = table.remove(k.as_str());
-                    }
-                }
-            }
-            write_txn
-                .commit()
-                .map_err(|e| DomainError::Storage(format!("提交事务失败：{e}")))?;
-            info!("history cleared");
-            Ok(())
-        })
-        .await
+        run_blocking(move || repos::history_repo::clear(db, conn_filter)).await
     }
 
     async fn get_preference(&self, key: &str) -> Result<Option<String>> {
         let db = self.db.clone();
         let key = key.to_string();
-        run_blocking(move || {
-            let read_txn = db
-                .begin_read()
-                .map_err(|e| DomainError::Storage(format!("启动读事务失败：{e}")))?;
-            let table = match read_txn.open_table(PREFERENCES_TABLE) {
-                Ok(t) => t,
-                Err(_) => return Ok(None), // 表不存在视为未设置
-            };
-            let v = table
-                .get(key.as_str())
-                .map_err(|e| DomainError::Storage(format!("读偏好失败：{e}")))?
-                .map(|g| g.value().to_string());
-            Ok(v)
-        })
-        .await
+        run_blocking(move || repos::prefs_repo::get(db, key)).await
     }
 
     async fn set_preference(&self, key: &str, value: &str) -> Result<()> {
         let db = self.db.clone();
         let key = key.to_string();
         let value = value.to_string();
-        run_blocking(move || {
-            let write_txn = db
-                .begin_write()
-                .map_err(|e| DomainError::Storage(format!("启动写事务失败：{e}")))?;
-            {
-                let mut table = write_txn
-                    .open_table(PREFERENCES_TABLE)
-                    .map_err(|e| DomainError::Storage(format!("打开 preferences 表失败：{e}")))?;
-                table
-                    .insert(key.as_str(), value.as_str())
-                    .map_err(|e| DomainError::Storage(format!("写偏好失败：{e}")))?;
-            }
-            write_txn
-                .commit()
-                .map_err(|e| DomainError::Storage(format!("提交事务失败：{e}")))?;
-            Ok(())
-        })
-        .await
+        run_blocking(move || repos::prefs_repo::set(db, key, value)).await
     }
 }
 

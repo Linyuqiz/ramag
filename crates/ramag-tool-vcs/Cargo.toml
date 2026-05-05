@@ -11,16 +11,11 @@ workspace = true
 
 [dependencies]
 ramag-domain = { workspace = true }
-ramag-app = { workspace = true }
 ramag-ui = { workspace = true }
 
 # GPUI 渲染
 gpui = { workspace = true }
 gpui-component = { workspace = true }
-
-# Action 派生
-serde = { workspace = true }
-schemars = { workspace = true }
 
 # 异步
 futures = { workspace = true }

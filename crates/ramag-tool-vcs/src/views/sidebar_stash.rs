@@ -1,12 +1,6 @@
-//! 左侧边栏：Stash 段
+//! Stash 列表渲染（IDE Files panel 的 Stash 视图主区调用）
 //!
-//! 列表 + 行尾 [Apply][Pop][Drop] + 顶部「Stash 当前」。
-//! 每条 stash 显示 stash@{N} + message + 时间。
-//!
-//! `render_stash_section`（带 header / 折叠 + Stash 当前按钮）随 sidebar panel 删除已不再使用，
-//! 但 `render_stash_list_body` 等仍被 FilesViewMode::Stash 主区调用。
-
-#![allow(dead_code)]
+//! 行尾按钮 [Apply][Pop][Drop]，每条 stash 显示 stash@{N} + message + 时间。
 
 use gpui::{
     AnyElement, ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div, px,
@@ -19,50 +13,10 @@ use gpui_component::{
 use ramag_domain::entities::Stash;
 
 use super::helpers::StashOp;
-use super::sidebar::{SidebarSection, section_header};
 use super::vcs_view::VcsView;
 
 impl VcsView {
-    /// Stash 段：折叠 + 列表 + 行尾按钮 + 顶部「Stash 当前」
-    pub(super) fn render_stash_section(&self, cx: &mut Context<Self>) -> AnyElement {
-        let count = self.stashes.len();
-        let busy = self.busy;
-        let collapsed = self.collapsed_stash;
-
-        let mut header = section_header("Stash", count, collapsed, SidebarSection::Stash, cx);
-        // header 右侧补一个「保存当前」按钮（不占折叠点击区）
-        if !collapsed {
-            header = h_flex()
-                .gap(px(4.0))
-                .items_center()
-                .w_full()
-                .child(div().flex_1().child(header))
-                .child(
-                    Button::new("vcs-stash-save")
-                        .ghost()
-                        .xsmall()
-                        .icon(IconName::Plus)
-                        .tooltip("把当前未提交改动存进 stash")
-                        .disabled(busy)
-                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                            this.confirm_stash_op(StashOp::Save, window, cx);
-                        })),
-                )
-                .into_any_element();
-        }
-
-        if collapsed {
-            return v_flex().gap(px(4.0)).child(header).into_any_element();
-        }
-
-        v_flex()
-            .gap(px(2.0))
-            .child(header)
-            .child(self.render_stash_list_body(cx))
-            .into_any_element()
-    }
-
-    /// Stash 列表 body（不含 header / 折叠）：供 sidebar 段与 IDE Files panel Stash 视图共用
+    /// Stash 列表 body：供 IDE Files panel Stash 视图主区调用
     pub(super) fn render_stash_list_body(&self, cx: &mut Context<Self>) -> AnyElement {
         let muted_fg = cx.theme().muted_foreground;
         let busy = self.busy;

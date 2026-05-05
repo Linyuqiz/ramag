@@ -7,6 +7,7 @@
 pub mod actions;
 pub mod activity_bar;
 pub mod assets;
+pub mod confirm_dialog;
 pub mod home_view;
 pub mod icons;
 pub mod shell;
@@ -14,6 +15,7 @@ pub mod theme;
 
 pub use actions::CloseTab;
 pub use assets::RamagAssets;
+pub use confirm_dialog::open_confirm;
 
 pub use activity_bar::{ActivityBar, NavEvent, NavTarget};
 pub use home_view::{HomeEvent, HomeView};

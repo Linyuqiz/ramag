@@ -176,8 +176,8 @@ pub(super) fn format_ttl_ms(ms: i64) -> String {
 /// 借 GPUI 已有的 futures crate（workspace 默认包含）
 pub(super) async fn futures_join<A, B, RA, RB>(a: A, b: B) -> (RA, RB)
 where
-    A: std::future::Future<Output = RA>,
-    B: std::future::Future<Output = RB>,
+    A: Future<Output = RA>,
+    B: Future<Output = RB>,
 {
     use futures::future::join;
     join(a, b).await

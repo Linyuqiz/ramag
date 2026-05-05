@@ -8,12 +8,8 @@
 
 use std::rc::Rc;
 
-use gpui::{App, AppContext as _, Context, ParentElement, SharedString, Styled, Window, div, px};
-use gpui_component::{
-    ActiveTheme, Sizable as _, WindowExt as _,
-    button::{Button, ButtonVariants as _},
-    h_flex,
-};
+use gpui::{App, AppContext as _, Context, ParentElement, SharedString, Styled, Window, px};
+use gpui_component::WindowExt as _;
 use tracing::info;
 
 use super::RedisSessionPanel;
@@ -375,7 +371,11 @@ impl RedisSessionPanel {
         });
     }
 
-    /// 通用「破坏性操作二次确认」弹窗
+    /// 通用「破坏性操作二次确认」弹窗（薄封装）
+    ///
+    /// 委托给 [`ramag_ui::open_confirm`]：danger=true、确认按钮文案固定为「删除」。
+    /// 历史回调签名是 `Rc<dyn Fn(&mut Window, &mut App)>`，可能被多次构造但只触发一次，
+    /// 这里包成 `FnOnce` 等价语义。
     pub(super) fn confirm_delete_op(
         &mut self,
         title: SharedString,
@@ -385,40 +385,15 @@ impl RedisSessionPanel {
         cx: &mut Context<Self>,
     ) {
         let _ = self;
-        window.open_dialog(cx, move |dialog, _w, _app| {
-            let desc = desc.clone();
-            let on_confirm_ok = on_confirm.clone();
-            let cancel_btn = Button::new("del-op-cancel")
-                .ghost()
-                .small()
-                .label("取消")
-                .on_click(|_, window, app| window.close_dialog(app));
-            let confirm_btn = Button::new("del-op-confirm")
-                .danger()
-                .small()
-                .label("删除")
-                .on_click(move |_, window, app| {
-                    on_confirm_ok(window, app);
-                    window.close_dialog(app);
-                });
-            dialog
-                .title(title.clone())
-                .margin_top(px(180.0))
-                .content(move |content, _, cx| {
-                    let muted_fg = cx.theme().muted_foreground;
-                    let desc = desc.clone();
-                    content.child(div().py(px(4.0)).text_sm().text_color(muted_fg).child(desc))
-                })
-                .footer(
-                    h_flex()
-                        .w_full()
-                        .items_center()
-                        .justify_end()
-                        .gap(px(8.0))
-                        .child(cancel_btn)
-                        .child(confirm_btn),
-                )
-        });
+        ramag_ui::open_confirm(
+            title,
+            desc,
+            "删除",
+            true,
+            move |window, app| on_confirm(window, app),
+            window,
+            cx,
+        );
     }
 }
 
@@ -430,4 +405,42 @@ pub(super) fn truncate_for_dialog(s: &str, max_chars: usize) -> String {
     }
     let prefix: String = s.chars().take(max_chars).collect();
     format!("{prefix}…")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate_for_dialog;
+
+    #[test]
+    fn short_string_unchanged() {
+        assert_eq!(truncate_for_dialog("abc", 10), "abc");
+    }
+
+    #[test]
+    fn exact_length_unchanged() {
+        assert_eq!(truncate_for_dialog("abcde", 5), "abcde");
+    }
+
+    #[test]
+    fn over_length_truncated() {
+        assert_eq!(truncate_for_dialog("abcdef", 3), "abc…");
+    }
+
+    #[test]
+    fn utf8_chinese_safe() {
+        // 5 个汉字 = 5 chars，截到 3 → 前 3 个汉字 + 省略号
+        assert_eq!(truncate_for_dialog("你好世界呀", 3), "你好世…");
+    }
+
+    #[test]
+    fn utf8_emoji_safe() {
+        // emoji 单独占 1 char（只算 unicode codepoint，足够避免 utf-8 边界 panic）
+        let r = truncate_for_dialog("ab😀cd", 3);
+        assert_eq!(r, "ab😀…");
+    }
+
+    #[test]
+    fn empty_string() {
+        assert_eq!(truncate_for_dialog("", 5), "");
+    }
 }

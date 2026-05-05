@@ -24,13 +24,6 @@ futures = { workspace = true }
 dashmap = { workspace = true }
 once_cell = { workspace = true }
 
-# 错误
-anyhow = { workspace = true }
-thiserror = { workspace = true }
-
-# 时间戳（Pub/Sub 消息接收时间）
-chrono = { workspace = true }
-
 # 日志
 tracing = { workspace = true }
 

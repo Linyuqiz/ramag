@@ -262,7 +262,7 @@ impl VcsView {
                 div()
                     .flex_1()
                     .min_w_0()
-                    .child(gpui_component::input::Input::new(&self.clone_url_input).small()),
+                    .child(Input::new(&self.clone_url_input).small()),
             )
             .child(
                 Button::new("vcs-clone-pick-dest")

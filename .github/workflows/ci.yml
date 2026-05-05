@@ -36,6 +36,19 @@ jobs:
           # 区分 workspace
           key: ramag-v1
 
+      - name: 单文件 600 行红线门禁
+        # CLAUDE.md 强制规则：单 .rs 不超 600 行（超过即重构债务）
+        # 找到任意 > 600 行的 .rs 文件即让 CI 失败，附带超标清单
+        run: |
+          OVER=$(find crates -name "*.rs" -not -path "*/target/*" -exec wc -l {} \; | awk '$1 > 600' | sort -rn)
+          if [ -n "$OVER" ]; then
+            echo "❌ 以下文件超过 600 行红线（CLAUDE.md 强制规则）:" >&2
+            echo "$OVER" >&2
+            echo "请按职责拆分到子模块。" >&2
+            exit 1
+          fi
+          echo "✅ 所有 .rs 文件 ≤ 600 行"
+
       - name: 检查格式
         run: cargo fmt --all -- --check
 

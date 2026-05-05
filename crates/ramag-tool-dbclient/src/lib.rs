@@ -6,6 +6,8 @@
 //! Stage 4 起：结果集表格
 //! Stage 5/6：历史 + 补全
 
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
 pub mod actions;
 pub mod sql_completion;
 pub mod views;
@@ -16,9 +18,23 @@ pub use actions::{
     ToggleHistory, ToggleSqlEditor,
 };
 pub use views::DbClientView;
-pub use views::dbclient_view::create_dbclient_view;
 
+use std::sync::Arc;
+
+use gpui::{AnyView, App, AppContext as _, Window};
+use ramag_app::{ConnectionService, RedisService};
 use ramag_domain::traits::{Tool, ToolMeta};
+
+/// 工厂：在 App 上下文创建 DbClientView 并返回 AnyView
+pub fn create_dbclient_view(
+    service: Arc<ConnectionService>,
+    redis_service: Arc<RedisService>,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyView {
+    let view = cx.new(|cx| DbClientView::new(service, redis_service, window, cx));
+    view.into()
+}
 
 /// DB Client 工具
 ///

@@ -107,7 +107,7 @@ pub fn render_file_diff_split(
     h_scroll_left: &ScrollHandle,
     h_scroll_right: &ScrollHandle,
     has_blame: bool,
-    expanded_spacers: &std::collections::HashSet<(usize, usize)>,
+    expanded_spacers: &HashSet<(usize, usize)>,
     cx: &mut Context<VcsView>,
 ) -> AnyElement {
     if let Some(empty) = render_diff_empty(diff, muted_fg) {

@@ -79,11 +79,6 @@ pub fn columns_2() -> Icon {
 }
 
 #[inline]
-pub fn rows_2() -> Icon {
-    Icon::default().path("icons/rows-2.svg")
-}
-
-#[inline]
 pub fn list_filter() -> Icon {
     Icon::default().path("icons/list-filter.svg")
 }

@@ -13,6 +13,7 @@ use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
 use tracing::warn;
 
+
 use crate::errors::map_postgres_error;
 
 /// 默认 application_name（在服务端 `pg_stat_activity` 里识别 ramag 连接）
@@ -62,42 +63,3 @@ pub async fn build_pool(config: &ConnectionConfig) -> Result<PgPool> {
         })
 }
 
-/// 解析 sslmode 字符串到 sqlx PgSslMode；无效值默认 Prefer
-///
-/// 4 档：disable / require / verify-ca / verify-full（与 PG 协议保持一致）。
-/// 当前 ConnectionConfig 没有 sslmode 字段（v0.3 后续 Stage 9 加），
-/// 本函数留作后续扩展时启用
-#[allow(dead_code)]
-pub fn parse_sslmode(s: &str) -> PgSslMode {
-    match s.to_ascii_lowercase().as_str() {
-        "disable" => PgSslMode::Disable,
-        "allow" => PgSslMode::Allow,
-        "prefer" => PgSslMode::Prefer,
-        "require" => PgSslMode::Require,
-        "verify-ca" => PgSslMode::VerifyCa,
-        "verify-full" => PgSslMode::VerifyFull,
-        _ => PgSslMode::Prefer,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_sslmode_known() {
-        assert!(matches!(parse_sslmode("disable"), PgSslMode::Disable));
-        assert!(matches!(parse_sslmode("REQUIRE"), PgSslMode::Require));
-        assert!(matches!(parse_sslmode("verify-ca"), PgSslMode::VerifyCa));
-        assert!(matches!(
-            parse_sslmode("verify-full"),
-            PgSslMode::VerifyFull
-        ));
-    }
-
-    #[test]
-    fn parse_sslmode_unknown_falls_back_to_prefer() {
-        assert!(matches!(parse_sslmode("xxxx"), PgSslMode::Prefer));
-        assert!(matches!(parse_sslmode(""), PgSslMode::Prefer));
-    }
-}

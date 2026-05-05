@@ -21,9 +21,6 @@ gpui-component = { workspace = true }
 # 异步组合（key_detail 并发拉值 + TTL 用 futures::join）
 futures = { workspace = true }
 
-# Pub/Sub 时间戳格式化
-chrono = { workspace = true }
-
 # 值显示增强：Stage 18.3
 # - serde_json：JSON pretty 渲染
 # - base64：Bytes ↔ base64 切换显示
@@ -31,10 +28,6 @@ chrono = { workspace = true }
 serde_json = { workspace = true }
 base64 = "0.22"
 flate2 = "1"
-
-# Action 派生需要
-serde = { workspace = true }
-schemars = { workspace = true }
 
 # 日志
 tracing = { workspace = true }

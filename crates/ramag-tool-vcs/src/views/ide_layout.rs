@@ -296,7 +296,7 @@ impl VcsView {
                     // 分支用 group 收纳后顶层项数量可控，通常窗口能装下；
                     // 多分支的 prefix（如 origin/*）放进各自 submenu，submenu 自身可 scrollable
                     // max_w 限宽防止超长分支名撑破菜单（叶子内部已做中间省略截断）
-                    m = m.max_w(gpui::px(420.0));
+                    m = m.max_w(px(420.0));
                     // 操作分组
                     m = m.item(PopupMenuItem::label("操作"));
                     let ent_new = entity.clone();
@@ -421,18 +421,11 @@ impl VcsView {
         } else {
             self.render_diff_block(cx)
         };
-        gpui_component::v_flex()
+        v_flex()
             .size_full()
             .min_w_0()
             .child(self.render_file_tab_bar(cx))
-            .child(
-                gpui::div()
-                    .flex_1()
-                    .min_h_0()
-                    .min_w_0()
-                    .w_full()
-                    .child(body),
-            )
+            .child(div().flex_1().min_h_0().min_w_0().w_full().child(body))
             .into_any_element()
     }
 }

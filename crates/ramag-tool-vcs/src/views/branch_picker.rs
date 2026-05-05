@@ -51,8 +51,8 @@ pub(super) fn render_branches_grouped(
     mut m: PopupMenu,
     items: &[BranchLeaf],
     is_remote: bool,
-    entity: gpui::Entity<VcsView>,
-    window: &mut gpui::Window,
+    entity: Entity<VcsView>,
+    window: &mut Window,
     cx: &mut gpui::Context<PopupMenu>,
 ) -> PopupMenu {
     let mut singles: Vec<BranchLeaf> = Vec::new();
@@ -303,7 +303,7 @@ fn push_branch_leaf(
     is_head: bool,
     is_remote: bool,
     sync: &Option<String>,
-    entity: gpui::Entity<VcsView>,
+    entity: Entity<VcsView>,
 ) -> PopupMenu {
     let prefix = if is_remote {
         "↗  "

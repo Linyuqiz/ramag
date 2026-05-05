@@ -18,12 +18,11 @@ use ramag_domain::entities::RepoOperation;
 
 use super::helpers::{BranchOp, FileOp, RemoteOp, StashOp, TagOp};
 use super::vcs_view::VcsView;
-use super::vcs_view_ops_remote::RemoteAdminOp;
 
-/// 通用二次确认对话框
+/// 通用二次确认对话框（薄封装）
 ///
-/// `danger=true` 时确认按钮用红色；`false` 时用 primary 蓝色。
-/// `on_confirm` 在用户点确认后跑（已经在 `view.update` 里，能直接 mutate VcsView）
+/// 委托给 [`ramag_ui::open_confirm`]，把 `FnOnce(&mut VcsView, &mut Context<VcsView>)` 适配成
+/// `FnOnce(&mut Window, &mut App)`：内部 `view.update` 自己。
 #[allow(clippy::too_many_arguments)]
 pub(super) fn open_confirm_dialog(
     view: Entity<VcsView>,
@@ -35,67 +34,17 @@ pub(super) fn open_confirm_dialog(
     window: &mut Window,
     cx: &mut gpui::App,
 ) {
-    let title: SharedString = title.into();
-    let confirm_label: SharedString = confirm_label.into();
-    // on_confirm 是 FnOnce 但 open_dialog 接 Fn —— 闭包外先包成 RefCell+Rc，
-    // 闭包内 clone Rc，clone 出来的本身是 Fn（每次调用 take Option 内的 callback）
-    let on_confirm_cell = std::rc::Rc::new(std::cell::RefCell::new(Some(on_confirm)));
-    window.open_dialog(cx, move |dialog, _, _| {
-        let view = view.clone();
-        let desc = description.clone();
-        let confirm_label_inner = confirm_label.clone();
-
-        let cancel_btn = Button::new("vcs-confirm-cancel")
-            .ghost()
-            .small()
-            .label("取消")
-            .on_click(|_: &ClickEvent, window, app| {
-                window.close_dialog(app);
-            });
-
-        let mut ok_btn = Button::new("vcs-confirm-ok")
-            .small()
-            .label(confirm_label_inner);
-        ok_btn = if danger {
-            ok_btn.danger()
-        } else {
-            ok_btn.primary()
-        };
-
-        let ok_btn = ok_btn.on_click({
-            let view = view.clone();
-            let cell = on_confirm_cell.clone();
-            move |_: &ClickEvent, window, app| {
-                if let Some(cb) = cell.borrow_mut().take() {
-                    view.update(app, |this, cx| cb(this, cx));
-                }
-                window.close_dialog(app);
-            }
-        });
-
-        dialog
-            .title(title.clone())
-            .margin_top(px(180.0))
-            .content(move |content, _, cx| {
-                let muted_fg = cx.theme().muted_foreground;
-                content.child(
-                    div()
-                        .py(px(4.0))
-                        .text_sm()
-                        .text_color(muted_fg)
-                        .child(desc.clone()),
-                )
-            })
-            .footer(
-                h_flex()
-                    .w_full()
-                    .items_center()
-                    .justify_end()
-                    .gap(px(8.0))
-                    .child(cancel_btn)
-                    .child(ok_btn),
-            )
-    });
+    ramag_ui::open_confirm(
+        title,
+        description,
+        confirm_label,
+        danger,
+        move |_window, app| {
+            view.update(app, |this, cx| on_confirm(this, cx));
+        },
+        window,
+        cx,
+    );
 }
 
 impl VcsView {
@@ -293,32 +242,6 @@ impl VcsView {
             btn,
             danger,
             move |this, cx| this.run_tag_op(op, cx),
-            window,
-            cx,
-        );
-    }
-
-    /// Remote 配置操作；Remove 弹确认（Add / SetUrl 不弹）
-    #[allow(dead_code)]
-    pub(super) fn confirm_remote_admin_op(
-        &mut self,
-        op: RemoteAdminOp,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let RemoteAdminOp::Remove(name) = &op else {
-            self.run_remote_admin_op(op, cx);
-            return;
-        };
-        let name_owned = name.clone();
-        let view = cx.entity();
-        open_confirm_dialog(
-            view,
-            "删除 remote？",
-            format!("将删除 remote「{name_owned}」配置（不影响远程仓库本身）。\n确认继续吗？"),
-            "删除",
-            true,
-            move |this, cx| this.run_remote_admin_op(op, cx),
             window,
             cx,
         );

@@ -5831,15 +5831,10 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 name = "ramag-app"
 version = "0.0.1"
 dependencies = [
- "anyhow",
- "async-trait",
- "futures",
  "hex",
  "parking_lot",
  "ramag-domain",
  "serde_json",
- "thiserror 2.0.18",
- "tokio",
  "tracing",
 ]
 
@@ -5851,7 +5846,6 @@ dependencies = [
  "directories",
  "gpui",
  "gpui-component",
- "gpui-component-assets",
  "gpui_platform",
  "ramag-app",
  "ramag-domain",
@@ -5861,7 +5855,6 @@ dependencies = [
  "ramag-infra-redis",
  "ramag-infra-storage",
  "ramag-tool-dbclient",
- "ramag-tool-redis",
  "ramag-tool-vcs",
  "ramag-ui",
  "schemars",
@@ -5877,7 +5870,6 @@ version = "0.0.1"
 dependencies = [
  "async-trait",
  "chrono",
- "futures",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -5895,7 +5887,6 @@ dependencies = [
  "gix",
  "parking_lot",
  "ramag-domain",
- "thiserror 2.0.18",
  "tracing",
 ]
 
@@ -5932,15 +5923,12 @@ dependencies = [
 name = "ramag-infra-redis"
 version = "0.0.1"
 dependencies = [
- "anyhow",
  "async-trait",
- "chrono",
  "dashmap",
  "futures",
  "once_cell",
  "ramag-domain",
  "redis",
- "thiserror 2.0.18",
  "tokio",
  "tracing",
 ]
@@ -5964,7 +5952,6 @@ name = "ramag-infra-storage"
 version = "0.0.1"
 dependencies = [
  "aes-gcm",
- "anyhow",
  "async-trait",
  "directories",
  "futures",
@@ -5977,7 +5964,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 2.0.18",
  "tokio",
  "tracing",
 ]
@@ -6002,7 +5988,6 @@ dependencies = [
  "ropey",
  "schemars",
  "serde",
- "serde_json",
  "sqlformat",
  "tracing",
 ]
@@ -6012,7 +5997,6 @@ name = "ramag-tool-redis"
 version = "0.0.1"
 dependencies = [
  "base64",
- "chrono",
  "flate2",
  "futures",
  "gpui",
@@ -6020,8 +6004,6 @@ dependencies = [
  "ramag-app",
  "ramag-domain",
  "ramag-ui",
- "schemars",
- "serde",
  "serde_json",
  "tracing",
 ]
@@ -6034,12 +6016,9 @@ dependencies = [
  "futures",
  "gpui",
  "gpui-component",
- "ramag-app",
  "ramag-domain",
  "ramag-ui",
  "rfd",
- "schemars",
- "serde",
  "tracing",
 ]
 
@@ -6047,9 +6026,6 @@ dependencies = [
 name = "ramag-ui"
 version = "0.0.1"
 dependencies = [
- "anyhow",
- "chrono",
- "futures",
  "gpui",
  "gpui-component",
  "gpui-component-assets",

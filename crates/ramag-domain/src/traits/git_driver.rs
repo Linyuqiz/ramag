@@ -26,7 +26,13 @@ use crate::entities::{
     BlameLine, Branch, BranchKind, Commit, ConflictContent, FileDiff, FileStatus, LogOptions,
     RebaseTodo, ReflogEntry, Remote, RepoConfig, RepoId, ResetKind, Stash, Tag, WorkingTreeStatus,
 };
-use crate::error::Result;
+use crate::error::{DomainError, Result};
+
+/// `NotImplemented` 默认实现统一短路：让 trait 默认方法体能压成单行调用，
+/// 避免每个 stub 方法都重复 5 行 `Err(DomainError::NotImplemented(...))`
+fn not_impl<T>(method: &'static str) -> Result<T> {
+    Err(DomainError::NotImplemented(method.into()))
+}
 
 #[async_trait]
 pub trait GitDriver: Send + Sync {
@@ -96,17 +102,17 @@ pub trait GitDriver: Send + Sync {
 
     /// 把指定文件加入暂存区
     async fn stage(&self, _repo: &RepoId, _paths: &[String]) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented("stage".into()))
+        not_impl("stage")
     }
 
     /// 把指定文件从暂存区撤回
     async fn unstage(&self, _repo: &RepoId, _paths: &[String]) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented("unstage".into()))
+        not_impl("unstage")
     }
 
     /// 丢弃工作区改动（git checkout -- <path>）
     async fn discard(&self, _repo: &RepoId, _paths: &[String]) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented("discard".into()))
+        not_impl("discard")
     }
 
     /// 创建 commit（amend=true 时修改上一次而不是新建；sign=true 时 GPG 签名）
@@ -117,31 +123,27 @@ pub trait GitDriver: Send + Sync {
         _amend: bool,
         _sign: bool,
     ) -> Result<crate::entities::CommitId> {
-        Err(crate::error::DomainError::NotImplemented("commit".into()))
+        not_impl("commit")
     }
 
     /// 切换到分支 / commit / tag
     async fn checkout(&self, _repo: &RepoId, _target: &str) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented("checkout".into()))
+        not_impl("checkout")
     }
 
     /// 创建本地分支（base=None 时基于当前 HEAD）
     async fn create_branch(&self, _repo: &RepoId, _name: &str, _base: Option<&str>) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented(
-            "create_branch".into(),
-        ))
+        not_impl("create_branch")
     }
 
     /// 删除本地分支（force=true 才允许删未合并的）
     async fn delete_branch(&self, _repo: &RepoId, _name: &str, _force: bool) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented(
-            "delete_branch".into(),
-        ))
+        not_impl("delete_branch")
     }
 
     /// 拉取远程更新（不合并）
     async fn fetch(&self, _repo: &RepoId, _remote: &str) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented("fetch".into()))
+        not_impl("fetch")
     }
 
     /// 推送到远程
@@ -156,7 +158,7 @@ pub trait GitDriver: Send + Sync {
         _set_upstream: bool,
         _force_with_lease: bool,
     ) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented("push".into()))
+        not_impl("push")
     }
 
     /// fetch + merge / rebase 当前分支
@@ -167,14 +169,12 @@ pub trait GitDriver: Send + Sync {
         _branch: &str,
         _rebase: bool,
     ) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented("pull".into()))
+        not_impl("pull")
     }
 
     /// 列出所有 stash
     async fn list_stashes(&self, _repo: &RepoId) -> Result<Vec<Stash>> {
-        Err(crate::error::DomainError::NotImplemented(
-            "list_stashes".into(),
-        ))
+        not_impl("list_stashes")
     }
 
     /// 列出仓库内所有「git 跟踪 + 未跟踪但未被 ignore」的相对路径
@@ -182,9 +182,7 @@ pub trait GitDriver: Send + Sync {
     /// 用于 IDE 左侧 Project Files 视图（完整目录树）
     /// 实现：等价于 `git ls-files --cached --others --exclude-standard -z`
     async fn list_files(&self, _repo: &RepoId) -> Result<Vec<String>> {
-        Err(crate::error::DomainError::NotImplemented(
-            "list_files".into(),
-        ))
+        not_impl("list_files")
     }
 
     /// 保存当前工作区到 stash
@@ -194,32 +192,24 @@ pub trait GitDriver: Send + Sync {
         _message: Option<&str>,
         _include_untracked: bool,
     ) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented(
-            "stash_save".into(),
-        ))
+        not_impl("stash_save")
     }
 
     /// 应用某个 stash（pop=true 应用后删除）
     async fn stash_apply(&self, _repo: &RepoId, _idx: usize, _pop: bool) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented(
-            "stash_apply".into(),
-        ))
+        not_impl("stash_apply")
     }
 
     /// 删除某个 stash
     async fn stash_drop(&self, _repo: &RepoId, _idx: usize) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented(
-            "stash_drop".into(),
-        ))
+        not_impl("stash_drop")
     }
 
     // ---- Phase D：Tag 操作 ----
 
     /// 列出仓库内所有 tag（轻量 + annotated）
     async fn list_tags(&self, _repo: &RepoId) -> Result<Vec<Tag>> {
-        Err(crate::error::DomainError::NotImplemented(
-            "list_tags".into(),
-        ))
+        not_impl("list_tags")
     }
 
     /// 创建 tag
@@ -235,21 +225,17 @@ pub trait GitDriver: Send + Sync {
         _message: Option<&str>,
         _sign: bool,
     ) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented(
-            "create_tag".into(),
-        ))
+        not_impl("create_tag")
     }
 
     /// 删除本地 tag
     async fn delete_tag(&self, _repo: &RepoId, _name: &str) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented(
-            "delete_tag".into(),
-        ))
+        not_impl("delete_tag")
     }
 
     /// 推送指定 tag 到远程
     async fn push_tag(&self, _repo: &RepoId, _remote: &str, _name: &str) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented("push_tag".into()))
+        not_impl("push_tag")
     }
 
     // ---- Phase D：行级 / 分块 stage（patch apply）----
@@ -259,24 +245,18 @@ pub trait GitDriver: Send + Sync {
     /// 调用方负责构造合法的 patch 文本（含 file header / hunk header / 行）。
     /// 实现内部用 `git apply --cached --recount -`，自动重算 line counts。
     async fn stage_patch(&self, _repo: &RepoId, _patch: &str) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented(
-            "stage_patch".into(),
-        ))
+        not_impl("stage_patch")
     }
 
     /// 反向：把一段 patch 从暂存区撤回（不影响工作区）
     async fn unstage_patch(&self, _repo: &RepoId, _patch: &str) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented(
-            "unstage_patch".into(),
-        ))
+        not_impl("unstage_patch")
     }
 
     /// 把 patch 反向应用到工作区：hunk 级回滚到 HEAD（不通过暂存区）
     /// 用于 IDEA 风格 hunk「↶」按钮：仅回滚某段改动，保留其他改动
     async fn discard_patch(&self, _repo: &RepoId, _patch: &str) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented(
-            "discard_patch".into(),
-        ))
+        not_impl("discard_patch")
     }
 
     // ---- Phase D：合并 / Cherry-pick / 冲突解决 ----
@@ -295,56 +275,44 @@ pub trait GitDriver: Send + Sync {
         _ff_only: bool,
         _message: Option<&str>,
     ) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented("merge".into()))
+        not_impl("merge")
     }
 
     /// 中止进行中的 merge（git merge --abort）
     async fn merge_abort(&self, _repo: &RepoId) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented(
-            "merge_abort".into(),
-        ))
+        not_impl("merge_abort")
     }
 
     /// 续接 merge（冲突解决完后；git merge --continue）
     async fn merge_continue(&self, _repo: &RepoId) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented(
-            "merge_continue".into(),
-        ))
+        not_impl("merge_continue")
     }
 
     /// 把单个 commit 拣选到当前 HEAD（git cherry-pick <id>）
     async fn cherry_pick(&self, _repo: &RepoId, _commit: &str) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented(
-            "cherry_pick".into(),
-        ))
+        not_impl("cherry_pick")
     }
 
     /// 中止进行中的 cherry-pick
     async fn cherry_pick_abort(&self, _repo: &RepoId) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented(
-            "cherry_pick_abort".into(),
-        ))
+        not_impl("cherry_pick_abort")
     }
 
     /// 续接 cherry-pick（冲突解决完后）
     async fn cherry_pick_continue(&self, _repo: &RepoId) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented(
-            "cherry_pick_continue".into(),
-        ))
+        not_impl("cherry_pick_continue")
     }
 
     /// 冲突解决：采纳「我们」的版本（HEAD 侧）
     ///
     /// `git checkout --ours -- <paths>` + `git add <paths>`，一步搞定
     async fn use_ours(&self, _repo: &RepoId, _paths: &[String]) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented("use_ours".into()))
+        not_impl("use_ours")
     }
 
     /// 冲突解决：采纳「他们」的版本（对方分支侧）
     async fn use_theirs(&self, _repo: &RepoId, _paths: &[String]) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented(
-            "use_theirs".into(),
-        ))
+        not_impl("use_theirs")
     }
 
     // ---- Phase D：Reset / Revert / Rebase ----
@@ -354,68 +322,54 @@ pub trait GitDriver: Send + Sync {
     /// `kind`：决定是否同时重置暂存区 / 工作区
     /// 慎用 Hard——会丢失工作区未提交改动；UI 应弹二次确认
     async fn reset(&self, _repo: &RepoId, _target: &str, _kind: ResetKind) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented("reset".into()))
+        not_impl("reset")
     }
 
     /// 生成一个反向 commit 撤销指定 commit（不改写历史，安全）
     async fn revert(&self, _repo: &RepoId, _commit: &str) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented("revert".into()))
+        not_impl("revert")
     }
 
     /// 把当前分支 rebase 到 onto（onto 通常是另一分支名 / commit）
     async fn rebase(&self, _repo: &RepoId, _onto: &str) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented("rebase".into()))
+        not_impl("rebase")
     }
 
     /// 续接 rebase（冲突解决完后）
     async fn rebase_continue(&self, _repo: &RepoId) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented(
-            "rebase_continue".into(),
-        ))
+        not_impl("rebase_continue")
     }
 
     /// 跳过当前 commit（rebase 时；丢弃此 commit 继续下一个）
     async fn rebase_skip(&self, _repo: &RepoId) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented(
-            "rebase_skip".into(),
-        ))
+        not_impl("rebase_skip")
     }
 
     /// 中止 rebase（恢复到 rebase 开始前的状态）
     async fn rebase_abort(&self, _repo: &RepoId) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented(
-            "rebase_abort".into(),
-        ))
+        not_impl("rebase_abort")
     }
 
     // ---- Phase D：Remote 管理 ----
 
     /// 列出本仓库配置的所有 remote
     async fn list_remotes(&self, _repo: &RepoId) -> Result<Vec<Remote>> {
-        Err(crate::error::DomainError::NotImplemented(
-            "list_remotes".into(),
-        ))
+        not_impl("list_remotes")
     }
 
     /// 添加新 remote（git remote add <name> <url>）
     async fn add_remote(&self, _repo: &RepoId, _name: &str, _url: &str) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented(
-            "add_remote".into(),
-        ))
+        not_impl("add_remote")
     }
 
     /// 删除 remote（git remote remove <name>）
     async fn remove_remote(&self, _repo: &RepoId, _name: &str) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented(
-            "remove_remote".into(),
-        ))
+        not_impl("remove_remote")
     }
 
     /// 修改 remote 的 fetch URL（push URL 仍走 fetch URL，简化场景）
     async fn set_remote_url(&self, _repo: &RepoId, _name: &str, _url: &str) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented(
-            "set_remote_url".into(),
-        ))
+        not_impl("set_remote_url")
     }
 
     // ---- Phase D：Commit 详情 ----
@@ -425,16 +379,14 @@ pub trait GitDriver: Send + Sync {
     /// 返回的 [`FileStatus::staged`] 字段承载该 commit 的变更类型；
     /// `unstaged` 始终为 None（commit 已落地，无工作区/暂存区概念）
     async fn list_commit_files(&self, _repo: &RepoId, _commit: &str) -> Result<Vec<FileStatus>> {
-        Err(crate::error::DomainError::NotImplemented(
-            "list_commit_files".into(),
-        ))
+        not_impl("list_commit_files")
     }
 
     /// 取指定文件的 blame（每行最后改人 + 时间 + commit subject）
     ///
     /// 返回结果按文件当前行号 1-based 顺序，长度等于文件总行数
     async fn blame(&self, _repo: &RepoId, _path: &str) -> Result<Vec<BlameLine>> {
-        Err(crate::error::DomainError::NotImplemented("blame".into()))
+        not_impl("blame")
     }
 
     // ---- Phase E：Reflog ----
@@ -448,25 +400,19 @@ pub trait GitDriver: Send + Sync {
         _ref_name: Option<&str>,
         _limit: Option<usize>,
     ) -> Result<Vec<ReflogEntry>> {
-        Err(crate::error::DomainError::NotImplemented(
-            "list_reflog".into(),
-        ))
+        not_impl("list_reflog")
     }
 
     // ---- Clone / Init ----
 
     /// Clone 远程仓库到本地目录（`dest` 必须不存在或为空目录）
     async fn clone_repo(&self, _url: &str, _dest: &Path) -> Result<RepoConfig> {
-        Err(crate::error::DomainError::NotImplemented(
-            "clone_repo".into(),
-        ))
+        not_impl("clone_repo")
     }
 
     /// 在已有目录初始化新 git 仓库（`git init`）
     async fn init_repo(&self, _path: &Path) -> Result<RepoConfig> {
-        Err(crate::error::DomainError::NotImplemented(
-            "init_repo".into(),
-        ))
+        not_impl("init_repo")
     }
 
     // ---- Interactive Rebase ----
@@ -477,9 +423,7 @@ pub trait GitDriver: Send + Sync {
         _repo: &RepoId,
         _onto: &str,
     ) -> Result<Vec<RebaseTodo>> {
-        Err(crate::error::DomainError::NotImplemented(
-            "interactive_rebase_plan".into(),
-        ))
+        not_impl("interactive_rebase_plan")
     }
 
     /// 执行 interactive rebase：把用户编辑后的 todos 写成 todo 文件，再调 `git rebase -i`
@@ -489,17 +433,13 @@ pub trait GitDriver: Send + Sync {
         _onto: &str,
         _todos: &[RebaseTodo],
     ) -> Result<()> {
-        Err(crate::error::DomainError::NotImplemented(
-            "interactive_rebase_execute".into(),
-        ))
+        not_impl("interactive_rebase_execute")
     }
 
     // ---- Conflict Content ----
 
     /// 取冲突文件的三方内容（ours = stage 2，theirs = stage 3，base = stage 1）
     async fn get_conflict_content(&self, _repo: &RepoId, _path: &str) -> Result<ConflictContent> {
-        Err(crate::error::DomainError::NotImplemented(
-            "get_conflict_content".into(),
-        ))
+        not_impl("get_conflict_content")
     }
 }

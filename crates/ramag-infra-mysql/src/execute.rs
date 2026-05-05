@@ -36,7 +36,7 @@ pub async fn fetch_warnings(conn: &mut MySqlConnection) -> Vec<Warning> {
     // + tokio::spawn 组合下 HRTB 推断失败；强行做需要 unsafe transmute 违反生产原则。
     // 折衷：用 query 走 prepared，捕获 1295 静默。MySQL 8.0.14+ prepared 支持 SHOW
     // WARNINGS；老版本（含部分 8.0.x 早期）静默不报警避免日志噪音
-    let rows: std::result::Result<Vec<sqlx::mysql::MySqlRow>, sqlx::Error> =
+    let rows: Result<Vec<sqlx::mysql::MySqlRow>, sqlx::Error> =
         sqlx::query("SHOW WARNINGS").fetch_all(conn).await;
     match rows {
         Ok(rows) => rows

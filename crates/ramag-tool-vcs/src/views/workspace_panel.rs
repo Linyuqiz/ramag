@@ -227,7 +227,7 @@ impl VcsView {
                     .rounded(px(3.0))
                     .cursor_pointer()
                     .hover(move |this| this.bg(hover_bg))
-                    .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _, cx| {
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.toggle_changes_dir(dir_clone.clone(), cx);
                     }))
                     .child(
@@ -384,7 +384,7 @@ impl VcsView {
             .rounded(px(3.0))
             .cursor_pointer()
             .hover(move |this| this.bg(hover_bg))
-            .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _, cx| {
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.select_file(path_for_click.clone(), kind, cx);
             }))
             .child(

@@ -108,15 +108,15 @@ mod tests {
     fn corrupted_ciphertext_fails() {
         let cipher = Cipher::new(&dummy_key());
         let encrypted = cipher.encrypt("hello").unwrap();
-        // 篡改：取倒数第二字节，与一个保证不同的 base64 字符替换
-        // 之前用 .pop().push('0') 在末尾刚好是 '0' 时无效，flaky
+        // 篡改：把倒数第二个 hex 字符换成另一个值不同的 hex 字符。
+        // 注意：hex::decode 大小写不敏感（'a' 与 'A' 解出同一字节），不能跨大小写换；
+        // 必须换到「值不同」的另一个 hex 字符（0-9 / a-f）。
         let bytes = encrypted.as_bytes();
         let idx = bytes.len() - 2;
-        let original = bytes[idx] as char;
-        let replacement = if original == 'A' { 'B' } else { 'A' };
+        let replacement: u8 = if bytes[idx] == b'0' { b'1' } else { b'0' };
         let mut tampered = encrypted.clone();
         unsafe {
-            tampered.as_bytes_mut()[idx] = replacement as u8;
+            tampered.as_bytes_mut()[idx] = replacement;
         }
         assert_ne!(tampered, encrypted);
         assert!(cipher.decrypt(&tampered).is_err());

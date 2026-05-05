@@ -41,7 +41,7 @@ pub struct QueryPanel {
     active_schema: Option<String>,
     /// 历史面板（懒创建一次，按 connection 切换内容）
     /// 现在以 Dialog 弹框形式展示，⌘⇧H 触发；不再替换主区
-    history: gpui::Entity<HistoryPanel>,
+    history: Entity<HistoryPanel>,
     /// SQL 编辑器是否展示：默认 false；表树按钮 / ⌘E 切换
     /// 全局生效（同步给所有 Tab），新建 Tab 时也按此初始化
     show_editor: bool,

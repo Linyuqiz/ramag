@@ -1,108 +1,90 @@
 # Ramag
 
-> 个人工具平台 / Personal Tool Platform
+macOS 原生桌面工具平台，定位为「自建版 Raycast / Alfred」。当前版本以数据库客户端 + Git 客户端为主力工具。
 
-一个原生、高性能、可扩展的桌面工具集合，**每个工具是独立模块**。第一个工具是 MySQL GUI 客户端。
+> 状态：早期开发中（v0.0.1）。
 
-## 项目愿景
+## 功能
 
-不只是又一个数据库客户端。Ramag 是一个**自建版的 Raycast/Alfred**：
-- 🎯 **MySQL GUI 客户端**（v0.1 主力）
-- 🛠️ 后续逐步加入"日常小工具"（JSON 格式化、Hash 计算、URL 解析等）
-- 🦀 纯 Rust + GPUI，原生性能
-- 🧩 模块化架构，新增工具像加插件一样简单
+| 工具 | 当前能力 |
+|------|---------|
+| **DB Client** | MySQL / PostgreSQL：连接管理、Schema/Table 树、SQL 编辑器（关键字 + 表名 + 列名补全 / 语法高亮）、多语句执行、可中断查询、结果集（排序 / 过滤 / 行内编辑 INSERT/UPDATE/DELETE / 导出 CSV/JSON/Markdown/SQL）、查询历史 |
+| **Redis** | 连接管理（与 DB Client 共享入口）、DB 切换、Key 树（Trie 命名空间分组 + 虚拟化）、6 种类型详情（String/List/Hash/Set/ZSet/Stream）+ 增删改、TTL 编辑、内存估算 |
+| **VCS（Git）** | IDEA 风格三栏布局、工作区（Changes / Project Files / Stash）、Diff（unified + split）、Commit / Branch / Tag / Stash / Remote 操作、History + 搜索、Commit 详情、Blame、Reflog、Cherry-pick、Merge、Rebase（含 Interactive）、冲突编辑器、Clone |
 
-## 架构
+## 技术栈
 
-采用 **Clean Architecture** 思想（实用版，不教条），Cargo Workspace 多 crate 严格分层：
+- **语言**：Rust nightly（`rust-toolchain.toml` 钉版）
+- **UI**：[GPUI](https://github.com/zed-industries/zed)（来自 Zed）+ [gpui-component](https://github.com/longbridge/gpui-component)
+- **数据库**：sqlx（MySQL / PostgreSQL）+ redis-rs
+- **Git**：[gitoxide](https://github.com/Byron/gitoxide)
+- **本地存储**：redb + aes-gcm + macOS 钥匙串
 
-```
-┌────────────────────────────────────────────┐
-│  Frameworks (GPUI / sqlx / redb)           │
-└─────────────┬──────────────────────────────┘
-              │
-┌─────────────▼──────────────────────────────┐
-│  Infrastructure (实现 Domain trait)         │
-│  - ramag-infra-mysql  (sqlx 实现 Driver)   │
-│  - ramag-infra-storage (redb 实现 Storage) │
-└─────────────┬──────────────────────────────┘
-              │
-┌─────────────▼──────────────────────────────┐
-│  Application (Use Cases)                   │
-│  - ramag-app  (ToolRegistry + 用例编排)    │
-└─────────────┬──────────────────────────────┘
-              │
-┌─────────────▼──────────────────────────────┐
-│  Domain (核心，纯 Rust)                     │
-│  - ramag-domain  (Driver/Storage/Tool)     │
-└────────────────────────────────────────────┘
-
-UI:  ramag-ui  (主壳)
-Tools: ramag-tool-dbclient  (DB 客户端工具)
-Bin:   ramag-bin  (主入口)
-```
-
-详见 [docs/architecture.md](./docs/architecture.md)。
-
-## Crate 结构
-
-| Crate | 职责 | 依赖 |
-|-------|------|------|
-| `ramag-domain` | 核心实体 + trait（无外部依赖）| 无 |
-| `ramag-app` | Use Cases + ToolRegistry | domain |
-| `ramag-infra-mysql` | MySQL 驱动实现 | domain + sqlx |
-| `ramag-infra-storage` | 本地存储实现 | domain + redb |
-| `ramag-tool-dbclient` | DB Client 工具实现 | app + ui |
-| `ramag-ui` | 主壳 + 共享 UI 基础设施 | app + GPUI |
-| `ramag-bin` | 主二进制入口 | 全部 |
-
-## 开发
+## 快速开始
 
 ### 环境要求
 
-- macOS 12+ (Apple Silicon 或 Intel)
-- Rust nightly（由 `rust-toolchain.toml` 自动管理）
+- macOS 12+
+- Xcode Command Line Tools（`xcode-select --install`）
+- Rust（按 `rust-toolchain.toml` 自动安装 nightly）
 
-### 构建
+### 编译运行
 
 ```bash
-# 第一次编译会很久（30-60 分钟，下载 + 编译 GPUI 全家桶）
-cargo build
-
-# 运行
-cargo run -p ramag-bin
-
-# 检查（快速）
-cargo check
-
-# 测试
-cargo test
-
-# 代码风格
-cargo fmt
-cargo clippy -- -D warnings
+make develop        # debug 模式（编译快，运行慢）
+make release        # release 模式（首次 ~2-3 分钟）
 ```
 
-## 阶段路线图
+> ⚠️ 首次 `cargo build` 会拉取并编译 GPUI 全家桶，耗时 30-60 分钟，正常现象。
 
-| Stage | 目标 | 状态 |
-|-------|------|------|
-| 0 | Workspace 脚手架 + 主壳 Hello World | **进行中** |
-| 1 | MySQL Driver + 本地存储实现 | 待办 |
-| 2 | DB Client：连接管理 + 表树 | 待办 |
-| 3 | DB Client：编辑器 + 多标签 | 待办 |
-| 4 | DB Client：结果集表格 | 待办 |
-| 5 | 查询历史 + 收藏 | 待办 |
-| 6 | 基础 SQL 补全 | 待办 |
+### 常用命令
 
-v0.1 目标：4-6 个月。
+```bash
+make help            # 列出全部命令
+make check           # cargo check
+make clippy          # 严格 lint（-D warnings）
+make test            # 单元测试
+make dmg             # 打包 .dmg（含 svg→icns）
+make dmg-universal   # Intel + Apple Silicon 通用二进制
+```
 
-## 参考项目
+## 架构
 
-- [zed](https://github.com/zed-industries/zed) — GPUI 框架来源
-- [gpui-component](https://github.com/longbridge/gpui-component) — UI 组件库
-- [zedis](https://github.com/vicanso/zedis) — Redis GUI（架构参考）
+13 个 crate 的 Cargo Workspace，Clean Architecture 务实版。详见 [`docs/architecture.md`](docs/architecture.md)。
 
-## 许可证
+```
+ramag-bin                       ← 入口：依赖注入
+  ├── ramag-tool-{dbclient,redis,vcs}   ← UI 视图
+  ├── ramag-ui                          ← Shell + 主题
+  ├── ramag-infra-{mysql,postgres}      ← impl SqlBackend
+  ├── ramag-infra-sql-shared            ← SqlBackend + 模板
+  ├── ramag-infra-{redis,git,storage}   ← KvDriver / GitDriver / Storage
+  └── ramag-app                         ← Use Cases
+        └── ramag-domain                ← 实体 + traits（无外部框架依赖）
+```
 
-Apache 2.0
+## 集成测试
+
+数据库类集成测试缺环境变量会自动 skip，不影响 `make test`：
+
+```bash
+# MySQL
+export RAMAG_TEST_MYSQL_HOST=...
+export RAMAG_TEST_MYSQL_PORT=3306
+export RAMAG_TEST_MYSQL_USER=...
+export RAMAG_TEST_MYSQL_PASSWORD=...
+export RAMAG_TEST_MYSQL_DB=...
+cargo test -p ramag-infra-mysql --test integration -- --nocapture
+
+# PostgreSQL（DB 必填）
+export RAMAG_TEST_PG_HOST=127.0.0.1
+export RAMAG_TEST_PG_PORT=5432
+export RAMAG_TEST_PG_USER=postgres
+export RAMAG_TEST_PG_PASSWORD=...
+export RAMAG_TEST_PG_DB=postgres
+cargo test -p ramag-infra-postgres --test integration -- --nocapture
+```
+
+## License
+
+Apache-2.0

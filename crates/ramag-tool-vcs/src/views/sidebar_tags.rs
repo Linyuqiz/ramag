@@ -227,7 +227,7 @@ fn tag_btn_icon(
     kind: &'static str,
     idx: usize,
     tooltip: &'static str,
-    icon: gpui_component::Icon,
+    icon: Icon,
     op: TagOp,
     busy: bool,
     cx: &mut Context<VcsView>,
