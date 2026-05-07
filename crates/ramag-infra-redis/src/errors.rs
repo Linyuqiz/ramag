@@ -1,15 +1,9 @@
-//! redis::RedisError → DomainError 映射
-//!
-//! 把底层 redis-rs 错误转换成 Domain 层统一的 DomainError，并尽可能识别
-//! Redis 特定错误前缀（NOAUTH / WRONGTYPE / OOM / READONLY 等），
-//! 给用户更友好的中文提示。
-//!
+//! redis::RedisError → DomainError。识别 NOAUTH / WRONGTYPE / OOM / READONLY 等前缀给中文提示
 //! 参考：<https://redis.io/docs/reference/error-handling/>
 
 use ramag_domain::error::DomainError;
 use redis::{ErrorKind, RedisError};
 
-/// 把 redis::RedisError 转成 DomainError
 pub fn map_redis_error(err: RedisError) -> DomainError {
     let kind = err.kind();
     let code = err.code().unwrap_or("");
@@ -17,14 +11,12 @@ pub fn map_redis_error(err: RedisError) -> DomainError {
     let raw = err.to_string();
 
     match kind {
-        // 认证类
         ErrorKind::AuthenticationFailed => {
             DomainError::ConnectionFailed(format!("认证失败（密码或 ACL 凭证错误）：{raw}"))
         }
         ErrorKind::IoError => DomainError::ConnectionFailed(format!("网络/IO 错误：{raw}")),
         ErrorKind::ClientError => DomainError::ConnectionFailed(format!("客户端错误：{raw}")),
 
-        // 类型 / 应答类
         ErrorKind::TypeError => {
             DomainError::QueryFailed(format!("类型错误（应答与期望不匹配）：{raw}"))
         }
@@ -35,7 +27,6 @@ pub fn map_redis_error(err: RedisError) -> DomainError {
             DomainError::QueryFailed(redis_response_friendly(code, detail, &raw))
         }
 
-        // 集群 / 脚本 / 解析
         ErrorKind::Moved | ErrorKind::Ask => {
             DomainError::QueryFailed(format!("Cluster 重定向（{code}），客户端未透明跟随：{raw}"))
         }
@@ -62,12 +53,11 @@ pub fn map_redis_error(err: RedisError) -> DomainError {
             DomainError::InvalidConfig(format!("客户端配置无效：{raw}"))
         }
 
-        // 兜底
         _ => DomainError::Other(format!("redis 错误：{raw}")),
     }
 }
 
-/// Redis 应答错误 code（如 NOAUTH / WRONGTYPE / OOM）→ 中文友好提示
+/// 应答错误 code → 中文提示
 fn redis_response_friendly(code: &str, detail: &str, raw: &str) -> String {
     let body = if detail.is_empty() { raw } else { detail };
     match code {

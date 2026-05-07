@@ -1,9 +1,5 @@
-//! History 视图渲染：commit list（按页加载）+ 搜索框 + 单文件历史 banner
-//!
-//! - 顶部一行搜索框：「关键词 / @作者 / 7d/1m」语法（解析在 vcs_view_ops::parse_search_query）
-//! - 顶部 banner：单文件历史模式时显示「正在看 src/foo.rs 的历史」+ [清除]
-//! - 中间是 commit 列表（接 helpers::render_commit_row + lane gutter）
-//! - 进入 commit 详情视图时（viewing_commit.is_some()）整个区域换为 commit_detail 渲染
+//! History：commit 列表分页 + 搜索（关键词 / `@作者` / `7d`/`1m`）+ 单文件历史 banner。
+//! viewing_commit.is_some() 时整区切到 commit_detail
 
 use std::ops::Range;
 use std::rc::Rc;
@@ -97,7 +93,7 @@ impl VcsView {
             .into_any_element()
     }
 
-    /// 搜索行：[Reflog toggle][🔍][搜索 input][→]，commit 列表与 reflog 列表共用
+    /// commit / reflog 列表共用搜索行
     fn render_history_search_row(
         &self,
         busy: bool,
@@ -146,12 +142,8 @@ impl VcsView {
             .into_any_element()
     }
 
-    /// 双栏布局：左分支信息 / 中 commit graph 列表（commit 详情已移至主区顶部渲染）
-    ///
-    /// 外层永远 2 children（左栏 / 右半），与上半共用 `ide_left_resize` → 上下左栏同步对齐。
-    /// commit detail 作为右半内部 resizable 出现，独立用 `history_resize`，
-    /// 这样 detail 出现/消失不影响上半外层布局，避免子项数不匹配的拖动卡顿。
-    /// reflog 模式：中栏渲染 reflog 列表，右栏 detail 隐藏。
+    /// 双栏：左分支 / 右半（含 commit graph + 内部 detail resizable）。
+    /// 外层永远 2 children 与上半共用 `ide_left_resize` 同步对齐；reflog 模式右栏 detail 隐藏
     #[allow(clippy::too_many_arguments)]
     fn render_history_three_panel(
         &self,
@@ -247,10 +239,7 @@ impl VcsView {
             .into_any_element()
     }
 
-    /// 中栏：commit graph 列表（顶部计数 + 列头 + 虚拟列表 + 加载更多）
-    ///
-    /// 列表用 [`uniform_list`] 行级虚拟化（28px 等高），万级 commit 也只渲染屏幕可见行。
-    /// 列头 / count / footer 留在外层 v_flex 非虚拟（数量恒定）。
+    /// 中栏：计数 + 列头 + uniform_list 虚拟化 + 加载更多。列头 / count / footer 在外层非虚拟
     #[allow(clippy::too_many_arguments)]
     fn render_history_middle_pane(
         &self,

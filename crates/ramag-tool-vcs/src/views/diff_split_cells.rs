@@ -1,12 +1,4 @@
-//! Split diff 单元格渲染（IDEA 风格 4-list 架构的 cell helper）
-//!
-//! 拆分自 `diff_panel_split.rs`，控制单文件 ≤ 600 行。
-//!
-//! 提供两套 row 渲染：
-//! - `gutter_*`：钉死区（不进 overflow_x_scroll）—— checkbox + marker + lineno [+ blame]
-//! - `content_*`：横滚区 —— 仅代码文本 / @@ 头 / 跳过 spacer 文本
-//!
-//! 同一个 SplitKey 由 gutter 与 content 各渲染一份，所属 list 共享垂直 scroll → 行级对齐
+//! Split diff 单元格：gutter（钉死，含 checkbox/marker/lineno）+ content（横滚，仅代码 / hunk 头 / spacer）
 
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -195,7 +187,7 @@ pub(super) fn render_content_cell(
     row.into_any_element()
 }
 
-/// gutter hunk header：背景色 + 仅左栏带 ↶ 撤销按钮
+/// gutter hunk header：仅左栏带撤销按钮
 pub(super) fn render_gutter_header(
     side: &'static str,
     hunk_idx: usize,

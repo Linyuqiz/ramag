@@ -1,9 +1,4 @@
-//! `impl GitDriver for GitDriverImpl`：~70 个方法的 thin wrapper（async → run_blocking 桥接）
-//!
-//! 拆出来让 `lib.rs` 不超 600 行红线。所有方法套路一致：
-//! 1. `self.get_repo(repo)?` 取仓库句柄
-//! 2. 把 `&str` / `&[String]` 等借用参数 owned 化（`to_string` / `to_vec`）
-//! 3. 派发到 `runtime::run_blocking`（读）或 `handle::run_write_blocking`（写，含 .git/index.lock 串行锁）
+//! `impl GitDriver`：thin wrapper。模式：取 handle → 参数 owned 化 → run_blocking / run_write_blocking
 
 use std::path::Path;
 use std::sync::Arc;
@@ -38,7 +33,7 @@ impl GitDriver for GitDriverImpl {
             .canonicalize()
             .map_err(|e| DomainError::InvalidConfig(format!("路径无法访问: {e}")))?;
 
-        // 同 path 已打开过 → 复用
+        // 同 path 复用已打开句柄
         if let Some(existing_id) = self.by_path.get(&canonical) {
             let id = existing_id.clone();
             drop(existing_id);
@@ -46,7 +41,7 @@ impl GitDriver for GitDriverImpl {
             return Ok(RepoConfig::from_path(path_string).with_id(id));
         }
 
-        // 新仓库：在阻塞线程里打开（gix 打开有 I/O，避免阻塞 GPUI 异步线程）
+        // 阻塞线程打开（gix 有 I/O）
         let canonical_for_open = canonical.clone();
         let repo =
             run_blocking(move || gix::open(&canonical_for_open).map_err(errors::map_open_error))
@@ -131,7 +126,7 @@ impl GitDriver for GitDriverImpl {
         .await
     }
 
-    // ---- Phase B 写操作：subprocess git 兜底（gix 写 API 还在演进期）----
+    // 写操作走 subprocess git（gix 写 API 还在演进）
 
     async fn stage(&self, repo: &RepoId, paths: &[String]) -> Result<()> {
         let handle = self.get_repo(repo)?;
@@ -168,8 +163,6 @@ impl GitDriver for GitDriverImpl {
         run_write_blocking(handle, move |p| commit_op::run(p, &message, amend, sign)).await
     }
 
-    // ---- Phase C：分支操作 ----
-
     async fn checkout(&self, repo: &RepoId, target: &str) -> Result<()> {
         let handle = self.get_repo(repo)?;
         let target = target.to_string();
@@ -191,8 +184,6 @@ impl GitDriver for GitDriverImpl {
         let name = name.to_string();
         run_write_blocking(handle, move |p| work_ops::delete_branch(p, &name, force)).await
     }
-
-    // ---- Phase C：远程同步 ----
 
     async fn fetch(&self, repo: &RepoId, remote: &str) -> Result<()> {
         let handle = self.get_repo(repo)?;
@@ -224,8 +215,6 @@ impl GitDriver for GitDriverImpl {
         run_write_blocking(handle, move |p| remote::pull(p, &remote, &branch, rebase)).await
     }
 
-    // ---- Phase C：Stash 操作 ----
-
     async fn list_stashes(&self, repo: &RepoId) -> Result<Vec<Stash>> {
         let handle = self.get_repo(repo)?;
         run_blocking(move || stash::list(&handle.path)).await
@@ -254,8 +243,6 @@ impl GitDriver for GitDriverImpl {
         let handle = self.get_repo(repo)?;
         run_write_blocking(handle, move |p| stash::drop(p, idx)).await
     }
-
-    // ---- Phase D：Tag 操作 ----
 
     async fn list_tags(&self, repo: &RepoId) -> Result<Vec<Tag>> {
         let handle = self.get_repo(repo)?;
@@ -293,8 +280,6 @@ impl GitDriver for GitDriverImpl {
         run_write_blocking(handle, move |p| tag::push(p, &remote, &name)).await
     }
 
-    // ---- Phase D：行级 patch apply ----
-
     async fn stage_patch(&self, repo: &RepoId, patch: &str) -> Result<()> {
         let handle = self.get_repo(repo)?;
         let patch = patch.to_string();
@@ -312,8 +297,6 @@ impl GitDriver for GitDriverImpl {
         let patch = patch.to_string();
         run_write_blocking(handle, move |p| patch::discard(p, &patch)).await
     }
-
-    // ---- Phase D：合并 / Cherry-pick / 冲突解决 ----
 
     async fn merge(
         &self,
@@ -370,8 +353,6 @@ impl GitDriver for GitDriverImpl {
         run_write_blocking(handle, move |p| conflict_ops::use_theirs(p, &paths)).await
     }
 
-    // ---- Phase D：Reset / Revert / Rebase ----
-
     async fn reset(&self, repo: &RepoId, target: &str, kind: ResetKind) -> Result<()> {
         let handle = self.get_repo(repo)?;
         let target = target.to_string();
@@ -417,8 +398,6 @@ impl GitDriver for GitDriverImpl {
         .await
     }
 
-    // ---- Phase D：Remote 管理 ----
-
     async fn list_remotes(&self, repo: &RepoId) -> Result<Vec<Remote>> {
         let handle = self.get_repo(repo)?;
         run_blocking(move || remote::list(&handle.path)).await
@@ -444,8 +423,6 @@ impl GitDriver for GitDriverImpl {
         run_write_blocking(handle, move |p| remote::set_url(p, &name, &url)).await
     }
 
-    // ---- Phase D：Commit 详情 ----
-
     async fn list_commit_files(&self, repo: &RepoId, commit: &str) -> Result<Vec<FileStatus>> {
         let handle = self.get_repo(repo)?;
         let commit = commit.to_string();
@@ -457,8 +434,6 @@ impl GitDriver for GitDriverImpl {
         let path = path.to_string();
         run_blocking(move || blame::run(&handle.path, &path)).await
     }
-
-    // ---- Phase E：Reflog ----
 
     async fn list_reflog(
         &self,

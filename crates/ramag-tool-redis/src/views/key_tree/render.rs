@@ -1,7 +1,4 @@
-//! 单行渲染（命名空间或叶子）+ 类型徽标配色
-//!
-//! 通过 `impl KeyTreePanel` 复用主结构的方法（非 free function），
-//! 因为闭包内仍要调用 `panel.select_key` / `panel.toggle_expanded`。
+//! 单行渲染 + 类型徽标。`impl KeyTreePanel`，闭包内调 select_key / toggle_expanded
 
 use gpui::{
     ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div, prelude::*, px,
@@ -13,11 +10,7 @@ use super::tree::VisibleRow;
 use super::{INDENT_PX, KeyTreePanel};
 
 impl KeyTreePanel {
-    /// 渲染单行（命名空间或叶子）
-    ///
-    /// `+ use<>`：Rust 2024 默认捕获所有 lifetime，会让返回值绑死在 &self 上，
-    /// 与同函数内 `cx.listener(...)` 需要的 `&mut Context<Self>` 借用冲突。
-    /// 显式声明不捕获生命周期，确保返回值是 'static 风格
+    /// `+ use<>` 显式不捕获生命周期，避免返回值锁住 &self 与 cx.listener 借用冲突
     #[allow(clippy::too_many_arguments)]
     pub(super) fn render_node_row(
         &self,

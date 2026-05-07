@@ -1,7 +1,4 @@
-//! 创建 commit（subprocess git commit）
-//!
-//! amend / sign 通过参数控制，subject 用 `-m` 注入避免编辑器弹出。
-//! 成功后立即 `rev-parse HEAD` 拿新 commit hash 返回给 UI 用。
+//! `git commit`。subject 走 `-m` 避免编辑器弹出；成功后 `rev-parse HEAD` 取新 hash
 
 use std::path::Path;
 

@@ -1,7 +1,4 @@
-//! ZSet 元素 add / edit 弹窗
-//!
-//! - Add 模式：新增 score + member（member 不锁）
-//! - EditScore 模式：member 锁定，仅改 score → ZADD 覆盖
+//! ZSet add / 改 score 弹窗。EditScore 锁 member，仅改 score 走 ZADD 覆盖
 
 use std::sync::Arc;
 

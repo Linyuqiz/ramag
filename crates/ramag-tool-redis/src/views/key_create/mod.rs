@@ -1,20 +1,6 @@
-//! 新建 Key 对话框
-//!
-//! 对外保持与旧版 `key_create.rs` 同名公共 API（`KeyCreateForm::new` + `KeyCreateEvent`），
-//! 内部按类型拆为 5 个结构化子编辑器，避免文本格式记忆负担。
-//!
-//! # 类型与命令
-//!
-//! - String → `SET key value`
-//! - List   → `RPUSH/LPUSH key v1 v2 ...`（默认 RPUSH，可在编辑器内切换）
-//! - Set    → `SADD key m1 m2 ...`（提交时客户端去重，保留首次出现顺序）
-//! - Hash   → `HSET key f1 v1 f2 v2 ...`
-//! - ZSet   → `ZADD key s1 m1 s2 m2 ...`
-//! - Stream → `XADD key * f1 v1 ...`（ID 由服务端生成）
-//!
-//! # TTL
-//!
-//! 写入命令成功后单独 EXPIRE，避免不同命令对 EX/EXAT 选项支持不一致
+//! 新建 Key 对话框，按类型分 5 个子编辑器。
+//! 命令：String=SET、List=RPUSH/LPUSH、Set=SADD（客户端去重）、Hash=HSET、ZSet=ZADD、Stream=`XADD * ...`。
+//! TTL 写入后单独 EXPIRE，避免命令对 EX/EXAT 支持不一
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -316,7 +302,7 @@ impl Render for KeyCreateForm {
         let mut card_bg = secondary_bg;
         card_bg.a = 0.45;
 
-        // === 类型 chip 行（6 个等分，前缀类型色 dot） ===
+        // 类型 chip 行：6 等分，前缀色点
         let mut type_row = h_flex().w_full().items_center().gap(px(6.0));
         for t in CREATE_TYPES {
             let is_selected = self.selected_type == *t;

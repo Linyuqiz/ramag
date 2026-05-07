@@ -1,4 +1,4 @@
-//! Stream 块渲染：每条 entry 显示 ID + 字段对 + [🗑]
+//! Stream 块：每条 entry 显示 ID + 字段对 + 删除按钮
 
 use gpui::{ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div, px};
 use gpui_component::{

@@ -1,10 +1,4 @@
-//! VCS view 多个子模块共享的类型 + 独立辅助函数
-//!
-//! 拆分自最初的 vcs_view.rs（>1300 行）。本 mod 为兄弟子模块（workspace_panel /
-//! history_panel）提供：
-//! - 视图状态枚举（ViewMode / FileOp / RemoteOp / GroupKind）
-//! - 行尾按钮 / 文件状态字母 / 颜色映射
-//! - History commit 行渲染（拆到 [`commit_row`] 子模块）
+//! VCS 视图共享类型 + 辅助函数：视图状态枚举 / 行尾按钮 / 文件状态色 / commit 行渲染
 
 mod commit_row;
 
@@ -31,24 +25,14 @@ pub(super) enum ViewMode {
     History,
 }
 
-/// VcsView 顶层激活视图（仿 dbclient_view::CenterMode）
-///
-/// - `RepoList`：仓库管理页（最近列表 + [+] 选择新仓库）
-/// - `Session`：进入仓库的 IDE 布局
+/// VcsView 顶层视图：RepoList（仓库管理）/ Session（IDE 布局）
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ActiveView {
     RepoList,
     Session,
 }
 
-/// IDE 左侧 Files panel 的视图模式（仿 IDEA Git Tool Window 切换）
-///
-/// 顶部以一排 segmented icon 按钮切换；默认 [`Project`] 让用户开仓库就能看到完整目录。
-///
-/// - `Project`（默认）：完整项目目录树（带 git 状态标记，点击查看文件内容）
-/// - `Changes`：仅显示有变更的文件（已暂存 / 未暂存 / 未跟踪 / 冲突分组，点击查看 diff）
-/// - `Stash`：当前仓库的 stash 列表
-/// - `Branches`：本地 / 远程分支列表（原右侧 sidebar 的分支段，可独立 tab 切入）
+/// Files panel 视图：Project（默认，完整目录树）/ Changes（变更分组）/ Stash / Branches
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum FilesViewMode {
     Project,
@@ -132,13 +116,7 @@ pub(super) enum GroupKind {
     Conflict,
 }
 
-/// Project Files 视图点击文件后加载到的内容快照
-///
-/// 渲染层只读这些字段，不再访问磁盘。读盘 / 截断 / 二进制判断 / max_chars 计算
-/// 都在 [`super::super::vcs_view_ops_repo::file_io`] 异步路径内一次性完成。
-///
-/// `lines` 用 `Rc<Vec<String>>` 持有，让 render 层 clone 是引用计数（O(1)），
-/// 避免每帧整文件拷贝（4MB 文件可省几十 MB 内存搬运）。
+/// 文件内容快照。读盘 / 截断 / 二进制判断在 file_io 一次完成；lines 用 `Rc<Vec<String>>` clone O(1)
 #[derive(Clone)]
 pub(super) struct FileContentSnapshot {
     /// 仓库根的相对路径（与 ls-files 输出一致）
@@ -155,10 +133,7 @@ pub(super) struct FileContentSnapshot {
     pub error: Option<String>,
 }
 
-/// 文件 tab 来源：Changes 走工作区 diff / ProjectFiles 走文件内容 / Commit 走 commit diff
-///
-/// 三类来源共用同一套 file_tab + 主区渲染路径，避免主区出现「左 Changes 点 vs 右下 commit 点」
-/// 各走一条路的不一致。点击触发各自的 fetch 后写入 tab.cached_diff / cached_content。
+/// 文件 tab 来源：Changes（工作区 diff）/ ProjectFiles（内容）/ Commit（commit diff），共用一套主区渲染
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum FileTabSource {
     Changes(GroupKind),

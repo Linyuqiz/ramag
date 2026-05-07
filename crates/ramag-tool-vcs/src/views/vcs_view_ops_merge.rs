@@ -1,11 +1,4 @@
-//! VcsView 合并 / cherry-pick / 冲突解决操作
-//!
-//! 与 `run_branch_op`/`run_remote_op` 并列，但因为方法多放独立文件让 vcs_view_ops 不超 600 行。
-//!
-//! 行为：
-//! - **run_cherry_pick**：history 视图里点 commit 行尾按钮触发
-//! - **run_conflict_op**：冲突文件行尾按钮 [Use Ours][Use Theirs][标记已解决]
-//! - **run_op_step**：进行中合并 / cherry-pick 的 [继续][中止]，按 `status.operation` 派发
+//! 合并 / cherry-pick / 冲突解决：cherry_pick / use ours/theirs / 已解决 / 进行中 op 的继续 / 中止
 
 use gpui::Context;
 use ramag_domain::entities::{BranchKind, RepoOperation};

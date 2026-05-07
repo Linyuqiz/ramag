@@ -1,7 +1,4 @@
-//! Diff / Blame 视图渲染（workspace 右侧主区）
-//!
-//! 抽自 workspace_panel.rs（让其不超 600 行）。本模块只负责右半区——
-//! 顶部按钮组（视图切换 / Blame toggle / Stage|Unstage 选中）+ 中间内容（diff 或 blame）。
+//! workspace 右侧主区：顶部按钮组（视图切换 / Blame toggle / Stage|Unstage 选中）+ diff / blame 内容
 
 use gpui::{
     AnyElement, ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div,
@@ -310,12 +307,12 @@ impl VcsView {
             return placeholder("（未跟踪文件，先 Stage 后查看 diff）", muted_fg);
         }
         if matches!(kind, GroupKind::Conflict) {
-            return placeholder("（冲突文件需要三栏解决器，v0.2 加入）", muted_fg);
+            return placeholder("（冲突文件需要三栏解决器）", muted_fg);
         }
         let Some(d) = &self.current_diff else {
             return placeholder("（无差异）", muted_fg);
         };
-        // Changes（Staged/Unstaged）开行级选择 + 中间 ↶ 撤销；commit 等只读源关闭
+        // Changes（Staged/Unstaged）开行级选择 + 中间撤销；commit 等只读源关闭
         let enable_selection = matches!(kind, GroupKind::Unstaged | GroupKind::Staged);
         let selected_clone = self.selected_diff_lines.clone();
         // render 期间 entity 已被 mut 借用，状态必须从 &self 读出后传给纯函数渲染器
@@ -325,7 +322,7 @@ impl VcsView {
             d,
             &selected_clone,
             enable_selection,
-            false, // changes_only 已废弃，全部走「标准 / 全文件」二态后端控制
+            false,
             mono,
             fg,
             muted_fg,

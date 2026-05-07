@@ -1,6 +1,4 @@
-//! `impl Render for TableTreePanel`：DB picker + 搜索框 + 工具按钮 + 虚拟列表树体 + status bar
-//!
-//! 数据扁平化为 [`super::row::TreeRow`] 喂给 uniform_list 行级虚拟化（28px 等高）。
+//! TableTreePanel Render：DB picker + 搜索 + 工具按钮 + uniform_list 行级虚拟化 + status bar
 
 use std::collections::HashMap;
 use std::ops::Range;

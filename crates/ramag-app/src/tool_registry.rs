@@ -1,31 +1,22 @@
-//! ToolRegistry：工具注册中心
-//!
-//! 在程序启动时（main.rs）把所有 Tool 实例注册进来，
-//! UI 层从 Registry 拿到列表渲染左侧导航。
+//! ToolRegistry：进程启动时注册全部 Tool，UI 层取列表渲染导航
 
 use std::sync::Arc;
 
 use parking_lot::RwLock;
 use ramag_domain::Tool;
 
-/// 工具注册中心
-///
-/// 内部用 `RwLock<Vec<Arc<dyn Tool>>>`，多线程安全（GUI 线程 + 后台任务都可读）
 #[derive(Default)]
 pub struct ToolRegistry {
     tools: RwLock<Vec<Arc<dyn Tool>>>,
 }
 
 impl ToolRegistry {
-    /// 创建一个空的 Registry
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 注册一个 Tool
     pub fn register(&self, tool: Arc<dyn Tool>) {
         let mut tools = self.tools.write();
-        // 防重复注册（基于 id 比较）
         if tools.iter().any(|t| t.meta().id == tool.meta().id) {
             tracing::warn!(tool_id = %tool.meta().id, "duplicate tool registration ignored");
             return;
@@ -34,12 +25,11 @@ impl ToolRegistry {
         tools.push(tool);
     }
 
-    /// 列出所有 Tool（按注册顺序）
+    /// 按注册顺序
     pub fn list(&self) -> Vec<Arc<dyn Tool>> {
         self.tools.read().clone()
     }
 
-    /// 根据 id 查找 Tool
     pub fn find(&self, id: &str) -> Option<Arc<dyn Tool>> {
         self.tools
             .read()
@@ -48,7 +38,6 @@ impl ToolRegistry {
             .cloned()
     }
 
-    /// 当前已注册数量
     pub fn count(&self) -> usize {
         self.tools.read().len()
     }

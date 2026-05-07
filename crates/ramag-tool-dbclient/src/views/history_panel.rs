@@ -1,9 +1,4 @@
-//! 查询历史面板
-//!
-//! 显示当前连接的查询历史（按时间倒序）。点击某条 → 填回当前 Tab 编辑器。
-//!
-//! 触发：QueryPanel 顶部的"历史"按钮，点击后 show_history 切换为 true，
-//! QueryPanel 不渲染当前 Tab，改渲染本面板。
+//! 查询历史：当前连接历史按时间倒序，点击回填编辑器
 
 use std::sync::Arc;
 
@@ -260,9 +255,6 @@ impl Render for HistoryPanel {
                             format!("· {total_records} 条")
                         },
                     )),
-                // 清空 / 刷新 / 关闭按钮已移除：
-                // - 清空 / 刷新：低频，未来可放右键菜单或快捷键，先去掉减负
-                // - 关闭：QueryPanel 顶部"历史"按钮再次点击即可 toggle 关闭
             )
             // 搜索栏
             .child(

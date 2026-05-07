@@ -1,7 +1,4 @@
-//! MySQL 连接池构造
-//!
-//! 连接池缓存逻辑由 `ramag-infra-sql-shared::PoolCache<MySql>` 提供。
-//! 本模块只负责按 [`ConnectionConfig`] 构造一个新的 [`MySqlPool`]。
+//! 按 ConnectionConfig 构造 MySqlPool。缓存逻辑在 sql-shared::PoolCache
 
 use std::time::Duration;
 
@@ -14,7 +11,6 @@ use tracing::warn;
 
 use crate::errors::map_mysql_error;
 
-/// 按配置构造 sqlx 连接池
 pub async fn build_pool(config: &ConnectionConfig) -> Result<MySqlPool> {
     if config.driver != DriverKind::Mysql {
         return Err(DomainError::InvalidConfig(format!(
@@ -28,11 +24,11 @@ pub async fn build_pool(config: &ConnectionConfig) -> Result<MySqlPool> {
         .port(config.port)
         .username(&config.username)
         .password(&config.password)
-        // utf8mb4 支持 emoji 与所有中文，强制要求
+        // utf8mb4 覆盖 emoji + 全部中文
         .charset("utf8mb4")
-        // 默认 UTC 避免歧义
+        // 统一 UTC 避免时区歧义
         .timezone(Some("+00:00".into()))
-        // SSL 默认偏好（有则用、无则降级）；后续 Stage 9 提供 UI 选项
+        // SSL 有则用、无则降级
         .ssl_mode(MySqlSslMode::Preferred)
         .log_statements(tracing::log::LevelFilter::Debug)
         .log_slow_statements(tracing::log::LevelFilter::Warn, Duration::from_secs(1));

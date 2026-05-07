@@ -1,7 +1,4 @@
-//! 左侧边栏：本地分支段 + 远程分支段
-//!
-//! 分支行只显示名字 + 上游同步信息，操作全部移至右键菜单。
-//! 本地段底部保留「新建分支」输入框 + 创建按钮。
+//! 侧栏：本地 / 远程分支段。行只显示名字 + 上游同步，操作走右键菜单；本地段底部含新建分支输入
 
 use gpui::{
     AnyElement, ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, SharedString,

@@ -1,23 +1,7 @@
-// 集成测试代码大量使用 unwrap/expect/panic（断言失败即测试失败），是 Rust 测试的常态
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-//! 集成测试：连接真实 Redis 跑通完整流程
-//!
-//! # 运行方式
-//!
-//! ```bash
-//! # 设置环境变量后运行（否则 skip）
-//! export RAMAG_TEST_REDIS_HOST=127.0.0.1
-//! export RAMAG_TEST_REDIS_PORT=6379
-//! # 可选（无密码可不设）
-//! export RAMAG_TEST_REDIS_PASSWORD=secret
-//! # 可选（ACL 用户名；空 = 走老版 AUTH 仅密码）
-//! export RAMAG_TEST_REDIS_USERNAME=default
-//!
-//! cargo test -p ramag-infra-redis --test integration -- --nocapture
-//! ```
-//!
-//! 测试用 db 15（避免污染常用的 0 号库）。**测试结尾会 FLUSHDB 清场**。
+//! 集成测试：连接真实 Redis。缺 RAMAG_TEST_REDIS_HOST/PORT 时跳过。
+//! 用 db 15 避免污染 0 号库；测试尾 FLUSHDB 清场
 
 use ramag_domain::entities::{ConnectionConfig, ConnectionId, DriverKind, RedisType, RedisValue};
 use ramag_domain::traits::KvDriver;
@@ -25,7 +9,7 @@ use ramag_infra_redis::RedisDriver;
 
 const TEST_DB: u8 = 15;
 
-/// 从环境变量读取连接配置；缺关键字段就跳过测试
+/// 缺 host/port 就跳过测试
 fn config_from_env() -> Option<ConnectionConfig> {
     let host = std::env::var("RAMAG_TEST_REDIS_HOST").ok()?;
     let port: u16 = std::env::var("RAMAG_TEST_REDIS_PORT").ok()?.parse().ok()?;
@@ -233,7 +217,6 @@ async fn zset_value_with_scores() {
     match v {
         RedisValue::ZSet(pairs) => {
             assert_eq!(pairs.len(), 2);
-            // 服务端按 score 升序
             assert!((pairs[0].1 - 1.5).abs() < 1e-9);
             assert!((pairs[1].1 - 2.5).abs() < 1e-9);
         }
@@ -249,7 +232,6 @@ async fn scan_iterates_full_keyspace() {
     let driver = RedisDriver::new();
     cleanup(&driver, &config).await;
 
-    // 写 30 个 key
     for i in 0..30 {
         driver
             .execute_command(
@@ -298,7 +280,6 @@ async fn ttl_set_and_persist() {
     let ttl = driver.key_ttl(&config, TEST_DB, "ttl_key").await.unwrap();
     assert_eq!(ttl, -1, "无 TTL 应返回 -1");
 
-    // 设置 600s TTL
     let ok = driver
         .set_ttl(&config, TEST_DB, "ttl_key", Some(600))
         .await
@@ -308,7 +289,6 @@ async fn ttl_set_and_persist() {
     let ttl_ms = driver.key_ttl(&config, TEST_DB, "ttl_key").await.unwrap();
     assert!(ttl_ms > 0 && ttl_ms <= 600_000);
 
-    // 取消 TTL
     let ok = driver
         .set_ttl(&config, TEST_DB, "ttl_key", None)
         .await

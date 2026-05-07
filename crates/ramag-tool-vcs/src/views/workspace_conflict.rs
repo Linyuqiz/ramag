@@ -1,8 +1,4 @@
-//! 工作区进行中合并 / cherry-pick 横幅 + 冲突文件行尾按钮
-//!
-//! 在 workspace 顶部显示「Merge in progress / Cherry-pick in progress」横幅，
-//! 提供 [继续] [中止] 一键操作；冲突文件行尾用 [Use Ours][Use Theirs][标记已解决]
-//! 三个按钮代替默认的 Stage / Discard，让用户不进终端就能跑完冲突解决流程。
+//! merge / cherry-pick 进行中横幅（继续 / 中止）+ 冲突文件行尾按钮（Use Ours / Theirs / 已解决）
 
 use gpui::{
     AnyElement, ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div,
@@ -19,10 +15,7 @@ use super::helpers::{ConflictOp, OperationStep};
 use super::vcs_view::VcsView;
 
 impl VcsView {
-    /// 进行中操作横幅：仅当 status.operation = Some(_) 时渲染
-    ///
-    /// 按 op 类型派发：Merge / CherryPick / Revert 显示 [继续][中止]；
-    /// Rebase 多一个 [跳过] 按钮（用于跳过冲突 commit 继续 rebase 下一个）
+    /// `status.operation = Some(_)` 时显示。Merge/CherryPick/Revert 给「继续 / 中止」；Rebase 多「跳过」
     pub(super) fn render_op_banner(&self, cx: &mut Context<Self>) -> AnyElement {
         let Some(op) = self.status.as_ref().and_then(|s| s.operation) else {
             return div().into_any_element();

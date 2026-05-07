@@ -1,28 +1,12 @@
-//! 集成测试：连接真实 PostgreSQL 跑通完整流程
-//!
-//! # 运行方式
-//!
-//! ```bash
-//! # 设置环境变量后运行（任一字段缺失就 skip）
-//! export RAMAG_TEST_PG_HOST=127.0.0.1
-//! export RAMAG_TEST_PG_PORT=5432
-//! export RAMAG_TEST_PG_USER=postgres
-//! export RAMAG_TEST_PG_PASSWORD='your-password'
-//! export RAMAG_TEST_PG_DB=postgres   # PG 必须连具体 db
-//!
-//! cargo test -p ramag-infra-postgres --test integration -- --nocapture
-//! ```
+//! 集成测试：连接真实 PostgreSQL。缺 RAMAG_TEST_PG_* 环境变量时跳过。PG 必须指定 db
 
-// 测试代码局部豁免 unwrap/expect/panic：失败即用例失败，不需要 graceful 处理
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use ramag_domain::entities::{ConnectionConfig, ConnectionId, DriverKind, Query};
 use ramag_domain::traits::Driver;
 use ramag_infra_postgres::PostgresDriver;
 
-/// 从环境变量读取连接配置；缺任一字段就跳过测试
-///
-/// PG 必须连接具体 database，所以 `RAMAG_TEST_PG_DB` 也是必填
+/// 缺任一字段就跳过测试。PG 必须指定 database，`RAMAG_TEST_PG_DB` 必填
 fn config_from_env() -> Option<ConnectionConfig> {
     let host = std::env::var("RAMAG_TEST_PG_HOST").ok()?;
     let port: u16 = std::env::var("RAMAG_TEST_PG_PORT").ok()?.parse().ok()?;
@@ -44,7 +28,7 @@ fn config_from_env() -> Option<ConnectionConfig> {
     })
 }
 
-/// 跳过日志：方便定位 skip 原因
+/// 缺环境变量时打印 skip 提示再 return
 macro_rules! require_env {
     () => {{
         match config_from_env() {
@@ -90,7 +74,7 @@ async fn list_schemas_returns_data() {
         .await
         .expect("list_schemas 失败");
     println!("schemas: {:#?}", schemas);
-    // 至少应有 public（PG 默认 schema）；filter 排除了 pg_*/information_schema
+    // PG 默认有 public
     assert!(
         schemas.iter().any(|s| s.name == "public"),
         "应包含 public schema"
@@ -106,7 +90,7 @@ async fn list_tables_for_public() {
         .await
         .expect("list_tables 失败");
     println!("tables in public: {:#?}", tables);
-    // 不强制有表（库可能为空），只验证调用成功
+    // 不强制有表，只验证调用成功
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -133,7 +117,6 @@ async fn execute_select_with_pg_types() {
     let config = require_env!();
     let driver = PostgresDriver::new();
 
-    // 覆盖 PG 关键类型映射：bool / int / float / numeric(精度) / text / timestamp / jsonb / uuid
     let result = driver
         .execute(
             &config,
@@ -170,7 +153,7 @@ async fn invalid_sql_returns_error() {
 
     println!("got expected error: {}", err);
     let msg = format!("{err}");
-    // PG 语法错误对应 SQLSTATE 42601 → DomainError::QueryFailed("SQL 语法错误...")
+    // 42601 → "SQL 语法错误"
     assert!(
         msg.contains("语法") || msg.contains("syntax"),
         "错误消息应包含语法错误线索：{msg}"
@@ -190,7 +173,7 @@ async fn wrong_password_returns_friendly_error() {
 
     println!("got expected auth error: {}", err);
     let msg = format!("{err}");
-    // PG 认证错误 SQLSTATE 28P01 → "用户名或密码错误"
+    // 28P01 → "用户名或密码错误"
     assert!(
         msg.contains("用户名或密码") || msg.contains("password") || msg.contains("authentication"),
         "错误消息应包含认证错误线索：{msg}"
@@ -199,7 +182,6 @@ async fn wrong_password_returns_friendly_error() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn empty_result_set_keeps_columns() {
-    // P0 修复验证：SELECT WHERE 1=0 返回空 rows 但有列头
     let config = require_env!();
     let driver = PostgresDriver::new();
 
@@ -209,26 +191,23 @@ async fn empty_result_set_keeps_columns() {
         .expect("execute 失败");
 
     assert!(result.rows.is_empty(), "WHERE 1=0 应返回空 rows");
-    // 关键：列头不应丢失（extract_columns_fallback 走 describe）
+    // extract_columns_fallback 经 describe 拿列头
     assert_eq!(result.columns.len(), 2, "空结果集仍应有列定义");
     println!("empty result columns: {:?}", result.columns);
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn dollar_quoted_function_body_treated_as_one_statement() {
-    // PG dollar-quoted 多语句切分验证：函数体内 ; 不分割
     let config = require_env!();
     let driver = PostgresDriver::new();
 
-    // 创建一个临时函数 + 紧跟 SELECT 2，多语句一次执行
-    // 函数体内有 ; 但应整体作为一条语句
+    // dollar-quoted 函数体内的 ; 不应被切分
     let sql = "DO $$ BEGIN PERFORM 1; PERFORM 2; END; $$; SELECT 99 AS final_value";
     let result = driver
         .execute(&config, &Query::new(sql))
         .await
         .expect("dollar-quoted 多语句执行失败");
 
-    // 最后一条是 SELECT 99，结果应是单行 (final_value=99)
     assert_eq!(result.rows.len(), 1);
     assert_eq!(result.columns.len(), 1);
     assert_eq!(result.columns[0], "final_value");

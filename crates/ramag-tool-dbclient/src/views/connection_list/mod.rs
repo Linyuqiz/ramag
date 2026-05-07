@@ -1,23 +1,5 @@
-//! 连接管理页（列表版）
-//!
-//! 布局：
-//! ```text
-//! ┌─────────────────────────────────────────────────────────────────┐
-//! │ 共 N 个连接 · MySQL   [🔍 搜索连接...]      [+ 新建连接]        │
-//! ├─────────────────────────────────────────────────────────────────┤
-//! │ ● [MySQL]  midas-dev    10.0.17.38:3306   root @ —    编辑 删除 │
-//! │ ● [MySQL]  local        127.0.0.1:3306    root @ —    编辑 删除 │
-//! │ ...                                                             │
-//! └─────────────────────────────────────────────────────────────────┘
-//! ```
-//!
-//! 整行点击 = 打开连接（emit `Selected`）；行内编辑/删除按钮独立 emit。
-//! 搜索关键字会按 名称 / host / 用户名 / 数据库 做不区分大小写的子串匹配。
-//!
-//! 模块拆分：
-//! - 本文件：state + new + 方法 + ListEvent
-//! - `render`：impl Render + 空状态
-//! - `row`：单行连接渲染（200 行的 driver badge / host:port / 操作按钮）
+//! 连接管理页：行点击=打开（emit Selected），行内按钮独立 emit。
+//! 搜索按 名称 / host / 用户名 / 数据库 不区分大小写子串匹配
 
 mod render;
 mod row;
@@ -33,17 +15,15 @@ use tracing::{debug, error};
 
 pub struct ConnectionListPanel {
     pub(super) service: Arc<ConnectionService>,
-    /// Redis 服务：拉取 Redis 连接的 server_version 走它（与 MySQL 服务并列）
+    /// Redis 连接的 server_version 走 redis_service
     redis_service: Arc<RedisService>,
     pub(super) connections: Vec<ConnectionConfig>,
     pub(super) selected: Option<ConnectionId>,
     pub(super) loading: bool,
-    /// 搜索输入框（持有以便订阅 Change 事件）
     pub(super) search: Entity<InputState>,
-    /// 当前搜索关键字（小写，用于过滤；空表示不过滤）
+    /// 小写的搜索关键字
     pub(super) query: String,
-    /// 服务端版本缓存：key=ConnectionId，value="8.0.32" / "7.2.4" 等
-    /// refresh 后串行后台 fetch；失败的连接不缓存（避免反复重试）
+    /// 服务端版本缓存。失败连接不入缓存避免重试
     pub(super) versions: HashMap<ConnectionId, String>,
     _subscriptions: Vec<gpui::Subscription>,
 }
@@ -68,7 +48,6 @@ impl ConnectionListPanel {
         let search = cx
             .new(|cx| InputState::new(window, cx).placeholder("搜索连接（名称 / host / 用户名）"));
 
-        // 订阅搜索框变化 → 同步 query 并刷新
         let mut subs = Vec::new();
         subs.push(cx.subscribe_in(
             &search,
@@ -111,16 +90,14 @@ impl ConnectionListPanel {
                     }
                 }
                 cx.notify();
-                // 不再在 refresh 时批量探测版本：未打开的连接保持沉默，避免反复试连不可达主机
-                // 真正打开（open_session）时由外层显式调 prefetch_version 探测一次
+                // refresh 不批量探测版本，避免对未打开连接反复试连不可达主机；
+                // 真正 open_session 时由外层调 prefetch_version
             });
         })
         .detach();
     }
 
-    /// 仅探测单条连接的服务端版本（已缓存则跳过；失败仅 debug 日志）
-    ///
-    /// 由 dbclient_view 在用户主动打开连接成功后调用，避免对未打开的连接建池
+    /// 已缓存则跳过；失败仅 debug
     pub fn prefetch_version(&mut self, id: &ConnectionId, cx: &mut Context<Self>) {
         if self.versions.contains_key(id) {
             return;
@@ -159,7 +136,6 @@ impl ConnectionListPanel {
         self.selected.as_ref()
     }
 
-    /// 公开当前已加载的连接列表（用于外层查找名称等元数据）
     pub fn connections(&self) -> &[ConnectionConfig] {
         &self.connections
     }
@@ -170,7 +146,6 @@ impl ConnectionListPanel {
         cx.notify();
     }
 
-    /// 按当前关键字过滤连接列表
     pub(super) fn filtered(&self) -> Vec<ConnectionConfig> {
         if self.query.is_empty() {
             return self.connections.clone();
@@ -192,7 +167,7 @@ impl ConnectionListPanel {
     }
 }
 
-/// 工厂（注：调用方需要持有 `&mut Window`）
+/// 调用方需持 `&mut Window`
 pub fn create(
     service: Arc<ConnectionService>,
     redis_service: Arc<RedisService>,

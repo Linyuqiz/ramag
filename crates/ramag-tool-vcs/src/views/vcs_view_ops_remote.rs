@@ -1,7 +1,4 @@
-//! VcsView 远程仓库列表加载
-//!
-//! 仅保留 `reload_remotes`（open_repo 后由 vcs_view_ops_repo 调用刷新远程列表）。
-//! Remote 配置写操作（add / remove / set_url）随旧 sidebar panel 一并删除。
+//! 远程列表加载，由 vcs_view_ops_repo 在 open_repo 后调
 
 use gpui::Context;
 use tracing::error;

@@ -1,7 +1,4 @@
-//! 泛型连接池缓存
-//!
-//! 按 [`ConnectionId`] 缓存 `sqlx::Pool<Db>`。多线程安全（DashMap 分桶锁），
-//! Arc 共享所有权——`clone_handle()` 把句柄移入 async 闭包不复制底层数据。
+//! 泛型连接池缓存：按 ConnectionId 缓存 `sqlx::Pool<Db>`。DashMap + Arc 多线程安全
 
 use std::sync::Arc;
 
@@ -10,7 +7,6 @@ use ramag_domain::entities::ConnectionId;
 use sqlx::{Database, Pool};
 use tracing::info;
 
-/// 泛型连接池缓存
 pub struct PoolCache<Db: Database> {
     pools: Arc<DashMap<ConnectionId, Pool<Db>>>,
 }
@@ -40,7 +36,7 @@ impl<Db: Database> PoolCache<Db> {
         self.clone()
     }
 
-    /// 命中缓存返回；未命中时 None（让外部去 build_pool 后 insert）
+    /// 未命中返回 None（外部 build_pool 后 insert）
     pub fn get(&self, id: &ConnectionId) -> Option<Pool<Db>> {
         self.pools.get(id).map(|e| e.clone())
     }

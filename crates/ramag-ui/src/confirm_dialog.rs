@@ -1,28 +1,4 @@
-//! 通用「破坏性操作二次确认」对话框
-//!
-//! 设计原则：
-//! - 不绑定具体 Entity 类型；调用方在 `on_confirm` 里自己 `view.update` 自家 entity
-//! - `danger=true` 用红色按钮；`false` 用 primary 蓝色（中等危险，例如 amend / merge）
-//! - `on_confirm` 是 `FnOnce`，本文件用 `Rc<RefCell<Option<F>>>` 把它包成 `Fn`，符合 GPUI dialog API
-//!
-//! 典型用法：
-//! ```ignore
-//! ramag_ui::open_confirm(
-//!     "删除连接？",
-//!     "此操作不可恢复。",
-//!     "删除",
-//!     true,
-//!     {
-//!         let view = cx.entity();
-//!         move |window, app| {
-//!             view.update(app, |this, cx| this.do_delete(cx));
-//!             let _ = window;
-//!         }
-//!     },
-//!     window,
-//!     cx,
-//! );
-//! ```
+//! 破坏性操作二次确认。danger=true 红、false primary 蓝；on_confirm 仅触发一次
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -34,14 +10,6 @@ use gpui_component::{
     h_flex,
 };
 
-/// 弹出统一样式的二次确认对话框
-///
-/// 参数：
-/// - `title`：对话框标题
-/// - `description`：正文（多行用 `\n` 分隔）
-/// - `confirm_label`：确认按钮文案，例如 `删除` / `移除` / `丢弃`
-/// - `danger`：true 用红色 / false 用 primary 蓝色
-/// - `on_confirm`：用户点击确认后跑（仅一次）
 pub fn open_confirm(
     title: impl Into<SharedString>,
     description: impl Into<SharedString>,
@@ -54,7 +22,7 @@ pub fn open_confirm(
     let title: SharedString = title.into();
     let description: SharedString = description.into();
     let confirm_label: SharedString = confirm_label.into();
-    // FnOnce 通过 Rc<RefCell<Option<F>>> 包装成可 Clone 的 Fn 句柄
+    // FnOnce 包成可 Clone 的 Fn 句柄
     let on_confirm_cell = Rc::new(RefCell::new(Some(on_confirm)));
 
     window.open_dialog(cx, move |dialog, _, _| {

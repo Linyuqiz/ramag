@@ -33,7 +33,7 @@ impl VcsView {
         render_left_sidebar(self, &commit, fg, muted_fg, accent, border, cx)
     }
 
-    /// 切换 commit 文件树某目录的折叠状态（点 ▾/▸ 触发）
+    /// 切换 commit 文件树目录的折叠状态
     pub(super) fn toggle_commit_files_dir(&mut self, dir_path: String, cx: &mut Context<Self>) {
         if !self.commit_files_collapsed.remove(&dir_path) {
             self.commit_files_collapsed.insert(dir_path);

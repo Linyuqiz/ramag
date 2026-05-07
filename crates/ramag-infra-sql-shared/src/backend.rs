@@ -1,11 +1,5 @@
-//! SqlBackend：关系型 DB 唯一抽象层
-//!
-//! 每个 driver crate（mysql / postgres / 未来 sqlite）只 impl 这一个 trait，
-//! 通过 [`crate::impl_driver_for!`] 宏一行获得 [`ramag_domain::traits::Driver`]。
-//!
-//! 本模块同时提供一组泛型模板函数（test_connection_impl / execute_impl / 各 list_*_impl /
-//! cancel_query_impl / server_version_impl），由宏代理调用。driver crate 不需要自己写
-//! 模板逻辑，只 impl 方言方法 + per-DB 解码 + per-DB metadata SQL 即可。
+//! SqlBackend：SQL 类 driver 唯一抽象层 + 泛型模板（test/execute/cancel/list_*）。
+//! driver crate 仅实现方言方法 + 行解码 + 元数据 SQL，由 `impl_driver_for!` 宏代理到 Driver
 
 use std::time::Instant;
 
@@ -27,14 +21,8 @@ use crate::sql::{
     sql_has_no_limit_marker,
 };
 
-/// 关系型 DB 唯一抽象层
-///
-/// `Db` 关联到具体 sqlx Database（`sqlx::MySql` / `sqlx::Postgres` 等）。
-/// 通过 [`crate::impl_driver_for!`] 宏一行获得 Domain 层 `Driver` 实现。
-///
-/// where 子句的 GAT HRTB 是 sqlx 0.8 必备：`Arguments<'q>` 是 GAT，要求实现者
-/// 自动满足 `IntoArguments` + `&Pool/&mut PoolConnection: Executor` —— sqlx 的
-/// 内置 Database 实现（MySql/Postgres/Sqlite）都满足，driver crate impl 时无感
+/// SQL 类 driver 抽象。`Db` 绑到 sqlx Database（MySql/Postgres/Sqlite 等）。
+/// where 子句的 HRTB GAT 是 sqlx 0.8 必备，sqlx 内置 Database 自动满足
 #[async_trait]
 pub trait SqlBackend: Send + Sync + 'static
 where
@@ -46,38 +34,35 @@ where
 
     fn name(&self) -> &'static str;
 
-    /// 连接池缓存（按 ConnectionId）
+    /// 按 ConnectionId 缓存的连接池
     fn cache(&self) -> &PoolCache<Self::Db>;
 
-    // === 方言（per-DB 实现）===
+    // 方言
 
-    /// 包裹标识符的引号字符串：MySQL 反引号 / PG 双引号
+    /// MySQL 反引号 / PG 双引号
     fn quote_identifier(&self, ident: &str) -> String;
 
-    /// 取消运行中查询的 SQL：MySQL `KILL QUERY %d` / PG `SELECT pg_cancel_backend(%d)`
+    /// MySQL `KILL QUERY` / PG `pg_cancel_backend()`
     fn cancel_query_sql(&self, backend_id: u64) -> String;
 
-    /// 切换默认库的 SQL：MySQL ``USE `db` `` / PG None（PG 必须连接时绑定 db）
+    /// MySQL `USE <db>`；PG None（连接时绑定 db）
     fn use_database_sql(&self, db: &str) -> Option<String>;
 
-    /// 多语句切分选项（PG 需要识别 dollar-quoted）
+    /// PG 需识别 dollar-quoted
     fn split_options(&self) -> SplitOptions;
 
-    // === 连接 / 池 ===
+    // 连接 / 池
 
     async fn build_pool(&self, config: &ConnectionConfig) -> Result<Pool<Self::Db>>;
 
-    // === 行解码 ===
+    // 行解码
 
     fn decode_row(&self, row: &<Self::Db as Database>::Row) -> Vec<Value>;
 
-    /// 列名 + 列类型名（per-DB 因列对象具体类型不同）
+    /// 列名 + 列类型名
     fn extract_columns(&self, row: &<Self::Db as Database>::Row) -> (Vec<String>, Vec<String>);
 
-    /// 空结果集 fallback 列定义（让 `SHOW`/`DESC` 等空数据语句仍能渲染列头）
-    ///
-    /// 默认 None：空结果集呈现为"0 行"（与 DML 一致）。
-    /// MySQL 实现走 `Connection::describe` 在空结果时也能拿列定义
+    /// 空结果集 fallback 列定义。默认 None，MySQL 走 `Connection::describe`
     async fn extract_columns_fallback(
         &self,
         _conn: &mut <Self::Db as Database>::Connection,
@@ -86,10 +71,10 @@ where
         None
     }
 
-    /// 取 DML 受影响行数（sqlx 没把 rows_affected 抽到 trait 上，所以靠 hook）
+    /// DML 受影响行数。sqlx 没抽到 trait 上，只能 hook
     fn rows_affected(&self, query_result: &<Self::Db as Database>::QueryResult) -> u64;
 
-    /// 把后端 thread/session id 写入 cancel handle（spike 后补）
+    /// 把后端 thread/session id 写入 cancel handle
     async fn record_backend_id(
         &self,
         _conn: &mut PoolConnection<Self::Db>,
@@ -97,17 +82,17 @@ where
     ) {
     }
 
-    /// MySQL 用来抓 SHOW WARNINGS；其他 DB 默认返回空
+    /// MySQL SHOW WARNINGS；其他 DB 默认空
     async fn fetch_warnings(&self, _conn: &mut PoolConnection<Self::Db>) -> Vec<Warning> {
         Vec::new()
     }
 
-    /// DB 错误码识别（在通用 sqlx 大类映射前优先调用）
+    /// 数据库错误码识别，优先于通用大类映射
     fn map_database_error(&self, _err: &sqlx::Error) -> Option<DomainError> {
         None
     }
 
-    // === 元数据（per-DB SQL，但接口签名通用）===
+    // 元数据 SQL（per-DB 实现，签名通用）
 
     async fn server_version_impl(&self, pool: &Pool<Self::Db>) -> Result<String>;
 
@@ -137,9 +122,7 @@ where
     ) -> Result<Vec<ForeignKey>>;
 }
 
-// === 内部工具 ===
-
-/// 取连接池：命中缓存返回，未命中调 build_pool 后 insert
+/// 取连接池：命中缓存即返，否则 build_pool 后 insert
 async fn get_pool<B>(b: &B, config: &ConnectionConfig) -> Result<Pool<B::Db>>
 where
     B: SqlBackend,
@@ -155,7 +138,7 @@ where
     Ok(pool)
 }
 
-/// 错误映射：先走 driver 自定义识别，未命中走 sqlx 通用大类
+/// 先走 driver 自定义识别，未命中走 sqlx 通用大类
 fn map_err<B>(b: &B, err: sqlx::Error) -> DomainError
 where
     B: SqlBackend,
@@ -167,7 +150,7 @@ where
         .unwrap_or_else(|| map_sqlx_common(&err))
 }
 
-// === 模板函数（impl_driver_for! 宏代理过来调）===
+// 模板函数：由 `impl_driver_for!` 代理调用
 
 pub async fn test_connection_impl<B>(b: &B, config: &ConnectionConfig) -> Result<()>
 where
@@ -285,7 +268,7 @@ where
     Ok(())
 }
 
-/// 执行查询（含多语句切分 / LIMIT 注入 / cancel handle / warnings）
+/// 多语句切分 + LIMIT 注入 + cancel handle + warnings
 pub async fn execute_impl<B>(
     b: &B,
     config: &ConnectionConfig,
@@ -310,9 +293,7 @@ where
         && let Some(use_sql) = b.use_database_sql(schema)
     {
         debug!(?use_sql, "switching default schema before query");
-        // 走 raw text protocol（不 prepare）：MySQL 的 `USE <db>` 在 prepared statement
-        // 协议下会报 "This command is not supported in the prepared statement protocol yet"，
-        // 必须用 COM_QUERY 直发。Executor::execute(&str) 就是 simple query 路径
+        // MySQL `USE <db>` 在 prepared statement 协议不支持，必须走 COM_QUERY 简单查询
         conn.execute(use_sql.as_str())
             .await
             .map_err(|e| map_err(b, e))?;

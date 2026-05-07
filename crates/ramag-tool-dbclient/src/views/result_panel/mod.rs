@@ -1,13 +1,4 @@
-//! 结果集面板
-//!
-//! 三种渲染状态：Empty / Running / Error / Ok。
-//!
-//! 模块拆分：
-//! - 本文件：state + new + 公共 setter/getter（`ResultState` / `SortDir` enum）
-//! - [`ops`]：DML 操作（INSERT/UPDATE/DELETE，行内编辑触发）
-//! - [`render`]：`impl Render` + 警告 banner + 复制操作
-//! - [`export`]：CSV/JSON/Markdown 导出
-//! - [`helpers`]：自由函数 + `PendingInsert` struct
+//! 结果集面板：Empty / Running / Error / Ok 四态
 
 mod export;
 mod helpers;
@@ -57,7 +48,7 @@ pub struct ResultPanel {
     pub(super) state: ResultState,
     /// 异步任务（如导出）完成后挂这里，下次 render 在 window 上下文里 push
     pub(super) pending_notification: Option<Notification>,
-    /// 当前选中单元格 (row_idx, col_idx)，用于高亮 + 未来 ⌘C 复制
+    /// 当前选中单元格 (row_idx, col_idx)，用于高亮 + cmd-c 复制
     pub(super) selected_cell: Option<(usize, usize)>,
     /// 多选行：表格首列 checkbox 勾选的行索引集合
     pub(super) selected_rows: BTreeSet<usize>,

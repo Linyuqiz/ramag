@@ -1,7 +1,4 @@
-//! 左侧边栏：Tag 段
-//!
-//! 列表显示 tag 名 + 短 hash + （annotated 才有的）message 一行预览，
-//! 行尾按钮 [Push][Delete]。底部有「新建 tag」输入 + 创建按钮（lightweight 模式）。
+//! 侧栏 Tag 段：tag 名 / 短 hash / annotated message 预览 + Push / Delete + 底部新建 tag
 
 use gpui::{
     AnyElement, ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div,

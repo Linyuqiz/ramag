@@ -1,11 +1,4 @@
-//! Redis 工具的视图组件
-//!
-//! 这些视图作为子组件由 dbclient 工具装载（dbclient 是统一连接管理入口，
-//! 在新建连接表单内通过 driver 选择器决定走 SQL 还是 Redis 路径）。
-//!
-//! - [`connection_session`]：Redis 连接打开后的会话面板（DB 切换 + Key 树 + 详情）
-//! - [`key_tree`]：SCAN 分批 + 命名空间分组
-//! - [`key_detail`]：按类型 dispatch 渲染值
+//! Redis 视图：dbclient 装载，driver 选 Redis 时进入 connection_session
 
 pub mod connection_session;
 pub mod hash_field_form;

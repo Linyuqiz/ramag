@@ -1,6 +1,4 @@
-//! History 列表的单行渲染（IDEA Git 风格）
-//!
-//! 拆出来让 helpers/mod.rs 不超 600 行红线。
+//! History 列表单行渲染（IDEA Git 风格）
 
 use gpui::{
     AnyElement, ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
@@ -15,11 +13,7 @@ use ramag_domain::entities::{Commit, ResetKind};
 use super::super::commit_graph::{CommitGraphRow, lane_color, render_lane_gutter};
 use super::super::vcs_view::VcsView;
 
-/// History 列表的单行渲染（IDEA Git 风格列化）：
-/// `[lane gutter] | subject + [refs] | author | date | hash`
-///
-/// 左键点击打开 commit 详情；右键唤出操作菜单（cherry-pick / revert / reset）。
-/// 行高紧凑（28px）、字体 13/12，便于一屏看更多 commit。
+/// History 单行：lane gutter + subject + refs + author + date + hash。左键打开详情，右键菜单
 #[allow(clippy::too_many_arguments)]
 pub(in crate::views) fn render_commit_row(
     c: &Commit,

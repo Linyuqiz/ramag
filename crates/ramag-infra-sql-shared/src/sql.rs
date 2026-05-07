@@ -1,12 +1,9 @@
-//! SQL 文本工具（多语句切分 / LIMIT 注入 / 用户标记识别）
-//!
-//! 所有方言中性的纯字符串处理。`SplitOptions` 控制 dollar-quoted（PostgreSQL）
-//! 等方言特性。
+//! SQL 文本工具：多语句切分 / LIMIT 注入 / 用户标记识别。方言中性
 
 /// 多语句切分选项
 #[derive(Debug, Clone, Copy)]
 pub struct SplitOptions {
-    /// 识别 PostgreSQL dollar-quoted 字符串：`$$ ... $$` / `$tag$ ... $tag$`
+    /// 识别 PG dollar-quoted：`$$..$$` / `$tag$..$tag$`
     pub dollar_quoted: bool,
 }
 
@@ -24,7 +21,7 @@ impl SplitOptions {
     }
 }
 
-/// 按 `;` 切分多条 SQL，跳过 字符串 / 行注释 / 块注释 / 可选 dollar-quoted 内的 `;`
+/// 按 `;` 切分，跳过字符串 / 行注释 / 块注释 / dollar-quoted 内的 `;`
 pub fn split_statements(sql: &str, opts: SplitOptions) -> Vec<String> {
     let bytes = sql.as_bytes();
     let mut out: Vec<String> = Vec::new();
@@ -86,11 +83,8 @@ pub fn split_statements(sql: &str, opts: SplitOptions) -> Vec<String> {
     out
 }
 
-/// 扫描 dollar-quoted 字符串，返回闭合 tag 后的下一个 byte 位置；非 dollar-quoted 返回 None
-///
-/// 支持 `$$ ... $$` 与 `$tag$ ... $tag$`（tag 为字母数字下划线）；不处理嵌套（PG 也不允许同 tag 嵌套）。
-///
-/// pub 暴露给上层 UI（query_tab 的"光标处取语句"也需要识别 dollar-quoted）
+/// 扫 dollar-quoted，返回闭合 tag 后的字节位置；非 dollar-quoted 返回 None。
+/// 不处理嵌套（PG 也不允许同 tag 嵌套）。pub 给 UI 的「光标处取语句」用
 pub fn scan_dollar_quoted(bytes: &[u8], start: usize) -> Option<usize> {
     debug_assert_eq!(bytes[start], b'$');
     let mut p = start + 1;
@@ -114,7 +108,7 @@ pub fn scan_dollar_quoted(bytes: &[u8], start: usize) -> Option<usize> {
     None
 }
 
-/// 判断 SQL 是否返回结果集（按首关键字粗判）
+/// 按首关键字粗判 SQL 是否返回结果集
 pub fn is_query_returning_rows(sql: &str) -> bool {
     let upper: String = sql
         .chars()
@@ -182,7 +176,7 @@ pub fn inject_limit_if_needed(stmt: &str, limit: Option<u32>) -> Option<String> 
     Some(out)
 }
 
-/// 检测 SQL 中是否含 `-- ramag:no-limit` 用户级跳过开关（大小写不敏感）
+/// 是否含 `-- ramag:no-limit` 跳过开关（大小写不敏感）
 pub fn sql_has_no_limit_marker(sql: &str) -> bool {
     sql.lines().any(|line| {
         let trimmed = line.trim_start();
@@ -196,7 +190,7 @@ pub fn sql_has_no_limit_marker(sql: &str) -> bool {
     })
 }
 
-/// 全词匹配（前后非字母数字下划线）；用于在 SQL 末尾扫描子句关键字
+/// 全词匹配（前后非字母数字下划线）
 pub fn contains_word(haystack_upper: &str, word: &str) -> bool {
     let bytes = haystack_upper.as_bytes();
     let target = word.as_bytes();

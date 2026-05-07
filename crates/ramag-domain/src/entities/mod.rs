@@ -1,6 +1,4 @@
-//! 领域实体模块
-//!
-//! 核心业务概念的数据结构定义，纯 Rust 类型，可序列化。
+//! 领域实体：纯 Rust 数据结构 + serde。
 
 pub mod connection;
 pub mod git;

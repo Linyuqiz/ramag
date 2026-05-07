@@ -1,7 +1,4 @@
-//! 左侧 Activity Bar：52px 宽的纯图标导航
-//!
-//! 顶部固定一个 ⌂ Home 图标，下面跟着每个工具的图标。
-//! 选中态高亮（左侧 2px 竖条 + 图标变亮），发出 NavEvent 通知 Shell 切换内容。
+//! 左侧 Activity Bar：纯图标导航。顶部 Home 图标 + 每个工具图标，选中发 NavEvent
 
 use std::sync::Arc;
 
@@ -20,16 +17,12 @@ use ramag_app::ToolRegistry;
 
 use crate::icons;
 
-/// 当前选中状态
 #[derive(Debug, Clone, PartialEq)]
 pub enum NavTarget {
-    /// 首页
     Home,
-    /// 某个工具
     Tool(String),
 }
 
-/// 导航事件
 #[derive(Debug, Clone)]
 pub enum NavEvent {
     Navigate(NavTarget),
@@ -38,7 +31,6 @@ pub enum NavEvent {
 const BAR_WIDTH: f32 = 48.0;
 const ITEM_HEIGHT: f32 = 40.0;
 
-/// Activity Bar 组件
 pub struct ActivityBar {
     registry: Arc<ToolRegistry>,
     selected: NavTarget,
@@ -67,10 +59,7 @@ impl ActivityBar {
         cx.notify();
     }
 
-    /// 根据工具 id 选一个图标
-    ///
-    /// 注：MySQL 与 Redis 共用 dbclient 工具入口（"数据源管理"），
-    /// 不在 ActivityBar 上分别加图标 —— 用户在新建连接表单内选 driver
+    /// MySQL/Redis/Postgres 共用 dbclient 入口，driver 在连接表单内选
     fn icon_for_tool(tool_id: &str) -> Icon {
         match tool_id {
             "dbclient" => icons::database(),
@@ -105,7 +94,6 @@ impl Render for ActivityBar {
             .gap_1()
             .items_center();
 
-        // 首页（lucide house 风格，由 ramag 自有 svg 提供）
         let is_home_selected = matches!(selected, NavTarget::Home);
         container = container.child(activity_item(
             "home",
@@ -118,10 +106,8 @@ impl Render for ActivityBar {
             }),
         ));
 
-        // 分隔线
         container = container.child(div().w(px(20.0)).h(px(1.0)).bg(border).my_1());
 
-        // 各工具图标
         for tool in tools.iter() {
             let id = tool.meta().id.clone();
             let id_for_click = id.clone();
@@ -140,12 +126,11 @@ impl Render for ActivityBar {
             ));
         }
 
-        // 底部设置按钮：占用剩余空间下推，固定在最底部
+        // 底部设置按钮
         container = container.child(div().flex_1());
         let current_mode = crate::theme::current_mode(cx);
         let is_dark = matches!(current_mode, crate::theme::Mode::Dark);
-        // 当前选中项前缀加 ✓ 标记；未选中两空格占位保持文字对齐。
-        // 不用 PopupMenuItem.checked()：上游会把整行染成 accent 蓝，与暗色面板不搭。
+        // 用文本前缀标记选中而非 PopupMenuItem.checked()，避免上游把整行染成 accent 蓝
         let label_light = if is_dark { "  浅色" } else { "✓ 浅色" };
         let label_dark = if is_dark { "✓ 暗色" } else { "  暗色" };
         container = container.child(
@@ -159,13 +144,10 @@ impl Render for ActivityBar {
                     Button::new("settings")
                         .ghost()
                         .icon(IconName::Settings)
-                        // BottomLeft anchor：菜单弹按钮上方而非右侧
-                        // 否则子菜单"主题"展开会盖住底部的设置按钮本身
+                        // BottomLeft anchor 让菜单弹在按钮上方，避免子菜单遮住按钮
                         .dropdown_menu_with_anchor(
                             gpui::Anchor::BottomLeft,
                             move |menu, window, cx| {
-                                // 保留 Sun / Moon 图标：让用户一眼能识别两个选项
-                                // ✓ 选中标记由 label 前缀承担（避免 .checked() 把整行染成 accent 蓝）
                                 menu.submenu("主题", window, cx, move |sub, _, _| {
                                     sub.item(
                                         PopupMenuItem::new(label_light)
@@ -191,10 +173,7 @@ impl Render for ActivityBar {
     }
 }
 
-/// 切到指定主题并持久化偏好
-///
-/// 用户显式选择 → 标记 follow_system=false，之后系统外观变化不再自动同步
-/// 想恢复"跟随系统"需要清除 preference（暂未提供 UI；后续可加"重置"项）
+/// 切主题 + 持久化。用户显式选过则 follow_system=false
 fn set_theme(mode: crate::theme::Mode, app: &mut gpui::App) {
     if crate::theme::current_mode(app) == mode && !crate::theme::is_following_system(app) {
         return;
@@ -217,9 +196,7 @@ fn set_theme(mode: crate::theme::Mode, app: &mut gpui::App) {
     }
 }
 
-/// 单条 Activity Bar 图标项
-///
-/// 选中时左侧显示 2px 高亮竖条
+/// 选中时左侧 2px accent 竖条
 fn activity_item(
     id: &str,
     icon: Icon,
@@ -233,14 +210,12 @@ fn activity_item(
         .h(px(ITEM_HEIGHT))
         .items_center()
         .justify_center()
-        // 左侧选中高亮竖条
         .child(
             div()
                 .w(px(2.0))
                 .h(px(20.0))
                 .bg(if is_selected { accent } else { transparent }),
         )
-        // 图标按钮（默认尺寸；Button 自身宽度由内边距决定）
         .child(
             Button::new(SharedString::from(id.to_string()))
                 .ghost()

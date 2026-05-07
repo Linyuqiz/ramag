@@ -1,19 +1,5 @@
-//! Redis 连接管理器缓存
-//!
-//! # 缓存策略
-//!
-//! Redis 的 SELECT 是**连接级状态**，不能与多 db 共享同一物理连接。
-//! 因此缓存键是 `(ConnectionId, db: u8)`，每个 db 独占一个 ConnectionManager。
-//!
-//! ConnectionManager 是 redis-rs 提供的自动重连句柄，内部会：
-//! - 在断开后尝试重连
-//! - 多个调用方共享同一句柄时，命令在底层被复用同一连接（multiplexed）
-//! - clone 是廉价的（Arc）
-//!
-//! # 不支持
-//!
-//! - Stage 14 仅支持 standalone（单机）
-//! - Sentinel / Cluster 在 Stage 19 加入，届时会引入新的 PoolKey
+//! Redis 连接缓存：键为 `(ConnectionId, db)`（SELECT 是连接级状态，不能跨 db 共享）。
+//! ConnectionManager 自动重连 + 多路复用，clone 是 Arc 廉价复制。当前仅 standalone
 
 use std::time::Duration;
 
@@ -27,7 +13,6 @@ use tracing::{debug, info, warn};
 
 use crate::errors::map_redis_error;
 
-/// 缓存键：连接 + db 编号
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PoolKey {
     pub conn_id: ConnectionId,
@@ -40,7 +25,6 @@ impl PoolKey {
     }
 }
 
-/// Redis 连接缓存
 #[derive(Clone, Default)]
 pub struct PoolCache {
     pools: Arc<DashMap<PoolKey, ConnectionManager>>,
@@ -51,12 +35,10 @@ impl PoolCache {
         Self::default()
     }
 
-    /// 复制一个共享句柄（Arc clone）
     pub fn clone_handle(&self) -> Self {
         self.clone()
     }
 
-    /// 获取或创建对应（连接，db）的 ConnectionManager
     pub async fn get_or_create(
         &self,
         config: &ConnectionConfig,
@@ -82,7 +64,7 @@ impl PoolCache {
         Ok(mgr)
     }
 
-    /// 移除某个连接的所有 db 缓存（编辑配置后调用）
+    /// 移除该连接所有 db 的缓存（编辑配置后调）
     pub fn evict_all_dbs(&self, conn_id: &ConnectionId) {
         let to_remove: Vec<_> = self
             .pools
@@ -104,7 +86,6 @@ impl PoolCache {
         }
     }
 
-    /// 当前缓存的 (连接, db) 句柄数（调试用）
     pub fn len(&self) -> usize {
         self.pools.len()
     }
@@ -114,7 +95,6 @@ impl PoolCache {
     }
 }
 
-/// 构建一个连接到指定 (host, port, db) 的 ConnectionManager
 async fn build_connection_manager(config: &ConnectionConfig, db: u8) -> Result<ConnectionManager> {
     let info = build_connection_info(config, db);
 
@@ -123,7 +103,7 @@ async fn build_connection_manager(config: &ConnectionConfig, db: u8) -> Result<C
         map_redis_error(e)
     })?;
 
-    // 显式设置首次连接超时 + 应答超时，避免 GUI 卡死
+    // 设连接 / 应答超时避免 GUI 卡死
     let mgr = ConnectionManager::new_with_config(
         client,
         redis::aio::ConnectionManagerConfig::new()
@@ -139,10 +119,7 @@ async fn build_connection_manager(config: &ConnectionConfig, db: u8) -> Result<C
     Ok(mgr)
 }
 
-/// 由 ConnectionConfig 构建 redis::ConnectionInfo
-///
-/// 当前 Stage 14 只支持 plain TCP（无 TLS / Unix Socket）；
-/// TLS（rediss://）和 Unix Socket 留到 Stage 18+ 扩展配置 schema 后再加
+/// 当前仅支持 plain TCP；TLS / Unix Socket 待扩展 ConnectionConfig schema
 fn build_connection_info(config: &ConnectionConfig, db: u8) -> ConnectionInfo {
     let username = if config.username.is_empty() {
         None

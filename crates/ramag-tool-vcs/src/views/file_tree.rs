@@ -1,7 +1,4 @@
-//! 文件路径树共享 helper：把扁平 `Vec<FileStatus>` 构建成嵌套目录树并扁平化为 Row 列表
-//!
-//! Commit Detail 与 Changes 共用此 helper，保证两处文件列表都按目录组织 + 中间空目录压缩
-//! （IDEA 风格 compact middle packages，让深层路径只占一行）
+//! 文件路径树：`Vec<FileStatus>` → 目录树 → Row 列表。中间空目录压缩为单行（IDEA compact 风）
 
 use std::collections::{BTreeMap, HashSet};
 

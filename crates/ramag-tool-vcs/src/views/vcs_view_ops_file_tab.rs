@@ -1,7 +1,4 @@
-//! 文件 tab 管理：select_file / close_file_tab / activate_file_tab_state
-//!
-//! 拆分自 `vcs_view_ops.rs`，避免单文件超 600 行硬上限。
-//! 与 `vcs_view_ops.rs` 同属 `views::vcs_view::VcsView`，因此可直接 `impl VcsView`。
+//! 文件 tab：select_file / close_file_tab / activate_file_tab_state
 
 use gpui::Context;
 use ramag_domain::entities::DiffKind;

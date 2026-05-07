@@ -1,7 +1,4 @@
-//! Hash 单字段编辑 / 新增弹窗
-//!
-//! - 新增模式：填 field + value → HSET key field value
-//! - 编辑模式：field 锁定，仅改 value → HSET key field value（HSET 等价 update）
+//! Hash 单字段：新增 field+value 或编辑（锁 field）。两种都走 `HSET key field value`
 
 use std::sync::Arc;
 

@@ -1,8 +1,4 @@
-//! 详情页顶部 header：key 名 + 元信息（DB / 类型 chip / TTL / 元素数 / 估算大小）+ [+] / 删除按钮
-//!
-//! 也包含两个相关 helper：
-//! - [`render_size_chip`] MEMORY USAGE 按钮 + 结果显示
-//! - [`redis_type_label_color`] 由 RedisValue 推导（label, 类型色）
+//! 详情页 header：key 名 + 元信息（DB/类型/TTL/元素数/大小）+ 添加 / 删除按钮
 
 use gpui::{ClickEvent, Context, IntoElement, ParentElement, Styled, div, prelude::*, px};
 use gpui_component::{
@@ -43,7 +39,7 @@ pub(super) fn render_header(
         .text_color(muted_fg)
         .child(div().child(format!("DB {db}")));
 
-    // 类型 chip：● Hash / ● ZSet 等，颜色与 Key 树徽标一致
+    // 类型 chip：色点 + 类型名，颜色与 Key 树徽标一致
     if let Some((label, color)) = value_clone.as_ref().and_then(redis_type_label_color) {
         info_row = info_row.child(
             h_flex()
@@ -89,7 +85,7 @@ pub(super) fn render_header(
         cx,
     ));
 
-    // [+] 按容器类型新增 + [🗑] 删除 Key
+    // 新增按钮（按容器类型）+ 删除 Key 按钮
     let mut header = h_flex()
         .w_full()
         .px(px(14.0))

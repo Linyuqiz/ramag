@@ -1,13 +1,4 @@
-//! 结果集表格渲染（从 result_panel.rs 拆出，避免单文件过大）
-//!
-//! 行级虚拟化：用 GPUI `uniform_list` 仅渲染屏幕可见行，理论支持百万级
-//! 行不卡（实际受 driver LIMIT 与 MAX_ROWS_DISPLAY 控制）。
-//!
-//! 渲染拆分：
-//! - `render_table`：主入口，构建帧级 `TableRowFrame`（Rc 共享给 list closure）
-//! - `render_data_row`：单行数据 cell + 行号 + checkbox（在 list closure 内被调）
-//! - `render_pending_row`：草稿插入行（作为 list 最后一项；高度同数据行 32px）
-//! - 其余 helper：列宽估算、数值列检测、排序比较等
+//! 结果集表格：uniform_list 行级虚拟化，受 driver LIMIT 与 MAX_ROWS_DISPLAY 限制
 
 use std::ops::Range;
 use std::rc::Rc;
@@ -17,11 +8,7 @@ use gpui::{
     div, prelude::*, px, uniform_list,
 };
 
-/// 关闭 GPUI 单轴 scroll 元素的"另一方向劫持"行为
-///
-/// GPUI 默认：overflow.x=Scroll 且 overflow.y!=Scroll 时，wheel 的 dy 会被自动当成 dx
-/// 应用（反之亦然），结果是"往下滚 → 横向滚到底"或"往右滑 → 垂直滚到底"。
-/// 设置 `restrict_scroll_to_axis = true` 禁用这个适配，wheel 严格按方向消费。
+/// 禁用 GPUI 单轴 scroll 的"另一方向劫持"，wheel 严格按方向消费
 trait RestrictScrollExt: Styled + Sized {
     fn restrict_scroll_to_axis(mut self) -> Self {
         self.style().restrict_scroll_to_axis = Some(true);
@@ -194,7 +181,6 @@ pub(super) fn render_table(
         .map(|ci| detect_numeric_column(ci, &display_rows))
         .collect();
 
-    // ===== Header =====
     let current_sort = panel.sort_by();
     let header_cells: Vec<AnyElement> = visible_col_indices
         .iter()
@@ -265,8 +251,7 @@ pub(super) fn render_table(
         .child(row_num_header)
         .children(header_cells);
 
-    // ===== Body：uniform_list 行级虚拟化 =====
-    // 把 row 渲染需要的不变数据装进 frame，Rc 共享给 closure（满足 'static + Fn）
+    // 不变数据装进 frame，Rc 共享给 closure 满足 'static + Fn
     let frame = Rc::new(TableRowFrame {
         columns: columns.clone(),
         display_rows: display_rows.clone(),
@@ -306,10 +291,9 @@ pub(super) fn render_table(
     .track_scroll(panel.uniform_scroll())
     .w(frame.total_content_width)
     .flex_1()
-    // 禁止 list 把 wheel dx 当 dy 用（list 是单 Y 滚，否则 dx 会被劫持垂直滚）
+    // list 单 Y 滚，限制轴避免 wheel dx 被劫持
     .restrict_scroll_to_axis();
 
-    // ===== Status Bar =====
     let selected_info: Option<String> = panel.selected_cell().and_then(|(ri, ci)| {
         let col_name = columns.get(ci)?.clone();
         let val = display_rows.get(ri)?.values.get(ci)?;

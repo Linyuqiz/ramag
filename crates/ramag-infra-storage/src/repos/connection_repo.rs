@@ -1,7 +1,4 @@
-//! 连接配置 CRUD（同步内部实现，由 lib.rs 的 impl Storage 包 run_blocking）
-//!
-//! 密码字段通过 [`Cipher`] 加密成 hex 落盘；读取时解密回明文。
-//! 读取失败（密钥变化 / 数据损坏）会抛 `DomainError::Storage`。
+//! 连接配置 CRUD。密码经 Cipher 加密为 hex 落盘；密钥变化 / 数据损坏读取时抛 Storage 错
 
 use std::sync::Arc;
 
@@ -15,14 +12,11 @@ use ramag_domain::error::{DomainError, Result};
 
 use crate::encryption::Cipher;
 
-/// redb 表定义：连接配置
-///
-/// key: ConnectionId（UUID 字符串）
-/// value: JSON 序列化后的 EncryptedConnection
+/// key=ConnectionId UUID，value=`EncryptedConnection` JSON
 pub(crate) const CONNECTIONS_TABLE: TableDefinition<&str, &str> =
     TableDefinition::new("connections");
 
-/// 加密后落盘的连接配置；密码字段被加密成 hex 字符串
+/// 落盘版连接，密码加密为 hex
 #[derive(Debug, Serialize, Deserialize)]
 struct EncryptedConnection {
     id: ConnectionId,
@@ -31,7 +25,7 @@ struct EncryptedConnection {
     host: String,
     port: u16,
     username: String,
-    /// 加密的密码（hex 字符串），明文不入库
+    /// 加密密码（hex）；明文不入库
     password_enc: String,
     database: Option<String>,
     remark: Option<String>,
@@ -174,7 +168,7 @@ pub(crate) fn delete(db: Arc<Database>, id: String) -> Result<()> {
     Ok(())
 }
 
-/// 暴露给 lib.rs 在 open 时建表
+/// 由 lib.rs 在 open 时调
 pub(crate) fn ensure_table(write_txn: &redb::WriteTransaction) -> Result<()> {
     let _ = write_txn
         .open_table(CONNECTIONS_TABLE)

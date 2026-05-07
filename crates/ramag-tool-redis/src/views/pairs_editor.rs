@@ -1,10 +1,4 @@
-//! Hash / ZSet / Stream 共用的双列行编辑器
-//!
-//! - `PairsKind::Hash`：左 field（窄）+ 右 value；非空 field 校验
-//! - `PairsKind::ZSet`：左 score（极窄，必须数字）+ 右 member
-//! - `PairsKind::Stream`：左 field + 右 value；提交时 XADD `*` 由主对话框补
-//!
-//! 不存行级错误状态，校验在 [`PairsEditor::collect`] 时一次性返回首个错误（含行号）
+//! Hash / ZSet / Stream 共用双列行编辑器。collect 时一次返回首个错误（含行号）
 
 use gpui::{
     App, ClickEvent, Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled,

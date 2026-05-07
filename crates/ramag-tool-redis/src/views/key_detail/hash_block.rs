@@ -1,4 +1,4 @@
-//! Hash 块渲染（每行 [✎][🗑] 图标按钮）
+//! Hash 块：每行编辑 / 删除按钮
 
 use gpui::{ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div, px};
 use gpui_component::{

@@ -1,79 +1,51 @@
-//! Redis 值类型实体
-//!
-//! 用统一的 enum 表达 Redis 各类数据结构的"运行时值"：
-//! - 标量（String/Int/Bytes）
-//! - 复合（List/Hash/Set/ZSet/Stream）
-//! - 嵌套数组（命令应答的通用形态）
-//!
-//! 与 [`crate::entities::query::Value`] 的关系：
-//! - SQL 类驱动（MySQL/PG）使用 `Value`（按列展开成行）
-//! - KV 类驱动（Redis）使用 `RedisValue`（按 key 形态封装）
-//!
-//! 不实现 Eq/Hash：内部含 f64（ZSet score），不满足全序
+//! Redis 运行时值。不实现 Eq/Hash（内部含 f64 ZSet score）
 
 use serde::{Deserialize, Serialize};
 
-/// Redis 单 key 完整值
-///
-/// 通过 [`crate::traits::KvDriver::get_value`] 返回，按 key 类型自动 dispatch
-/// （HGETALL / LRANGE 0 -1 / ZRANGE WITHSCORES / XRANGE - + 等）
+/// Redis 单 key 完整值。`KvDriver::get_value` 按 TYPE 自动 dispatch
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RedisValue {
     /// key 不存在 / nil bulk
     Nil,
-
-    /// String 值（UTF-8 可解码时使用此变体）
+    /// UTF-8 可解码 String
     Text(String),
-
-    /// 二进制字节（UTF-8 解码失败 fallback；BLOB 缓存常见）
+    /// UTF-8 解码失败的 fallback，或 BLOB
     Bytes(Vec<u8>),
-
-    /// 整数（INCR 等命令的应答；Redis 内部 String 数字编码）
+    /// INCR 应答 / String 数字编码
     Int(i64),
-
-    /// 浮点数（RESP3 Double / ZSCORE 等）
+    /// RESP3 Double / ZSCORE
     Float(f64),
-
-    /// 布尔（RESP3 Boolean）
+    /// RESP3 Boolean
     Bool(bool),
-
-    /// List：有序元素（保留服务端顺序）
+    /// 保留服务端顺序
     List(Vec<RedisValue>),
-
-    /// Hash：field → value 映射；用 Vec 保留 HSET 顺序
+    /// 用 Vec 保留 HSET 顺序
     Hash(Vec<(String, RedisValue)>),
-
-    /// Set：无序唯一元素（客户端不强制去重，由服务端保证）
+    /// 唯一元素由服务端保证
     Set(Vec<RedisValue>),
-
-    /// Sorted Set：(member, score) 对，按服务端 score 升序
+    /// (member, score)，按 score 升序
     ZSet(Vec<(RedisValue, f64)>),
-
-    /// Stream：消息条目按时间序排列
+    /// 按时间序排列
     Stream(Vec<StreamEntry>),
-
-    /// 通用数组（命令应答的复合返回，例如 CONFIG GET / CLUSTER NODES）
+    /// 通用数组（CONFIG GET / CLUSTER NODES 等复合应答）
     Array(Vec<RedisValue>),
 }
 
 /// Stream 单条消息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StreamEntry {
-    /// 条目 ID，格式 `<ms>-<seq>`，如 `1714291200000-0`
+    /// 形如 `<ms>-<seq>`
     pub id: String,
-    /// 字段对（XADD 时的 key=value 列表）
+    /// XADD 的 key=value 列表
     pub fields: Vec<(String, String)>,
 }
 
 impl RedisValue {
-    /// 是否为 Nil（key 不存在）
     pub fn is_nil(&self) -> bool {
         matches!(self, RedisValue::Nil)
     }
 
-    /// 元素数量（仅复合类型，标量返回 None）
-    ///
-    /// UI 在 key 列表显示 size 时调用
+    /// 元素数量；标量返回 None
     pub fn len(&self) -> Option<usize> {
         match self {
             RedisValue::List(v) | RedisValue::Set(v) | RedisValue::Array(v) => Some(v.len()),
@@ -84,12 +56,12 @@ impl RedisValue {
         }
     }
 
-    /// 是否为空容器；标量类型固定返回 false
+    /// 标量固定返回 false
     pub fn is_empty(&self) -> bool {
         self.len().is_some_and(|n| n == 0)
     }
 
-    /// 适合 UI 单行预览的简短文本（截断长字符串）
+    /// UI 单行预览，截断长字符串
     pub fn display_preview(&self, max_len: usize) -> String {
         match self {
             RedisValue::Nil => "(nil)".to_string(),

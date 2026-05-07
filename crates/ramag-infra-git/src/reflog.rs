@@ -1,12 +1,4 @@
-//! Reflog 解析（subprocess git reflog show --format=...）
-//!
-//! 用 `\x1f` 分隔字段：
-//! - %H: commit hash
-//! - %gd: ref selector（HEAD@{0}）
-//! - %gs: reflog message（"checkout: moving from main to feature"）
-//! - %cI: ISO 8601 commit date
-//!
-//! action 从 subject 里第一段（冒号前）抽：「commit: foo」→ action=commit, subject=foo
+//! `git reflog show --format=%H\x1f%gd\x1f%gs\x1f%cI`。action 从 subject 冒号前段抽
 
 use std::path::Path;
 
@@ -17,7 +9,6 @@ use crate::git_cmd::run_git_text;
 
 const REFLOG_FORMAT: &str = "%H%x1f%gd%x1f%gs%x1f%cI";
 
-/// 列出指定 ref 的 reflog 条目（默认 HEAD）
 pub fn list(
     repo_path: &Path,
     ref_name: Option<&str>,
@@ -51,7 +42,7 @@ fn parse_reflog(text: &str) -> Vec<ReflogEntry> {
             let timestamp = chrono::DateTime::parse_from_rfc3339(date_iso)
                 .map(|t| t.with_timezone(&chrono::Utc))
                 .unwrap_or_default();
-            // subject 形如 "commit: foo bar" / "checkout: moving from a to b"
+            // 形如 "commit: foo" / "checkout: moving from a to b"
             let (action, subject) = match raw_subject.split_once(':') {
                 Some((a, s)) => (a.trim().to_string(), s.trim().to_string()),
                 None => (String::new(), raw_subject),

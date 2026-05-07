@@ -1,9 +1,4 @@
-//! 交互式 Rebase 计划编辑器
-//!
-//! 渲染 todo 列表（每行可修改 action / 上移 / 下移），底部 [取消] [执行 Rebase]。
-//! action 用 dropdown 选择（Pick / Squash / Fixup / Reword / Edit / Drop）。
-//! 数据来源：[`super::vcs_view::VcsView::rebase_todos`]，由
-//! [`super::vcs_view_ops::start_interactive_rebase`] 异步加载写入。
+//! 交互式 Rebase 计划编辑器：todo 列表（action dropdown / 上移 / 下移）+ 取消 / 执行
 
 use gpui::{
     AnyElement, App, ClickEvent, Context, InteractiveElement, IntoElement, ParentElement,

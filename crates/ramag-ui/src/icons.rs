@@ -1,10 +1,4 @@
-//! Ramag 自有图标的便捷工厂
-//!
-//! 这些 svg 由 [`crate::assets::RamagAssets`] 在运行时通过 `Icon::path()` 加载，
-//! 不依赖 `gpui_component::IconName`（IconName 由上游宏从上游 svg 目录扫描生成，
-//! 自然不包含 ramag 自己的图标）。
-//!
-//! 使用方式：`Button::new(...).icon(icons::database())`
+//! ramag 自有 svg 的图标工厂。runtime 经 RamagAssets 加载，绕开上游 IconName 编译期扫描
 
 use gpui_component::Icon;
 

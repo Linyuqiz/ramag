@@ -1,7 +1,4 @@
-//! Files panel toolbar 远端操作区
-//!
-//! - render_remote_actions：⋮ dropdown 菜单（Fetch / Pull / Push / 强推）
-//! - render_head_badge：分支徽标（暂未挂载——分支管理 tab 已显示完整分支信息）
+//! Files toolbar 远端操作：dropdown（Fetch / Pull / Push / 强推）+ 分支徽标
 
 #![allow(dead_code)]
 
@@ -68,10 +65,7 @@ impl VcsView {
         row.into_any_element()
     }
 
-    /// Git 操作聚合菜单：⋮ 按钮 + dropdown popup（Fetch / Pull / Push / 强推）
-    ///
-    /// 仓库未打开时返回空 div；Pull / Push 按 ahead/behind 动态显示数字。
-    /// 历史面板 toggle 已提到搜索行单独按钮；侧栏 toggle 已删除（不常用）
+    /// Git 操作聚合：dropdown（Fetch / Pull / Push / 强推）。Pull / Push 按 ahead/behind 显示数字
     pub(super) fn render_remote_actions(&self, cx: &mut Context<Self>) -> AnyElement {
         if self.repo.is_none() {
             return div().into_any_element();

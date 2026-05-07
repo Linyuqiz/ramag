@@ -1,9 +1,4 @@
-//! 表树面板：显示某连接下的所有 schema 和 tables
-//!
-//! 模块拆分：
-//! - 本文件：state + new + 业务方法（load/toggle/handle_*）+ TreeEvent enum + 默认 schema 选择
-//! - [`row`]：`TreeRow` enum + `render_tree_row`（uniform_list 行级渲染）
-//! - [`render`]：`impl Render for TableTreePanel`（顶部 picker + 搜索 + 树体）
+//! 表树面板：连接下的 schema → tables
 
 mod render;
 mod row;
@@ -362,12 +357,7 @@ impl TableTreePanel {
     }
 }
 
-/// 打开连接后挑选默认要激活的 schema
-///
-/// 选择优先级：
-/// - **PostgreSQL**：优先 `public`（PG 默认 schema），不在则取第一个非系统 schema
-/// - **MySQL**：连接配置里的 `database` 字段，若不在 schemas 列表则 fallback 到第一个非系统
-/// - **Redis**：返回 None
+/// PG：`public` > 首个非系统；MySQL：config.database > 首个非系统；Redis：None
 fn pick_default_schema(conn: &ConnectionConfig, schemas: &[Schema]) -> Option<String> {
     let first_user_schema = || {
         schemas

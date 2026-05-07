@@ -1,10 +1,4 @@
-//! 查询历史 CRUD（同步内部实现）
-//!
-//! 复合 key 设计：`{rfc3339_timestamp}_{record_id}`
-//! - 时间戳前缀让 redb 按时间字典序遍历
-//! - record_id 后缀避免毫秒级冲突
-//!
-//! 自动裁剪：超过 [`HISTORY_MAX_KEEP`] 条时删最早的，防止无限增长
+//! 查询历史 CRUD。复合 key=`{rfc3339}_{id}`（时间字典序 + 防毫秒撞）；超 HISTORY_MAX_KEEP 删最早
 
 use std::sync::Arc;
 
@@ -18,11 +12,9 @@ use ramag_domain::error::{DomainError, Result};
 
 pub(crate) const HISTORY_TABLE: TableDefinition<&str, &str> = TableDefinition::new("query_history");
 
-/// 历史保留上限：超过自动裁剪最旧的（防止无限增长）
 const HISTORY_MAX_KEEP: usize = 5000;
 
 pub(crate) fn append(db: Arc<Database>, record: QueryRecord) -> Result<()> {
-    // key = "{rfc3339}_{id}" → 字典序按时间升序
     let key = format!("{}_{}", record.executed_at.to_rfc3339(), record.id);
     let value = serde_json::to_string(&record)
         .map_err(|e| DomainError::Storage(format!("history 序列化失败：{e}")))?;
@@ -38,7 +30,6 @@ pub(crate) fn append(db: Arc<Database>, record: QueryRecord) -> Result<()> {
             .insert(key.as_str(), value.as_str())
             .map_err(|e| DomainError::Storage(format!("写入历史失败：{e}")))?;
 
-        // 超过上限：删最早的 N 条
         let len = table.len().unwrap_or(0) as usize;
         if len > HISTORY_MAX_KEEP {
             let to_remove = len - HISTORY_MAX_KEEP;
@@ -87,7 +78,6 @@ pub(crate) fn list(
             all.push(rec);
         }
     }
-    // 按 executed_at desc 排序
     all.sort_by_key(|r| std::cmp::Reverse(r.executed_at));
     all.truncate(limit);
     Ok(all)
@@ -103,7 +93,7 @@ pub(crate) fn delete(db: Arc<Database>, id: QueryRecordId) -> Result<()> {
         let mut table = write_txn
             .open_table(HISTORY_TABLE)
             .map_err(|e| DomainError::Storage(format!("打开 history 表失败：{e}")))?;
-        // 找出 key 包含 target_id 的项删除
+        // 复合 key 包含 record_id，按子串匹配删除
         let keys_to_remove: Vec<String> = table
             .iter()
             .map_err(|e| DomainError::Storage(e.to_string()))?
@@ -148,7 +138,6 @@ pub(crate) fn clear(db: Arc<Database>, conn_filter: Option<ConnectionId>) -> Res
                 let _ = table.remove(k.as_str());
             }
         } else {
-            // 全部清空：用 retain 风格——逐个 remove
             let all_keys: Vec<String> = table
                 .iter()
                 .map_err(|e| DomainError::Storage(e.to_string()))?

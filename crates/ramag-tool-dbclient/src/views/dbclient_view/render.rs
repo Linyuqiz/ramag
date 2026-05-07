@@ -27,8 +27,7 @@ impl Render for DbClientView {
 
         let active = self.active_session;
 
-        // ===== 顶部连接 Tab Bar =====
-        // 元组：(idx, 连接名, 数据库类型, 是否选中, 颜色标签)
+        // (idx, 连接名, 类型, 选中, 色标)
         let session_titles: Vec<(
             usize,
             String,
@@ -59,7 +58,7 @@ impl Render for DbClientView {
             .border_color(border)
             .bg(secondary_bg);
 
-        // ===== 第一个固定 tab：数据源管理 =====
+        // 固定 tab：数据源管理
         let picker_btn_active = on_picker_active;
         let mut picker_tab = h_flex()
             .id("picker-tab")
@@ -94,7 +93,7 @@ impl Render for DbClientView {
         }
         tab_bar = tab_bar.child(picker_tab);
 
-        // ===== 右侧 session tabs：连接多了横向可滚动（不挤压 picker tab）=====
+        // 右侧 session tabs 横向滚动，不挤压 picker tab
         let mut session_strip = h_flex()
             .id("conn-tabs-scroll")
             .flex_1()
@@ -106,7 +105,7 @@ impl Render for DbClientView {
             let tab_id = SharedString::from(format!("conn-tab-{idx}"));
             let close_id = SharedString::from(format!("conn-tab-close-{idx}"));
 
-            // Tab 状态点：用连接 color 标签优先，未设时回退绿色
+            // 状态点：连接 color 优先，未设回退绿
             use ramag_domain::entities::ConnectionColor;
             let dot_color = if color_tag != ConnectionColor::None {
                 connection_form::color_to_hsla(color_tag, cx.theme())
@@ -158,7 +157,6 @@ impl Render for DbClientView {
 
         tab_bar = tab_bar.child(session_strip);
 
-        // ===== 中心内容 =====
         let center_view: AnyView = match &self.center {
             CenterMode::Session => match active.and_then(|i| self.sessions.get(i)) {
                 Some(s) => s.to_any_view(),

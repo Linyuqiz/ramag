@@ -1,10 +1,4 @@
-//! TTL 编辑弹窗
-//!
-//! 复用 [`super::ttl_picker::TtlPicker`] chip 选择器，与新建 Key 对话框
-//! 同款交互：永久 / 4 个预设 / 自定义。
-//!
-//! 弹窗对外 API（`TtlEditForm::new` + `TtlEditEvent::{Updated, Cancelled}`）
-//! 与旧版完全兼容，调用方 `connection_session.rs` 无需改动。
+//! TTL 编辑弹窗：复用 TtlPicker（永久 / 4 预设 / 自定义）
 
 use std::sync::Arc;
 

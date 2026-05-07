@@ -1,25 +1,6 @@
-//! `impl_driver_for!` 宏：driver crate 一行获得 [`ramag_domain::traits::Driver`] 实现
-//!
-//! 因 Rust orphan rule（Driver 在 ramag-domain，shared 无法对泛型 T 提供 blanket impl），
-//! 改用宏展开方式：driver crate 调一次 `impl_driver_for!(MysqlBackend);` 即获得 Driver。
-//!
-//! # 要求
-//!
-//! 调宏的 driver 类型必须实现：
-//! - [`crate::SqlBackend`]
-//! - [`Clone`]：宏内部用 `self.clone()` 把 owned 副本送进 `run_in_tokio`（跨 runtime 派发要求 'static）；
-//!   driver 内部状态都是 `Arc<...>`，Clone 是 O(1) 引用计数 +1
-//! - `Send + Sync + 'static`（SqlBackend supertrait 已要求）
+//! `impl_driver_for!` 宏：把 SqlBackend 实现展开成 Driver。orphan rule 不允许 blanket impl，所以走宏。
+//! 调宏的类型须实现 SqlBackend + Clone + Send + Sync + 'static（Clone 用于跨 runtime 派发，O(1) Arc 计数）
 
-/// 把 SqlBackend 实现一行展开成 Driver 实现
-///
-/// 用法：
-/// ```ignore
-/// #[derive(Clone)]
-/// pub struct MysqlBackend { /* ... */ }
-/// impl ramag_infra_sql_shared::SqlBackend for MysqlBackend { /* ... */ }
-/// ramag_infra_sql_shared::impl_driver_for!(MysqlBackend);
-/// ```
 #[macro_export]
 macro_rules! impl_driver_for {
     ($ty:ty) => {
@@ -177,8 +158,7 @@ macro_rules! impl_driver_for {
             }
 
             fn evict_pool(&self, id: &::ramag_domain::entities::ConnectionId) {
-                // SQL 类 driver 走 SqlBackend::cache() 拿到 PoolCache 直接 evict
-                // 同步操作（PoolCache 内部是 DashMap）；不走 tokio runtime
+                // PoolCache 内部 DashMap，同步操作，不走 tokio
                 <$ty as $crate::SqlBackend>::cache(self).evict(id);
             }
         }

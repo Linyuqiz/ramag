@@ -1,7 +1,4 @@
-//! Trie 树构建 + 数据结构
-//!
-//! 把扁平 key 列表（如 `user:1:profile`）按 `:` 分隔符建成多层命名空间树，
-//! 用于左侧 Key 树的折叠展示。
+//! 扁平 key 按 `:` 建 Trie 多层命名空间树
 
 use std::collections::HashSet;
 

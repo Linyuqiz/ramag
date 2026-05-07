@@ -11,11 +11,8 @@ use super::set_block::render_set_block;
 use super::stream_block::render_stream_block;
 use super::zset_block::render_zset_block;
 
-/// 按 RedisValue variant 分发渲染
-///
-/// 容器类型走方法版（带 cx + key 用于 emit 编辑/删除事件）；
-/// 标量类型走只读 free function；
-/// 标量 String/Bytes 由上层（mod.rs Render）单独走 `scalar::render_scalar` 分支
+/// 按 RedisValue variant 分发：容器走带 cx 的方法版（emit 编辑 / 删除）；标量走只读 free fn；
+/// String / Bytes 由 mod.rs Render 单独走 `scalar::render_scalar`
 #[allow(clippy::too_many_arguments)]
 pub(super) fn render_value(
     v: &RedisValue,

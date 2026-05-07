@@ -1,6 +1,4 @@
-//! 扁平化树行（uniform_list 行级虚拟化的数据单元）+ 行渲染
-//!
-//! 所有 `TreeRow` 变体的渲染高度统一为 28px——uniform_list 行级度量的硬约束。
+//! 扁平化树行 + 渲染。所有 TreeRow 变体高度统一 28px（uniform_list 硬约束）
 
 use gpui::{
     AnyElement, ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div,

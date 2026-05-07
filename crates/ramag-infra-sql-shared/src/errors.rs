@@ -1,14 +1,7 @@
-//! sqlx::Error 通用大类映射
-//!
-//! 仅覆盖与具体 DB 无关的错误（网络/连接池/解码/协议）。
-//! 数据库错误（带 SQLSTATE 或 errno）由 driver crate 自己识别后再调本模块兜底。
+//! sqlx::Error 通用大类映射。driver 先识别 SQLSTATE/errno，再 fallback 到这里
 
 use ramag_domain::error::DomainError;
 
-/// 通用 sqlx::Error → DomainError 映射
-///
-/// 调用约定：driver crate 先 match `sqlx::Error::Database`，识别完特定 DB 的
-/// 错误码后再 fallback 到本函数；其他变体（Io / Tls / Pool* / Decode 等）通用
 pub fn map_sqlx_common(err: &sqlx::Error) -> DomainError {
     match err {
         sqlx::Error::PoolTimedOut => {

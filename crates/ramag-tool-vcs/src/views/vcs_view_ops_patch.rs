@@ -1,8 +1,4 @@
-//! VcsView hunk 级 patch 操作
-//!
-//! - **toggle_diff_line**：用户在 diff_panel 点 +/- 行 → 切换 selected_diff_lines（高亮反馈）
-//! - **discard_hunk**：IDEA 风格 ↶ 按钮，把整个 hunk 反向应用回 HEAD（按 source kind 分流）
-//! - **build_patch_for_hunk**：把单个 hunk 构造成 unified diff patch 文本
+//! hunk 级 patch：toggle_diff_line（行级选中）/ discard_hunk（按 source 分流）/ build_patch_for_hunk
 
 use gpui::Context;
 use ramag_domain::entities::{DiffLineKind, FileDiff};
@@ -26,16 +22,8 @@ impl VcsView {
         cx.notify();
     }
 
-    /// 回滚整个 hunk（IDEA 风格 ↶ 按钮）—— 按当前 diff 的 kind 分流不同语义：
-    ///
-    /// | 来源 kind     | 调用                  | 含义                                |
-    /// |---------------|-----------------------|------------------------------------|
-    /// | `Unstaged`    | `discard_patch`       | `git apply --reverse`，工作区回到 index 状态 |
-    /// | `Staged`      | `unstage_patch`       | `git apply --cached --reverse`，把 hunk 撤回到工作区 |
-    /// | `Untracked` / `Conflict` | -          | 不会进入（render_diff_body 已挡掉 diff 显示） |
-    /// | `Commit` 详情 | -                      | 只读 diff，UI 层 enable_discard=false |
-    ///
-    /// 失败常因 diff 拉取后工作区/index 又被改了，patch 上下文不匹配
+    /// 回滚 hunk：Unstaged 走 discard_patch（reverse 到 index）/ Staged 走 unstage_patch（reverse 撤回工作区）。
+    /// 失败常因 diff 拉取后工作区或 index 又改过，patch 上下文不匹配
     pub(super) fn discard_hunk(&mut self, hunk_idx: usize, cx: &mut Context<Self>) {
         let Some(repo) = self.repo.as_ref().map(|r| r.id.clone()) else {
             return;
@@ -115,10 +103,7 @@ impl VcsView {
     }
 }
 
-/// 把整个 hunk（含 context / +/- 全部行）构造成 unified diff patch
-///
-/// 用于 hunk「↶」回滚按钮：拿这个 patch 调 driver.discard_patch（git apply --reverse）
-/// 把该 hunk 的所有改动从工作区反向应用回 HEAD 状态
+/// 整个 hunk（含 context + `+/-` 全部行）→ unified diff patch，给 hunk 回滚用
 pub(super) fn build_patch_for_hunk(diff: &FileDiff, hunk_idx: usize) -> Option<String> {
     let hunk = diff.hunks.get(hunk_idx)?;
     let mut out = String::new();

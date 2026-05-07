@@ -1,27 +1,6 @@
-//! Diff 渲染面板：Split 模式（IDEA 风格 sticky gutter + 双栏独立横滚）
-//!
-//! 架构（参考 zed/crates/editor/src/split.rs 的 lhs/rhs 双 Editor 思路）：
-//! 每栏拆成 **gutter** 与 **content** 两个 uniform_list，共 4 个 list：
-//!
-//! ```text
-//! ┌────────┬────────────────┬────┬────────┬────────────────┐
-//! │ L gut  │ L content      │1px │ R gut  │ R content      │
-//! │ (钉死) │ (横滚 h_left)   │div │ (钉死) │ (横滚 h_right)  │
-//! └────────┴────────────────┴────┴────────┴────────────────┘
-//! ```
-//!
-//! - 4 个 list 共享同一个 `UniformListScrollHandle` → 行级垂直同步
-//! - 两栏的 content 区各有独立 `ScrollHandle` → 长行各自横滚不互相牵连
-//! - gutter（checkbox + marker + 行号 [+ blame chip on R]）**在 overflow_x_scroll 之外**
-//!   → 横滚时 gutter 永远可见
-//!
-//! cell 级渲染拆到 [`super::diff_split_cells`] 控制单文件 ≤ 600 行。
-//!
-//! 注意点：
-//! - gpui-component 的 `h_flex()` 默认 `items_center`，必须显式 `.items_stretch()`，否则
-//!   子栏被压成内容高（变白板）
-//! - render 期间 entity 已被框架 mut 借用，禁止函数内 `cx.entity().read(cx)`，
-//!   `has_blame` / `expanded_spacers` 由调用方从 `&self` 读出后传入
+//! Split diff：每栏拆 gutter + content 共 4 个 uniform_list。
+//! 4 个 list 共享 `UniformListScrollHandle` 行级 Y 同步；content 各自独立 X 滚；gutter 在 overflow_x_scroll 之外保持可见。
+//! `h_flex` 默认 items_center，必须显式 `.items_stretch()` 否则子栏会被压成内容高
 
 use std::collections::HashSet;
 use std::ops::Range;

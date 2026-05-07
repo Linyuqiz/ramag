@@ -1,14 +1,5 @@
-//! Ramag MySQL 驱动
-//!
-//! 实现 [`ramag_infra_sql_shared::SqlBackend`] trait，由 `impl_driver_for!` 宏一行
-//! 自动获得 [`ramag_domain::traits::Driver`] 实现。
-//!
-//! # 设计要点
-//!
-//! - **唯一抽象层**：只 impl `SqlBackend` 一个 trait，不重复写 Driver 模板
-//! - **连接池缓存**：复用 `sql-shared::PoolCache<MySql>`（按 ConnectionId 缓存）
-//! - **双 runtime 桥接**：sql-shared 的 `run_in_tokio` 自动处理（GPUI smol → sqlx tokio）
-//! - **方言**：反引号标识符 / `KILL QUERY` 取消 / ``USE `db` `` 切库 / 不识别 dollar-quoted
+//! MySQL 驱动。impl SqlBackend，`impl_driver_for!` 宏代理到 Driver。
+//! 方言：反引号 / `KILL QUERY` / `USE <db>` / 无 dollar-quoted
 
 pub mod errors;
 pub mod execute;
@@ -29,10 +20,7 @@ use ramag_infra_sql_shared::sql::SplitOptions;
 use sqlx::mysql::{MySql, MySqlConnection, MySqlPool, MySqlQueryResult, MySqlRow};
 use sqlx::{Column as _, Row as _, TypeInfo as _};
 
-/// MySQL driver
-///
-/// 内部仅持有 `Arc` 包装的连接池缓存；Clone 是 O(1) 引用计数 +1，
-/// 满足 [`impl_driver_for!`](ramag_infra_sql_shared::impl_driver_for) 对 Clone 的要求
+/// 内部仅持 Arc 包装池缓存，Clone 是 O(1)
 #[derive(Clone, Default)]
 pub struct MysqlDriver {
     pools: PoolCache<MySql>,
@@ -43,12 +31,12 @@ impl MysqlDriver {
         Self::default()
     }
 
-    /// 配置变更后调用，强制下次重建连接池
+    /// 配置变更后调，强制下次重建池
     pub fn evict_pool(&self, id: &ConnectionId) {
         self.pools.evict(id);
     }
 
-    /// 显式关闭所有池（程序退出前调用）
+    /// 程序退出前调
     pub async fn shutdown(&self) {
         self.pools.close_all().await;
     }

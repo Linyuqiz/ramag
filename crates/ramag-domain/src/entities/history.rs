@@ -1,7 +1,4 @@
-//! 查询历史记录
-//!
-//! 每次执行的 SQL 都会被记录下来（不论成功失败），用户可以从历史
-//! 面板回看 / 重跑。
+//! 查询历史：每条 SQL 不论成败都落库，UI 可回看 / 重跑
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -9,7 +6,6 @@ use uuid::Uuid;
 
 use super::ConnectionId;
 
-/// 查询记录唯一 id
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct QueryRecordId(pub Uuid);
 
@@ -31,28 +27,24 @@ impl std::fmt::Display for QueryRecordId {
     }
 }
 
-/// 执行结果状态
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QueryStatus {
     Success,
     Failed,
 }
 
-/// 一条查询历史
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryRecord {
     pub id: QueryRecordId,
     pub connection_id: ConnectionId,
-    /// 关联的连接显示名（避免连接被删后历史无法识别）
+    /// 连接显示名快照（连接删除后仍可识别）
     pub connection_name: String,
-    /// SQL 文本（截断到合理长度，原则上保留完整）
     pub sql: String,
     pub status: QueryStatus,
-    /// 执行耗时（毫秒），失败为 0
+    /// 耗时毫秒，失败为 0
     pub elapsed_ms: u64,
     /// 受影响 / 返回行数
     pub rows: u64,
-    /// 失败时的错误消息
     pub error: Option<String>,
     pub executed_at: DateTime<Utc>,
 }
@@ -97,7 +89,7 @@ impl QueryRecord {
         }
     }
 
-    /// SQL 单行预览（去除多余空白 + 截断）
+    /// SQL 单行预览：去多余空白 + 截断
     pub fn sql_preview(&self, max_chars: usize) -> String {
         let normalized: String = self.sql.split_whitespace().collect::<Vec<_>>().join(" ");
         if normalized.chars().count() <= max_chars {

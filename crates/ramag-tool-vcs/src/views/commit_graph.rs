@@ -1,6 +1,4 @@
-//! Commit graph：lane 分配算法 + lane 着色 + 左侧 gutter 渲染
-//!
-//! 抽自 helpers.rs（让其不超 600 行）。算法见 [`build_commit_lanes`] 注释。
+//! Commit graph：lane 分配 + 着色 + 左侧 gutter 渲染。算法见 `build_commit_lanes`
 
 use gpui::{AnyElement, IntoElement, ParentElement, Styled, div, px};
 use gpui_component::{Icon, Sizable as _, h_flex, v_flex};
@@ -20,14 +18,8 @@ pub(super) struct CommitGraphRow {
 /// 单条 lane 宽度（px）：要小于 commit dot 直径，让线刚好被 dot 覆盖
 const LANE_WIDTH: f32 = 14.0;
 
-/// 把按时间倒序的 commit 列表转成 lane 分配序列
-///
-/// 算法（线性 + 偶尔分叉的实用近似）：
-/// 1. 维护 `active`：每条 lane 当前在等的 commit（FIFO 复用空 slot）
-/// 2. 当前 commit 的 lane = `active` 中等它的位置；找不到就用空 slot 或新增
-/// 3. 处理后把 `active[lane]` 替换为 first parent；若 first parent 已在别的 lane 等
-///    （即 lane 合并到主线），则本 lane 终结
-/// 4. 其余 parent（merge commit 时）入新 lane
+/// commit 时间倒序 → lane 分配。线性近似：active 维护各 lane 待入 commit，
+/// 当前 commit 占其位、空位复用、新 lane 增长；first parent 替换占位，已存在则合并；其余 parent 起新 lane
 pub(super) fn build_commit_lanes(commits: &[Commit]) -> Vec<CommitGraphRow> {
     let mut active: Vec<Option<CommitId>> = Vec::new();
     let mut rows: Vec<CommitGraphRow> = Vec::with_capacity(commits.len());

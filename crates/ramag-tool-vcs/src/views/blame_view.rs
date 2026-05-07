@@ -1,7 +1,4 @@
-//! Blame 视图：每行 [短 hash] [作者] [日期] [行号] | [内容]
-//!
-//! 用 uniform_list 行级虚拟化（万行文件也流畅），同一 commit 连续行只在第一行显示
-//! metadata，后续行 metadata 列留空。
+//! Blame 视图：短 hash / 作者 / 日期 / 行号 | 内容。同 commit 连续行 metadata 仅首行显示
 
 use std::ops::Range;
 use std::rc::Rc;
@@ -17,10 +14,7 @@ use super::vcs_view::VcsView;
 
 const BLAME_ROW_H: f32 = 20.0;
 
-/// 渲染整段 blame（uniform_list 虚拟化）
-///
-/// `scroll`：调用方传入的 ScrollHandle，render 路径内不能 `cx.entity().read(cx)`
-/// （render 时 view 已被 cx 借用为 mut，再 read 会触发 borrow 冲突 panic）
+/// uniform_list 虚拟化。`scroll` 必须由调用方传入，render 时不能 `cx.entity().read(cx)`（已被 mut 借用）
 #[allow(clippy::too_many_arguments)]
 pub fn render_blame(
     lines: &[BlameLine],

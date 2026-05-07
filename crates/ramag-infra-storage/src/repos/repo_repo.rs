@@ -1,7 +1,4 @@
-//! Git 仓库（VCS 最近列表）CRUD（同步内部实现）
-//!
-//! 仓库配置无敏感字段，无需加密；按 path 去重（driver 每次 open 创建新 UUID，
-//! 同物理仓库重复打开不堆积冗余记录）
+//! Git 仓库（VCS 最近列表）CRUD。无敏感字段不加密；按 path 去重避免同物理仓库重复打开堆积
 
 use std::sync::Arc;
 
@@ -11,10 +8,7 @@ use tracing::{debug, info};
 use ramag_domain::entities::{RepoConfig, RepoId};
 use ramag_domain::error::{DomainError, Result};
 
-/// redb 表定义：Git 仓库配置
-///
-/// key: RepoId（UUID 字符串）
-/// value: JSON 序列化后的 RepoConfig（无加密）
+/// key=RepoId UUID，value=RepoConfig JSON
 pub(crate) const REPOS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("repos");
 
 pub(crate) fn list(db: Arc<Database>) -> Result<Vec<RepoConfig>> {
@@ -35,7 +29,7 @@ pub(crate) fn list(db: Arc<Database>) -> Result<Vec<RepoConfig>> {
             .map_err(|e| DomainError::Storage(format!("反序列化仓库失败：{e}")))?;
         out.push(cfg);
     }
-    // 按 name 字母序：列表顺序稳定，不随打开顺序漂移
+    // 按 name 字母序，顺序稳定不漂移
     out.sort_by(|a, b| a.name.cmp(&b.name));
     debug!(count = out.len(), "list_repos done");
     Ok(out)
@@ -55,9 +49,7 @@ pub(crate) fn save(db: Arc<Database>, config: RepoConfig) -> Result<()> {
             .open_table(REPOS_TABLE)
             .map_err(|e| DomainError::Storage(format!("打开 repos 表失败：{e}")))?;
 
-        // 同 path 去重：driver 每次 open_repo 创建新 UUID，重启后再打开同物理仓库
-        // 会产生新 RepoId → 不去重的话每次都新增一条。这里在同一事务内先把所有
-        // path 匹配的旧记录全部删掉，再插入新记录，保证同 path 仅一条
+        // 同 path 去重：driver 每次 open 都生成新 RepoId，事务内先删旧 path 记录再写
         let mut stale_keys: Vec<String> = Vec::new();
         for entry in table
             .iter()

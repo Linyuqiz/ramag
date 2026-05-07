@@ -1,19 +1,15 @@
-//! MySQL 错误码 → DomainError 映射
-//!
-//! 通用 sqlx 大类（Pool / Io / Tls / Decode 等）由 `sql-shared::errors::map_sqlx_common`
-//! 兜底；本模块识别 MySQL 数据库错误码（sqlx::Error::Database），其它返回 None 让上层兜底
-//!
+//! MySQL 错误码 → DomainError 映射。仅识别 Database 变体，其余走 sql-shared 兜底
 //! 参考：<https://dev.mysql.com/doc/mysql-errors/8.0/en/server-error-reference.html>
 
 use ramag_domain::error::DomainError;
 use ramag_infra_sql_shared::errors::map_sqlx_common;
 
-/// 入口：sqlx::Error → DomainError（先 mysql 错误码、再 shared 通用）
+/// 先识别 mysql 错误码，未命中走 shared 通用映射
 pub fn map_mysql_error(err: &sqlx::Error) -> DomainError {
     map_mysql_database_error(err).unwrap_or_else(|| map_sqlx_common(err))
 }
 
-/// 仅识别 mysql 数据库错误码；非 Database 变体返回 None 让上层走通用兜底
+/// 仅识别 mysql 错误码，非 Database 变体返回 None
 pub fn map_mysql_database_error(err: &sqlx::Error) -> Option<DomainError> {
     let db_err = err.as_database_error()?;
     let code = db_err.code().map(|c| c.to_string()).unwrap_or_default();
@@ -21,13 +17,13 @@ pub fn map_mysql_database_error(err: &sqlx::Error) -> Option<DomainError> {
     let friendly = mysql_error_friendly(&code, &raw_msg);
 
     Some(match code.as_str() {
-        // 网络/认证类归到 ConnectionFailed
+        // 网络 / 认证 → ConnectionFailed
         "1045" | "1049" | "2003" | "2005" => DomainError::ConnectionFailed(friendly),
         _ => DomainError::QueryFailed(friendly),
     })
 }
 
-/// MySQL 错误码 + 原始消息 → 中文友好提示
+/// MySQL 错误码 → 中文友好提示
 fn mysql_error_friendly(code: &str, raw: &str) -> String {
     match code {
         "1045" => format!("用户名或密码错误（{raw}）"),

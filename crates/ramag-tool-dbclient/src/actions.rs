@@ -1,23 +1,20 @@
-//! DB Client 工具的快捷键 Action 定义
-//!
-//! 这些 Action 由 ramag-bin/main.rs 在启动时通过 `cx.bind_keys` 绑定，
-//! 视图通过 `cx.on_action` 或 `cx.listener` 注册处理逻辑。
+//! DB Client 快捷键 Action。绑定在 ramag-bin/main.rs 的 `cx.bind_keys`
 
 use gpui::Action;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-/// 在当前 Query Tab 执行 SQL（默认 ⌘↵ / Cmd+Enter）
+/// 当前 Query Tab 执行 SQL（默认 cmd-enter）
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, JsonSchema, Action)]
 #[action(namespace = ramag_dbclient)]
 pub struct RunQuery;
 
-/// 仅执行光标所在的那条 SQL（多语句以 `;` 分隔，默认 ⌘⇧↵ / Cmd+Shift+Enter）
+/// 仅执行光标所在那条 SQL（按 `;` 切，默认 cmd-shift-enter）
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, JsonSchema, Action)]
 #[action(namespace = ramag_dbclient)]
 pub struct RunStatementAtCursor;
 
-/// 新建一个 Query Tab（默认 ⌘T / Cmd+T）
+/// 新建 Query Tab（默认 cmd-t）
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, JsonSchema, Action)]
 #[action(namespace = ramag_dbclient)]
 pub struct NewQueryTab;
@@ -32,27 +29,27 @@ pub struct ExportCsv;
 #[action(namespace = ramag_dbclient)]
 pub struct ExportJson;
 
-/// 聚焦结果集过滤栏（默认 ⌘F / Cmd+F）
+/// 聚焦结果集过滤栏（默认 cmd-f）
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, JsonSchema, Action)]
 #[action(namespace = ramag_dbclient)]
 pub struct FindInResults;
 
-/// 格式化当前 SQL（默认 ⌘⇧F / Cmd+Shift+F）
+/// 格式化当前 SQL（默认 cmd-shift-f）
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, JsonSchema, Action)]
 #[action(namespace = ramag_dbclient)]
 pub struct FormatSql;
 
-/// EXPLAIN 当前 SQL（默认 ⌘⇧E / Cmd+Shift+E）
+/// EXPLAIN 当前 SQL（默认 cmd-shift-e）
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, JsonSchema, Action)]
 #[action(namespace = ramag_dbclient)]
 pub struct ExplainQuery;
 
-/// 保存当前编辑器内容为 .sql 文件（默认 ⌘S / Cmd+S）
+/// 保存当前编辑器到 .sql 文件（默认 cmd-s）
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, JsonSchema, Action)]
 #[action(namespace = ramag_dbclient)]
 pub struct SaveSqlFile;
 
-/// 切换查询历史面板（默认 ⌘⇧H / Cmd+Shift+H；macOS 的 ⌘H 是隐藏窗口，避开冲突）
+/// 切换查询历史（默认 cmd-shift-h；cmd-h 在 macOS 是隐藏窗口，避开）
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, JsonSchema, Action)]
 #[action(namespace = ramag_dbclient)]
 pub struct ToggleHistory;
@@ -72,7 +69,7 @@ pub struct ExportMarkdown;
 #[action(namespace = ramag_dbclient)]
 pub struct CopySelectedColumn;
 
-/// 切换 SQL 编辑器显隐（默认 ⌘E；只控编辑器那一块，工具条/结果保留）
+/// 切换 SQL 编辑器显隐（默认 cmd-e；仅控编辑器，工具条 / 结果保留）
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, JsonSchema, Action)]
 #[action(namespace = ramag_dbclient)]
 pub struct ToggleSqlEditor;

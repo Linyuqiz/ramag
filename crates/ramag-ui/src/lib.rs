@@ -1,8 +1,4 @@
-//! Ramag 共享 UI 模块
-//!
-//! 提供：
-//! - **Shell**：主壳（左侧 Tool 列表 + 右侧 Tool 视图区）
-//! - 后续会加入主题/通用组件
+//! 共享 UI：Shell（左 ActivityBar + 右 Tool 视图）+ 主题 + 通用组件
 
 pub mod actions;
 pub mod activity_bar;

@@ -1,25 +1,8 @@
-// 测试代码大量使用 unwrap/expect/panic（断言失败即阻断），是 Rust 测试的常态
-// cfg_attr(test, ...) 只在 test 配置下放行，不影响生产代码的严格审计
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
-//! Ramag 本地存储实现
-//!
-//! 用 redb 嵌入式数据库存连接配置 / 查询历史 / 偏好。
-//! 敏感字段（密码）用 aes-gcm 加密，主密钥存 macOS 钥匙串。
-//!
-//! # 模块拆分
-//!
-//! 业务实现按 redb 表为单位拆到 [`repos`] 子模块，每个 repo 暴露**同步**函数；
-//! 本文件的 [`RedbStorage`] 实现 [`Storage`] trait 时统一包 `run_blocking` 异步化：
-//!
-//! - [`repos::connection_repo`] 连接配置（密码 AES-GCM 加密落盘）
-//! - [`repos::repo_repo`] Git 仓库（VCS 最近列表）
-//! - [`repos::history_repo`] SQL 查询历史
-//! - [`repos::prefs_repo`] 通用偏好 KV
-//!
-//! # 文件位置
-//!
-//! `~/Library/Application Support/com.ramag.ramag/ramag.redb`（macOS）
+//! 本地存储：redb 嵌入式 DB；密码 AES-GCM 加密，主密钥存 macOS 钥匙串。
+//! 业务按表拆到 `repos` 子模块（同步），lib 用 `run_blocking` 异步化。
+//! 文件路径（macOS）：`~/Library/Application Support/com.ramag.ramag/ramag.redb`
 
 pub mod encryption;
 pub mod keyring;
@@ -43,32 +26,27 @@ use ramag_domain::traits::Storage;
 
 use crate::encryption::Cipher;
 
-/// 基于 redb 的本地存储实现
 pub struct RedbStorage {
     db: Arc<Database>,
     cipher: Arc<RwLock<Cipher>>,
-    /// 数据库文件路径（用于调试 / 重置）
     path: PathBuf,
 }
 
 impl RedbStorage {
-    /// 用默认路径打开（首次会创建文件 + 钥匙串里生成主密钥）
+    /// 默认路径，首次会创建文件 + 钥匙串生成主密钥
     pub fn open_default() -> Result<Self> {
         let path = default_db_path()?;
         Self::open(&path)
     }
 
-    /// 在指定路径打开 / 创建数据库（生产模式：从系统钥匙串读主密钥）
+    /// 生产入口：从系统钥匙串读主密钥
     pub fn open(path: &Path) -> Result<Self> {
         let master_key = keyring::get_or_create_master_key()?;
         Self::open_with_key(path, &master_key)
     }
 
-    /// 用显式给定的主密钥打开数据库（测试模式 / 高级用法）
-    ///
-    /// 单元测试使用此入口，避免污染真实钥匙串
+    /// 测试入口：注入固定密钥避免污染真实钥匙串
     pub fn open_with_key(path: &Path, master_key: &[u8; 32]) -> Result<Self> {
-        // 确保父目录存在
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| DomainError::Storage(format!("创建数据目录失败：{e}")))?;
@@ -77,7 +55,7 @@ impl RedbStorage {
         let db = Database::create(path)
             .map_err(|e| DomainError::Storage(format!("打开 redb 数据库失败：{e}")))?;
 
-        // 首次打开数据库时建表（commit 一次空写入事务）
+        // 首次打开建表
         let write_txn = db
             .begin_write()
             .map_err(|e| DomainError::Storage(format!("启动写事务失败：{e}")))?;
@@ -104,17 +82,13 @@ impl RedbStorage {
     }
 }
 
-/// 计算默认数据库文件路径
 fn default_db_path() -> Result<PathBuf> {
     let dirs = ProjectDirs::from("com", "ramag", "ramag")
         .ok_or_else(|| DomainError::Storage("无法定位用户目录".into()))?;
     Ok(dirs.data_dir().join("ramag.redb"))
 }
 
-/// 在独立 std 线程跑同步代码，结果通过 oneshot 送回
-///
-/// 用 std::thread + futures::oneshot 而不是 tokio::task::spawn_blocking，
-/// 这样无论调用方在 tokio / smol / async-std 哪种 runtime 下都能用
+/// std::thread + oneshot 桥接同步代码，调用方任意 runtime 通用
 async fn run_blocking<F, T>(f: F) -> Result<T>
 where
     F: FnOnce() -> Result<T> + Send + 'static,
@@ -222,11 +196,10 @@ mod tests {
     use ramag_domain::entities::DriverKind;
     use tempfile::TempDir;
 
-    /// 创建测试用 storage（用临时文件夹 + 固定主密钥，避免污染真实钥匙串）
+    /// 临时目录 + 固定密钥，不污染真实钥匙串
     fn make_test_storage() -> (RedbStorage, TempDir) {
         let tmp = TempDir::new().expect("创建临时目录失败");
         let path = tmp.path().join("test.redb");
-        // 测试用固定密钥，全 0x42
         let key = [0x42u8; 32];
         let storage = RedbStorage::open_with_key(&path, &key).expect("打开测试 storage 失败");
         (storage, tmp)
@@ -257,7 +230,7 @@ mod tests {
 
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].name, "dev");
-        assert_eq!(list[0].password, "secret-password"); // 解密回明文
+        assert_eq!(list[0].password, "secret-password");
     }
 
     #[tokio::test]

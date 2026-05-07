@@ -1,15 +1,5 @@
-//! Project Files 视图主区：渲染选中文件的**内容**（与 diff 视图独立）
-//!
-//! 数据来源：[`super::vcs_view::VcsView::current_file_content`]，由
-//! [`super::vcs_view_ops_repo::select_pf_file`] 异步读盘后写入。
-//!
-//! 渲染要点：
-//! - 行号 + 内容两列，等宽 mono 字体
-//! - **垂直**虚拟化：`uniform_list` 行级（22px 等高），万行文件也流畅
-//! - **水平**滚动：外层 `div.overflow_x_scroll().track_scroll(h_scroll)` 包定宽 `v_flex`，
-//!   与 dbclient `result_table` 同款方案——uniform_list 只管 Y，X 轴由外层 div 处理
-//! - 二进制文件 / 读取失败 / 大文件截断 都给出独立占位 banner
-//! - 无内容选中时显示「请在左侧选择文件」提示
+//! Project Files 主区：渲染选中文件内容（独立于 diff）。
+//! 行号 + 内容两列 mono；uniform_list 处理 Y 虚拟化，外层 `overflow_x_scroll` 处理 X 横滚
 
 use std::ops::Range;
 use std::rc::Rc;
@@ -22,10 +12,7 @@ use gpui_component::{ActiveTheme, h_flex, v_flex};
 
 use super::vcs_view::VcsView;
 
-/// 关闭 GPUI 单轴 scroll 元素的"另一方向劫持"行为（同 dbclient::result_table 私有 trait）
-///
-/// GPUI 默认：overflow.x=Scroll 且 overflow.y!=Scroll 时，wheel 的 dy 会被当成 dx 应用，
-/// 结果是"往下滚 → 横向滚到底"。设置 `restrict_scroll_to_axis = true` 让 wheel 严格按方向消费。
+/// 禁用 GPUI 单轴 scroll 的"另一方向劫持"，wheel 严格按方向消费
 trait RestrictScrollExt: Styled + Sized {
     fn restrict_scroll_to_axis(mut self) -> Self {
         self.style().restrict_scroll_to_axis = Some(true);
@@ -174,10 +161,7 @@ fn truncated_banner(muted_fg: gpui::Hsla, _fg: gpui::Hsla) -> AnyElement {
         .into_any_element()
 }
 
-/// 单行渲染：行号 + 内容（uniform_list closure 内调）
-///
-/// 行内容设固定宽度 `content_w`（最长行估算）+ whitespace_nowrap，
-/// 让 uniform_list 行宽稳定，外层水平滚 ScrollHandle 才能在所有行同步。
+/// 行号 + 内容。`content_w` 固定为最长行估算 + nowrap，外层 ScrollHandle 才能同步横滚
 fn render_content_row(
     idx: usize,
     text: &str,

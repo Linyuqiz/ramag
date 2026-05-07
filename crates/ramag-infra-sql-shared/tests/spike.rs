@@ -1,6 +1,4 @@
-//! Spike 验证：写一个最小 stub MysqlBackend impl SqlBackend，
-//! 确认具体类型 `sqlx::MySql` 能满足 trait 的所有 GAT HRTB bound，
-//! 且调用泛型模板函数 `test_connection_impl` 等能编译
+//! Spike：最小 stub 验证 sqlx::MySql 满足 SqlBackend 的 GAT HRTB，泛型模板函数能闭合编译
 
 use async_trait::async_trait;
 use ramag_domain::entities::{
@@ -48,7 +46,7 @@ impl SqlBackend for StubMysqlBackend {
     }
 
     async fn build_pool(&self, _config: &ConnectionConfig) -> Result<Pool<Self::Db>> {
-        unimplemented!("stub: 不真实建连，只为验证类型系统")
+        unimplemented!("stub: 仅用于类型系统验证")
     }
 
     fn decode_row(&self, _row: &<Self::Db as sqlx::Database>::Row) -> Vec<Value> {
@@ -110,7 +108,7 @@ impl SqlBackend for StubMysqlBackend {
     }
 }
 
-/// 仅验证类型闭合：所有泛型模板函数能在具体 B = StubMysqlBackend 下编译
+/// 类型系统验证：所有泛型模板函数能闭合编译
 #[allow(dead_code)]
 fn type_check_template_functions() {
     let backend = StubMysqlBackend {
@@ -118,7 +116,6 @@ fn type_check_template_functions() {
     };
     let config = ConnectionConfig::new_mysql("dummy", "127.0.0.1", 3306, "root");
 
-    // 所有泛型函数引用一遍，确认 bound 能闭合
     let _f1 = ramag_infra_sql_shared::test_connection_impl(&backend, &config);
     let _f2 = ramag_infra_sql_shared::server_version_impl(&backend, &config);
     let _f3 = ramag_infra_sql_shared::list_schemas_impl(&backend, &config);

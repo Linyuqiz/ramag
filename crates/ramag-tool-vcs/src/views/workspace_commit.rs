@@ -1,6 +1,4 @@
 //! 工作区底部 commit 面板：subject 输入 + amend 切换 + 提交按钮
-//!
-//! 拆出独立模块给 workspace_panel.rs 减负（让它专注于文件列表 + diff 渲染）。
 
 use gpui::{AnyElement, ClickEvent, Context, IntoElement, ParentElement, Styled, div, px};
 use gpui_component::{

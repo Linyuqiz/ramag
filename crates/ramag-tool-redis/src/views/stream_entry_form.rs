@@ -1,13 +1,4 @@
-//! Stream 条目新增弹窗
-//!
-//! 复用 [`super::pairs_editor::PairsEditor`]（`PairsKind::Stream`）作为字段对编辑器，
-//! 与新建 Key 对话框中的 Stream tab 完全一致——结构化双列行编辑器，
-//! 用户不再需要记忆"每行 `field value`，空格分隔"的格式约定。
-//!
-//! 提交命令：`XADD key * field1 value1 field2 value2 ...`（ID 由服务端生成）
-//!
-//! 对外 API（`StreamEntryForm::new` + `StreamEntryFormEvent`）保持与旧版一致，
-//! 调用方 `connection_session.rs` 无需改动。
+//! Stream XADD 弹窗：复用 PairsEditor(Stream)。`XADD key * field value ...`，ID 服务端生成
 
 use std::sync::Arc;
 

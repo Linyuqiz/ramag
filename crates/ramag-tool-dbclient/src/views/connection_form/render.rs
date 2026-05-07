@@ -1,6 +1,4 @@
-//! `impl Render for ConnectionFormPanel`：driver 选择 + 字段分组 + 测试/取消/保存按钮区
-//!
-//! 拆出来让 mod.rs 不超 600 行红线。
+//! ConnectionFormPanel Render：driver 选择 + 字段分组 + 测试 / 取消 / 保存
 
 use gpui::{
     ClickEvent, Context, IntoElement, ParentElement, Render, Styled, Window, div, prelude::*, px,

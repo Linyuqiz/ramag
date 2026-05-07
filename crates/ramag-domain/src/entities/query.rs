@@ -5,17 +5,13 @@ use serde::{Deserialize, Serialize};
 /// 一次 SQL 查询请求
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Query {
-    /// 原始 SQL 文本
     pub sql: String,
-    /// 是否只允许只读语句（用于安全模式）
+    /// 只读模式（安全模式禁写）
     pub read_only: bool,
-    /// 当前会话默认库（执行前 driver 在同一连接上发 USE 切换）
-    /// 仅当连接配置未指定 database 且 SQL 写裸表名时必需，否则可为 None
+    /// 会话默认库，driver 执行前发 USE 切换
     #[serde(default)]
     pub default_schema: Option<String>,
-    /// 自动 LIMIT 注入：Some(n) 代表对未带 LIMIT 的最外层 SELECT/WITH 自动追加 ` LIMIT n`
-    /// None 表示完全不注入（用户在 UI 上关闭，或写 `-- ramag:no-limit` 注释）
-    /// 默认 None：driver 不会主动改写 SQL，避免破坏一致性；UI 默认值由调用层决定
+    /// 自动 LIMIT 注入：Some(n) 给未带 LIMIT 的最外层 SELECT/WITH 追加 `LIMIT n`；None 不注入
     #[serde(default)]
     pub auto_limit: Option<u32>,
 }
@@ -39,62 +35,49 @@ impl Query {
         }
     }
 
-    /// 链式设置默认库
     pub fn with_schema(mut self, schema: impl Into<String>) -> Self {
         self.default_schema = Some(schema.into());
         self
     }
 
-    /// 链式设置自动 LIMIT 注入数量；调用方传 None 等价于不注入
     pub fn with_auto_limit(mut self, limit: Option<u32>) -> Self {
         self.auto_limit = limit;
         self
     }
 }
 
-/// 查询结果（统一抽象，跨数据库类型）
-///
-/// 即使是 INSERT/UPDATE 也包装成 QueryResult（rows 为空，affected_rows 有值）
+/// 查询结果（INSERT/UPDATE 也走这个，rows 空、affected_rows 有值）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryResult {
-    /// 列名
     pub columns: Vec<String>,
-    /// 列类型名（与 columns 一一对应；driver 不提供时为空 Vec）
-    /// 仅用于 UI 表头展示，导出/补全等不读取
+    /// 列类型名，与 columns 一一对应；driver 不提供时为空。仅 UI 表头展示
     #[serde(default)]
     pub column_types: Vec<String>,
-    /// 数据行
     pub rows: Vec<Row>,
-    /// 受影响行数（INSERT/UPDATE/DELETE）
+    /// INSERT/UPDATE/DELETE 受影响行数
     pub affected_rows: u64,
-    /// 执行耗时（毫秒）
     pub elapsed_ms: u64,
-    /// 服务端警告（MySQL 来自 SHOW WARNINGS）；空 Vec 表示无警告
-    /// 多语句执行时累积每条 statement 的 warnings
+    /// MySQL SHOW WARNINGS；多语句执行时累积所有 statement 的警告
     #[serde(default)]
     pub warnings: Vec<Warning>,
 }
 
-/// 服务端警告（MySQL 的 SHOW WARNINGS 输出对应的一行）
+/// 服务端警告（MySQL SHOW WARNINGS 一行）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Warning {
-    /// 级别："Note" / "Warning" / "Error"（MySQL 一般大写首字母）
+    /// "Note" / "Warning" / "Error"
     pub level: String,
-    /// 错误码（对应 mysql_errno()，如 1265 / 1366）
+    /// 对应 mysql_errno()
     pub code: u32,
-    /// 中文/英文消息原文
     pub message: String,
 }
 
-/// 一行数据（按列顺序排列）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Row {
     pub values: Vec<Value>,
 }
 
-/// 单元格值
-///
-/// 用 enum 容纳不同数据库类型的所有可能值，UI 层根据 variant 渲染
+/// 单元格值。UI 按 variant 选渲染方式
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Value {
     Null,
@@ -103,14 +86,14 @@ pub enum Value {
     Float(f64),
     Text(String),
     Bytes(Vec<u8>),
-    /// 时间戳，UTC，纳秒精度
+    /// UTC 纳秒精度
     DateTime(chrono::DateTime<chrono::Utc>),
-    /// JSON 嵌套结构（MySQL 5.7+ JSON 列、PG jsonb）
+    /// MySQL JSON 列、PG jsonb
     Json(serde_json::Value),
 }
 
 impl Value {
-    /// 用于 UI 显示的简短预览（截断长字符串）
+    /// UI 显示用的短预览（截断长字符串）
     pub fn display_preview(&self, max_len: usize) -> String {
         match self {
             Value::Null => "NULL".to_string(),
@@ -124,14 +107,7 @@ impl Value {
         }
     }
 
-    /// 用于嵌入 SQL 字面量的形式（INSERT 语句生成）
-    ///
-    /// - Null → `NULL`
-    /// - Bool → `TRUE` / `FALSE`
-    /// - Int/Float → 数字字面量
-    /// - Text/Json → `'escaped'`（单引号转义 → `''`，反斜杠 → `\\`）
-    /// - Bytes → `0xHEX`（MySQL 风格十六进制字面量）
-    /// - DateTime → `'YYYY-MM-DD HH:MM:SS'`（MySQL DATETIME 默认格式，UTC）
+    /// 转 SQL 字面量。Bytes 走 MySQL 风格 `0xHEX`，DateTime 走 `'YYYY-MM-DD HH:MM:SS'`
     pub fn to_sql_literal(&self) -> String {
         match self {
             Value::Null => "NULL".to_string(),
@@ -160,10 +136,7 @@ impl Value {
         }
     }
 
-    /// 单元格编辑弹框初值：JSON 走 pretty 多行，其它与 clipboard 一致
-    ///
-    /// 让用户在编辑框里看到结构化的 JSON（每个键独立一行 + 缩进），
-    /// 提交回数据库前 sqlx 会自动归一，无需调用方手动 minify
+    /// 单元格编辑初值：JSON 走 pretty 多行，其余等价 clipboard 形式
     pub fn display_for_edit(&self) -> String {
         match self {
             Value::Json(v) => serde_json::to_string_pretty(v).unwrap_or_else(|_| v.to_string()),
@@ -171,12 +144,7 @@ impl Value {
         }
     }
 
-    /// 复制到剪贴板时的完整字符串（不截断，无修饰）
-    ///
-    /// - Null 复制为空串（更适合粘贴到表单/SQL）
-    /// - Bytes 转为连续小写 hex
-    /// - DateTime 用 RFC3339（含时区，可往返）
-    /// - Json 用最小化形式（无格式化空格）
+    /// 剪贴板字符串（完整，不截断）。Null→空串、Bytes→hex、DateTime→RFC3339、Json→紧凑
     pub fn to_clipboard_string(&self) -> String {
         match self {
             Value::Null => String::new(),
@@ -198,7 +166,6 @@ impl Value {
 }
 
 /// SQL 字符串字面量转义：反斜杠 + 单引号
-/// 用于 to_sql_literal 中嵌入 'xxx' 形式
 fn escape_sql_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 4);
     for ch in s.chars() {
@@ -232,7 +199,6 @@ mod tests {
 
     #[test]
     fn clipboard_primitive() {
-        // 浮点用非 π 近似（避开 clippy::approx_constant）
         assert_eq!(Value::Bool(true).to_clipboard_string(), "true");
         assert_eq!(Value::Int(-42).to_clipboard_string(), "-42");
         assert_eq!(Value::Float(2.5).to_clipboard_string(), "2.5");
@@ -240,7 +206,6 @@ mod tests {
 
     #[test]
     fn clipboard_text_not_truncated() {
-        // 200 字应该完整保留，不带省略号
         let long: String = "字".repeat(200);
         assert_eq!(Value::Text(long.clone()).to_clipboard_string(), long);
     }
@@ -300,7 +265,6 @@ mod tests {
     fn clipboard_json_minified() {
         let v = Value::Json(serde_json::json!({"a": 1, "b": [2, 3]}));
         let s = v.to_clipboard_string();
-        // 不含格式化空格
         assert!(!s.contains("\n"));
         assert!(s.contains("\"a\":1"));
     }

@@ -1,21 +1,4 @@
-//! Shell：Ramag 主壳
-//!
-//! 三段式布局：
-//! ```text
-//! ┌────────────────────────────────────────────────┐
-//! │ TitleBar                                       │
-//! ├──┬─────────────────────────────────────────────┤
-//! │  │                                             │
-//! │  │  Tool Content / HomeView                    │
-//! │AB│  (sidebar 由各 Tool 自带在内部)             │
-//! │  │                                             │
-//! └──┴─────────────────────────────────────────────┘
-//! ```
-//!
-//! AB = ActivityBar（左 52px 纯图标）
-//!
-//! Shell 不知道具体 Tool 视图渲染什么，外部通过 `register_view` 注入。
-//! 默认选中是 Home（None），ActivityBar 顶部 ⌂ 高亮。
+//! 主壳：原生 TitleBar + 左 ActivityBar（52px）+ 右 Tool/HomeView。视图由外部 register_tool_view 注入
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -29,16 +12,11 @@ use ramag_app::ToolRegistry;
 
 use crate::activity_bar::{ActivityBar, NavEvent, NavTarget};
 
-/// 主壳视图
 pub struct Shell {
     activity_bar: Entity<ActivityBar>,
-
-    /// 工具视图（启动时注入）
     tool_views: HashMap<String, AnyView>,
-    /// 首页视图（必有，由外部注入）
     home_view: Option<AnyView>,
-
-    /// 当前激活：None = 首页，Some(tool_id) = 某工具
+    /// None=首页，Some(tool_id)=某工具
     selected: Option<String>,
 
     _subscriptions: Vec<Subscription>,
@@ -49,7 +27,6 @@ impl Shell {
         let activity_bar = cx.new(|_| ActivityBar::new(registry.clone()));
 
         let mut subs = Vec::new();
-        // 监听 ActivityBar 的 NavEvent
         subs.push(cx.subscribe_in(
             &activity_bar,
             window,
@@ -59,7 +36,7 @@ impl Shell {
                 }
             },
         ));
-        // 监听系统外观变化：跟随系统时实时同步主题（用户显式选过则忽略）
+        // 跟随系统主题：用户显式选过则忽略
         subs.push(cx.observe_window_appearance(window, |_this, window, cx| {
             crate::theme::on_system_appearance_changed(window.appearance(), cx);
         }));
@@ -73,17 +50,15 @@ impl Shell {
         }
     }
 
-    /// 注入首页视图
     pub fn set_home_view(&mut self, view: AnyView) {
         self.home_view = Some(view);
     }
 
-    /// 注入某个 Tool 的根视图
     pub fn register_tool_view(&mut self, tool_id: impl Into<String>, view: AnyView) {
         self.tool_views.insert(tool_id.into(), view);
     }
 
-    /// 程序内导航到指定目标（不改 ActivityBar UI 状态以外的事）
+    /// 程序内导航
     pub fn navigate_to(&mut self, target: NavTarget, window: &mut Window, cx: &mut Context<Self>) {
         self.activity_bar
             .update(cx, |bar, cx| bar.set_selected(target.clone(), cx));
@@ -96,8 +71,7 @@ impl Shell {
             NavTarget::Tool(id) => Some(id),
         };
 
-        // 标题栏文字置空（保留红绿灯按钮，但不显示 app/page 名称）
-        // macOS app 名仍由 dock / 任务栏体现，无需窗口标题再重复
+        // 标题置空保留红绿灯，dock 已显示 app 名
         window.set_window_title("");
 
         if self.selected != new_selected {
@@ -109,27 +83,23 @@ impl Shell {
 
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // 提前拷出颜色，避免 theme 借用与 cx 可变借用冲突
+        // 先拷颜色避开 theme 借用与 cx 可变借用冲突
         let bg_color = cx.theme().background;
         let fg_color = cx.theme().foreground;
 
-        // 决定当前内容视图
         let content_view: Option<AnyView> = match &self.selected {
             None => self.home_view.clone(),
             Some(id) => self.tool_views.get(id).cloned(),
         };
 
-        // gpui-component 的 dialog / notification 浮层（必须由顶层 view 渲染才会生效）
+        // dialog / notification 浮层须由顶层 view 渲染
         let dialog_layer = Root::render_dialog_layer(window, cx);
         let notification_layer = Root::render_notification_layer(window, cx);
 
-        // 标题栏由 macOS 原生处理（细，含红绿灯，可双击 zoom）
-        // 内容直接从下方开始，无需手动留顶部空间
         v_flex()
             .size_full()
             .bg(bg_color)
             .text_color(fg_color)
-            // 主体：左 ActivityBar + 右内容
             .child(
                 h_flex()
                     .flex_1()
@@ -152,7 +122,6 @@ impl Render for Shell {
                             ),
                     ),
             )
-            // 浮层：dialog + notification toast
             .children(dialog_layer)
             .children(notification_layer)
     }

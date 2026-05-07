@@ -1,5 +1,5 @@
 pub const SQL_KEYWORDS: &[&str] = &[
-    // === DML/DQL 通用 ===
+    // DML / DQL 通用
     "SELECT",
     "FROM",
     "WHERE",
@@ -42,7 +42,7 @@ pub const SQL_KEYWORDS: &[&str] = &[
     "SOME",
     "ASC",
     "DESC",
-    // === DDL ===
+    // DDL
     "CREATE TABLE",
     "DROP TABLE",
     "ALTER TABLE",
@@ -53,7 +53,7 @@ pub const SQL_KEYWORDS: &[&str] = &[
     "DROP VIEW",
     "CREATE MATERIALIZED VIEW",
     "REFRESH MATERIALIZED VIEW",
-    // === 表达式 / 控制流 ===
+    // 表达式 / 控制流
     "AS",
     "CASE",
     "WHEN",
@@ -64,7 +64,7 @@ pub const SQL_KEYWORDS: &[&str] = &[
     "IFNULL",
     "COALESCE",
     "NULLIF",
-    // === 聚合 ===
+    // 聚合
     "COUNT",
     "SUM",
     "AVG",
@@ -73,7 +73,7 @@ pub const SQL_KEYWORDS: &[&str] = &[
     "GROUP_CONCAT",
     "STRING_AGG",
     "ARRAY_AGG",
-    // === 日期 / 字符串 ===
+    // 日期 / 字符串
     "NOW",
     "CURRENT_TIMESTAMP",
     "CURRENT_DATE",
@@ -90,11 +90,11 @@ pub const SQL_KEYWORDS: &[&str] = &[
     "LOWER",
     "CAST",
     "CONVERT",
-    // === 字面量 ===
+    // 字面量
     "TRUE",
     "FALSE",
     "NULL",
-    // === PostgreSQL 特有（mysql 不会用，但补齐到 PG 用户也省心；下拉里多几个无害）===
+    // PostgreSQL 特有
     "RETURNING",
     "ON CONFLICT",
     "DO UPDATE",
@@ -109,7 +109,7 @@ pub const SQL_KEYWORDS: &[&str] = &[
     "ARRAY",
     "FOR UPDATE",
     "FOR SHARE",
-    // === MySQL 特有（PG 不会用）===
+    // MySQL 特有
     "ON DUPLICATE KEY UPDATE",
 ];
 

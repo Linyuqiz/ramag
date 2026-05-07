@@ -1,6 +1,4 @@
-//! VcsView::new — 完整字段初始化（17 个 InputState / Resizable / Scroll handle 等）
-//!
-//! 拆出来让 mod.rs 主体不超 600 行红线。
+//! VcsView::new：所有 InputState / Resizable / Scroll handle 字段初始化
 
 use std::cell::RefCell;
 use std::sync::Arc;

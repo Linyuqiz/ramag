@@ -21,7 +21,6 @@ ramag-tool-redis = { workspace = true }
 # SQL 补全的 anyhow::Result 返回值
 anyhow = { workspace = true }
 
-# GPUI（Stage 2 起需要）
 gpui = { workspace = true }
 gpui-component = { workspace = true }
 

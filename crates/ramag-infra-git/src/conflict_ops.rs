@@ -1,6 +1,4 @@
-//! 冲突解决：采纳 ours / theirs（subprocess git checkout + add）
-//!
-//! 两步走：先 checkout 对应版本覆盖工作区，再 git add 标记已解决。
+//! 冲突解决：`git checkout --ours/--theirs` + `git add` 一步标记已解决
 
 use std::path::Path;
 
@@ -8,12 +6,12 @@ use ramag_domain::error::Result;
 
 use crate::git_cmd::run_git_bytes;
 
-/// 采纳「我们」（HEAD 侧）的版本
+/// HEAD 侧
 pub fn use_ours(repo_path: &Path, paths: &[String]) -> Result<()> {
     apply_side(repo_path, "--ours", paths)
 }
 
-/// 采纳「他们」（对方分支）的版本
+/// 对方分支侧
 pub fn use_theirs(repo_path: &Path, paths: &[String]) -> Result<()> {
     apply_side(repo_path, "--theirs", paths)
 }

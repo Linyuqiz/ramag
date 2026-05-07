@@ -1,19 +1,5 @@
-//! 提交日志查询
-//!
-//! 用 subprocess `git log --pretty=format:...` 拿到结构化字段（用 `\x1f` 分隔字段，
-//! `\x1e` 分隔记录），稳定可靠且与 gix 实现的细节差异无关。
-//!
-//! 字段顺序：
-//! - %H: 完整 commit hash
-//! - %an: author 姓名
-//! - %ae: author 邮箱
-//! - %at: author 时间戳（秒）
-//! - %cn: committer 姓名
-//! - %ce: committer 邮箱
-//! - %ct: committer 时间戳
-//! - %P: 父 commit 列表（空格分隔）
-//! - %s: subject（首行）
-//! - %b: body
+//! `git log --pretty=format:...`：`\x1f` 分字段、`\x1e` 分记录。
+//! 字段：%H %an %ae %at %cn %ce %ct %P %s %b
 
 use std::path::Path;
 
@@ -32,10 +18,9 @@ pub fn run_log(repo_path: &Path, opts: &LogOptions) -> Result<Vec<Commit>> {
     if let Some(n) = opts.limit {
         args.push(format!("--max-count={n}"));
     }
-    // 过滤：grep / author / since（多条件 AND；--all-match 让 grep 多关键词都命中）
     if let Some(g) = &opts.grep {
         args.push(format!("--grep={g}"));
-        // 默认 git log 对 --grep 大小写敏感；UI 用户体感期望不区分
+        // git log 默认对 --grep 大小写敏感，UI 期望忽略
         args.push("--regexp-ignore-case".into());
     }
     if let Some(a) = &opts.author {

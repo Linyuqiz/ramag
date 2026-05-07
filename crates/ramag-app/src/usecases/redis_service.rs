@@ -1,18 +1,5 @@
-//! RedisService：Redis 连接 + KV 操作的用例聚合
-//!
-//! 与 [`ConnectionService`] 并列：把 [`KvDriver`] 与 [`Storage`] 组合成
-//! UI 友好的 API。UI 层只持有 `Arc<RedisService>`，不需要关心底层 driver/storage。
-//!
-//! # 与 ConnectionService 的关系
-//!
-//! - Storage 是共用的（连接配置 / 偏好都进同一个 redb）
-//! - 各 Service 在 list() 时按 [`DriverKind`] 过滤，互不污染对方列表
-//! - Driver 是分开的（`Driver` 关系型 vs `KvDriver` KV 形态）
-//!
-//! # Stage 14 / 15 范围
-//!
-//! 仅暴露 KvDriver 的 L0 方法 + 连接 CRUD。
-//! Pub/Sub、MULTI、Cluster 监控等 L1+ 能力按阶段陆续加入。
+//! RedisService：Redis 连接 + KV 操作聚合，与 ConnectionService 并列。
+//! Storage 与 ConnectionService 共用同一份 redb，list() 按 driver 过滤互不污染
 
 use std::sync::Arc;
 
@@ -22,7 +9,6 @@ use ramag_domain::entities::{
 use ramag_domain::error::Result;
 use ramag_domain::traits::{KvDriver, Storage};
 
-/// Redis 连接管理 + KV 操作服务
 pub struct RedisService {
     driver: Arc<dyn KvDriver>,
     storage: Arc<dyn Storage>,
@@ -33,9 +19,9 @@ impl RedisService {
         Self { driver, storage }
     }
 
-    // === 连接配置 CRUD（仅 Redis 驱动的连接）===
+    // 连接 CRUD（仅 Redis driver 的连接）
 
-    /// 列出所有保存的 Redis 连接（按 driver 过滤）
+    /// 按 driver 过滤
     pub async fn list(&self) -> Result<Vec<ConnectionConfig>> {
         let all = self.storage.list_connections().await?;
         Ok(all
@@ -44,52 +30,46 @@ impl RedisService {
             .collect())
     }
 
-    /// 按 ID 取连接（不限制 driver；调用方自行检查）
+    /// 不限制 driver；调用方自检
     pub async fn get(&self, id: &ConnectionId) -> Result<Option<ConnectionConfig>> {
         self.storage.get_connection(id).await
     }
 
-    /// 保存（新增或更新）
     pub async fn save(&self, config: &ConnectionConfig) -> Result<()> {
         self.storage.save_connection(config).await
     }
 
-    /// 删除
     pub async fn delete(&self, id: &ConnectionId) -> Result<()> {
         self.storage.delete_connection(id).await
     }
 
-    // === 连接动作 ===
+    // 连接动作
 
-    /// 测试连接（PING）
     pub async fn test(&self, config: &ConnectionConfig) -> Result<()> {
         self.driver.test_connection(config).await
     }
 
-    /// 取服务端版本（"7.2.4" 等）
     pub async fn server_version(&self, config: &ConnectionConfig) -> Result<String> {
         self.driver.server_version(config).await
     }
 
-    /// 失效连接的池缓存（含该连接所有 db）；用户编辑 config 后必须调
+    /// 失效该连接所有 db 的池
     pub fn evict_pool(&self, id: &ConnectionId) {
         self.driver.evict_pool(id);
     }
 
-    /// 测试 + 保存（一键操作）
     pub async fn test_and_save(&self, config: &ConnectionConfig) -> Result<()> {
         self.driver.test_connection(config).await?;
         self.storage.save_connection(config).await?;
         Ok(())
     }
 
-    // === KV 操作（按 db 索引）===
+    // KV 操作（按 db 索引）
 
     pub async fn db_size(&self, config: &ConnectionConfig, db: u8) -> Result<u64> {
         self.driver.db_size(config, db).await
     }
 
-    /// SCAN 一批 keys
     pub async fn scan(
         &self,
         config: &ConnectionConfig,
@@ -104,8 +84,7 @@ impl RedisService {
             .await
     }
 
-    /// 一次性扫完整个 keyspace（聚合 cursor=0 起到 cursor=0 终）
-    /// 用于 key 数较少时的便捷接口；大库慎用
+    /// 一次性扫完整库；大库慎用
     pub async fn scan_all(
         &self,
         config: &ConnectionConfig,

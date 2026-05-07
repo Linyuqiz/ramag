@@ -113,10 +113,7 @@ impl VcsView {
         .detach();
     }
 
-    /// Project Files 模式点击文件 → 走统一 file_tabs：命中已开 tab 直接激活；新文件追加 tab 后异步读盘
-    ///
-    /// - 异步读盘走 std::thread + oneshot（与 ramag-infra-git/runtime 同款，不阻塞 GPUI 线程）
-    /// - 4MB 上限防大文件 / NUL 字节检测识别二进制
+    /// 点击文件复用 file_tabs：命中已开则激活，否则追加并 std::thread 读盘。4MB 上限 + NUL 字节判二进制
     pub(super) fn select_pf_file(&mut self, path: String, cx: &mut Context<Self>) {
         let Some(repo) = self.repo.as_ref() else {
             return;
@@ -288,10 +285,7 @@ impl VcsView {
     }
 }
 
-/// 共享逻辑：实际打开 repo + 拉 status / 分支 / stash / tag / remote
-///
-/// 由 [`VcsView::pick_directory`] 与 [`VcsView::open_recent_repo`] 共用：
-/// 前者从文件对话框得到 path，后者从最近列表得到 path，之后流程完全一样
+/// 实际打开 repo + 拉 status / 分支 / stash / tag / remote。pick_directory 与 open_recent_repo 共用
 pub(super) async fn open_repo_async(
     this: &gpui::WeakEntity<VcsView>,
     driver: std::sync::Arc<dyn ramag_domain::traits::GitDriver>,

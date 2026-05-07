@@ -1,12 +1,4 @@
-//! 三方冲突编辑器（ours | theirs 双栏预览）
-//!
-//! 数据来源：[`super::vcs_view::VcsView::conflict_content`]，由
-//! [`super::vcs_view_ops_merge::open_conflict_editor`] 异步加载写入。
-//!
-//! 解决路径：
-//! 1. 查看差异后点 [采纳 HEAD] / [采纳 对方] 整文件覆盖
-//! 2. 手动改文件后点 [标记已解决]（= git add）
-//! 3. 点 [← 关闭] 退回 diff 视图
+//! 三方冲突编辑器：ours | theirs 双栏。整文件采纳 / 手改后标记已解决（git add）
 
 use std::ops::Range;
 use std::rc::Rc;

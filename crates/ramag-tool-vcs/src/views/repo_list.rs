@@ -1,20 +1,4 @@
-//! 仓库管理页（仿 dbclient 的 ConnectionListPanel）
-//!
-//! 布局：
-//! ```text
-//! ┌────────────────────────────────────────────────────────────────────┐
-//! │     [🔍 搜索仓库（名称 / 路径）]                  [+ 选择本地仓库]   │  ← 1080px 居中
-//! ├────────────────────────────────────────────────────────────────────┤
-//! │  [Git]  Coding              /Users/.../Coding         [✏][🗑]      │
-//! │  [Git]  ramag               /Users/.../Action/ramag   [✏][🗑]      │
-//! └────────────────────────────────────────────────────────────────────┘
-//! ```
-//!
-//! 视觉对齐 [`super::super::super::ramag_tool_dbclient::views::connection_list`]：
-//! - 内容区 1080px 居中（避免大屏摊太开）
-//! - 行：类型 badge 76px / 名称 flex_1 加粗 / 路径 muted / 右侧编辑删除按钮
-//! - 整行点击 = 打开仓库；操作按钮独立 emit（mouse_down 拦冒泡）
-//! - 空态：大圆角块 + 主按钮「选择本地仓库」
+//! 仓库管理页：1080px 居中、整行点击=打开、行内按钮独立 emit。空态主按钮「选择本地仓库」
 
 use gpui::{
     AnyElement, ClickEvent, Context, FontWeight, IntoElement, ParentElement, SharedString, Styled,
@@ -30,10 +14,7 @@ use gpui_component::{
 };
 
 impl VcsView {
-    /// 渲染顶部错误 banner（仅当 self.error 不空时返回 Some）
-    ///
-    /// 红色背景 + 错误文案 + ✕ 关闭按钮；不阻塞下方主内容交互。
-    /// RepoList / IDE 布局都用这个 banner，统一错误展示位置在视图顶部。
+    /// self.error 为空时返回 None；不阻塞下方交互
     pub(super) fn render_error_banner(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let err = self.error.as_ref()?;
         let theme = cx.theme();
@@ -116,8 +97,6 @@ impl VcsView {
         };
         let visible_count = filtered.len();
 
-        // ===== Header =====
-        // 极简布局：左侧搜索框（max 360px）+ 右侧 outline+small 「选择本地仓库」
         let header_inner = h_flex()
             .w_full()
             .items_center()
@@ -170,7 +149,6 @@ impl VcsView {
                     })),
             );
 
-        // 顶部和 tab bar 之间留呼吸空间（pt 比 pb 略大）
         let header = h_flex()
             .w_full()
             .justify_center()
@@ -181,7 +159,6 @@ impl VcsView {
             .border_color(border)
             .child(div().w_full().max_w(px(CONTENT_MAX_W)).child(header_inner));
 
-        // ===== Body =====
         let body: AnyElement = if total == 0 {
             empty_state(border, muted_fg, fg, accent, cx)
         } else if visible_count == 0 {

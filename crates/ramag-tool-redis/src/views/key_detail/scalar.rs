@@ -1,6 +1,4 @@
-//! 标量值（String / Bytes）渲染：Gzip 提示 + 内容区 + 编辑按钮（仅 Text）
-//!
-//! 说明：JSON / Hex / base64 切换 tab 已移除，固定 Raw 模式
+//! 标量值（String / Bytes）渲染：Gzip 提示 + 内容区 + 编辑按钮（仅 Text，固定 Raw）
 
 use gpui::{ClickEvent, Context, IntoElement, ParentElement, Styled, Window, div, prelude::*, px};
 use gpui_component::{

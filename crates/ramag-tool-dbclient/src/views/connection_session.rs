@@ -1,10 +1,4 @@
-//! ConnectionSession：一个打开的连接会话
-//!
-//! 每个 Session 对应顶部一个 Tab，内部持有该连接的：
-//! - 表树（TableTreePanel）
-//! - 查询面板（QueryPanel）
-//!
-//! 用户切换 Tab 即在不同连接环境间切换。
+//! 一个打开的连接会话，对应顶部一个 Tab：表树 + 查询面板
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -206,8 +200,7 @@ impl Render for ConnectionSession {
         h_flex()
             .size_full()
             .bg(theme.background)
-            // ⌘E：切 SQL 编辑器（动作走 dispatch 冒泡到此）
-            // 与表树按钮 emit 的 ToggleSqlEditor 殊途同归，都调 queries.toggle_editor + 同步 tree
+            // cmd-e 切 SQL 编辑器，dispatch 冒泡到此；与表树按钮的 ToggleSqlEditor 同路径
             .on_action(
                 cx.listener(|this, _: &crate::actions::ToggleSqlEditor, _, cx| {
                     let visible = this.queries.update(cx, |q, cx| q.toggle_editor(cx));

@@ -1,7 +1,4 @@
-//! 值显示增强模块
-//!
-//! 提供 Raw / JSON / Hex / base64 四种视图切换，以及 Gzip 自动解压
-//! 仅作用于 String / Bytes 标量类型；List/Hash/Set/ZSet 容器类型不受影响
+//! 值显示：Raw / JSON / Hex / base64 视图 + Gzip 自动解压。仅作用于 String / Bytes 标量
 
 use base64::Engine as _;
 use flate2::read::GzDecoder;

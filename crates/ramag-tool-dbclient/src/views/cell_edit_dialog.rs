@@ -1,12 +1,5 @@
-//! 单元格编辑弹框
-//!
-//! 双击结果集单元格触发：弹框带多行 InputState，初值为该 cell 的当前值。
-//! 用户编辑后点"确认修改"，异步执行 UPDATE 并同步本地 cell。
-//! 失败 / affected_rows=0 时通过 toast 反馈，弹框已关闭，用户可重新打开。
-//!
-//! 调用约束：必须由 listener 在已持 ResultPanel mut ref 的上下文调用，
-//! 数据（col_name + 已建好的 InputState）由调用方预先提供，
-//! 本函数内部不调 panel.read(cx)，避免 GPUI 二次借用 panic。
+//! 单元格编辑：双击触发，多行 InputState 编辑后异步 UPDATE。
+//! 调用方须在已持 ResultPanel mut ref 时传入预建好的数据，本函数不调 panel.read 避免二次借用 panic
 
 use gpui::{
     ClickEvent, Context, Entity, IntoElement, ParentElement, SharedString, Styled, Window, div, px,
@@ -20,12 +13,7 @@ use gpui_component::{
 
 use super::result_panel::ResultPanel;
 
-/// 打开单元格编辑弹框
-/// - col_name：弹框标题里的列名
-/// - input：预建多行编辑框（已 default_value）
-/// - has_pk：当前结果集是否能推断主键（影响弹框上方提示）
-/// - is_view：来源是视图（PG/MySQL 都不允许 UPDATE 视图）；弹框照常打开供"查看完整内容"，
-///   但底部「确认」按钮置灰，标题改为"查看 ..."避免误导用户以为可以提交
+/// is_view=true 时弹框置灰仅查看（PG/MySQL 都不允许 UPDATE 视图），无 PK 时上方加提示
 #[allow(clippy::too_many_arguments)]
 pub(super) fn open(
     panel: Entity<ResultPanel>,

@@ -1,23 +1,14 @@
-//! aes-gcm 加密层
-//!
-//! 用主密钥（来自钥匙串）加密敏感字段。
-//!
-//! # 格式
-//!
-//! 加密后 = `nonce(12 字节) || ciphertext || tag(16 字节内嵌于 aes-gcm 输出)`
-//! 序列化为 hex 字符串方便 JSON 存储
+//! AES-256-GCM 加密。格式：`nonce(12) || ciphertext || tag(16)`，hex 编码后落库
 
 use aes_gcm::aead::{Aead, AeadCore, KeyInit, OsRng};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use ramag_domain::error::{DomainError, Result};
 
-/// AES-256-GCM 加密器
 pub struct Cipher {
     inner: Aes256Gcm,
 }
 
 impl Cipher {
-    /// 用 32 字节主密钥构造
     pub fn new(master_key: &[u8; 32]) -> Self {
         let key = Key::<Aes256Gcm>::from_slice(master_key);
         Self {
@@ -25,7 +16,6 @@ impl Cipher {
         }
     }
 
-    /// 加密明文，返回 hex 字符串
     pub fn encrypt(&self, plaintext: &str) -> Result<String> {
         let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
         let ciphertext = self
@@ -33,14 +23,12 @@ impl Cipher {
             .encrypt(&nonce, plaintext.as_bytes())
             .map_err(|e| DomainError::Storage(format!("加密失败：{e}")))?;
 
-        // nonce(12) || ciphertext+tag
         let mut blob = Vec::with_capacity(12 + ciphertext.len());
         blob.extend_from_slice(&nonce);
         blob.extend_from_slice(&ciphertext);
         Ok(hex::encode(blob))
     }
 
-    /// 解密 hex 字符串，返回明文
     pub fn decrypt(&self, hex_blob: &str) -> Result<String> {
         let blob = hex::decode(hex_blob)
             .map_err(|e| DomainError::Storage(format!("密文 hex 解析失败：{e}")))?;
@@ -85,7 +73,6 @@ mod tests {
 
     #[test]
     fn encrypt_produces_different_ciphertext_each_time() {
-        // 同一明文每次加密 nonce 不同，密文不同
         let cipher = Cipher::new(&dummy_key());
         let c1 = cipher.encrypt("abc").unwrap();
         let c2 = cipher.encrypt("abc").unwrap();
@@ -108,9 +95,7 @@ mod tests {
     fn corrupted_ciphertext_fails() {
         let cipher = Cipher::new(&dummy_key());
         let encrypted = cipher.encrypt("hello").unwrap();
-        // 篡改：把倒数第二个 hex 字符换成另一个值不同的 hex 字符。
-        // 注意：hex::decode 大小写不敏感（'a' 与 'A' 解出同一字节），不能跨大小写换；
-        // 必须换到「值不同」的另一个 hex 字符（0-9 / a-f）。
+        // hex::decode 大小写不敏感，必须换到值不同的字符
         let bytes = encrypted.as_bytes();
         let idx = bytes.len() - 2;
         let replacement: u8 = if bytes[idx] == b'0' { b'1' } else { b'0' };

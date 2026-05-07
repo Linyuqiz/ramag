@@ -1,9 +1,4 @@
-//! List 元素新增弹窗
-//!
-//! 复用 [`super::lines_editor::LinesEditor`]（`LinesKind::List`），与新建 Key
-//! 中 List tab 完全一致：行编辑器 + 头部插入方向（LPUSH / RPUSH）chip。
-//!
-//! 提交命令：`LPUSH/RPUSH key v1 v2 ...`（按编辑器内 push_dir）
+//! List 元素新增：复用 LinesEditor(List)，按 push_dir 发 LPUSH / RPUSH
 
 use std::sync::Arc;
 

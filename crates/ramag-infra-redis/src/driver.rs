@@ -1,12 +1,4 @@
-//! RedisDriver：实现 KvDriver trait
-//!
-//! 所有 trait 方法的实现模式：
-//! 1. clone 配置 + 拿 PoolCache 句柄
-//! 2. `run_in_tokio` 派发到 tokio runtime（GPUI smol 上下文也能 await）
-//! 3. 在 tokio 内：取连接管理器 → 发命令 → 解码应答 → 映射错误
-//!
-//! 内部辅助函数都接收 `&mut ConnectionManager`（克隆出独立句柄后传入），
-//! 不污染缓存。
+//! RedisDriver。实现 KvDriver。每个方法：clone config + pool 句柄 → run_in_tokio → 取 mgr 发命令 → 解码 → 映射错
 
 use async_trait::async_trait;
 use ramag_domain::entities::{ConnectionConfig, KeyMeta, RedisType, RedisValue, ScanResult};
@@ -23,7 +15,6 @@ use crate::value::{
     decode_hash_pairs, decode_stream_entries, decode_value, decode_zset_with_scores,
 };
 
-/// Redis 驱动
 pub struct RedisDriver {
     pools: PoolCache,
 }
@@ -102,7 +93,7 @@ impl KvDriver for RedisDriver {
             if let Some(p) = pattern.as_ref() {
                 cmd.arg("MATCH").arg(p);
             }
-            // SCAN COUNT 是 hint：传 1 也合法，redis 自行决定本批返回多少
+            // COUNT 仅是 hint
             cmd.arg("COUNT").arg(count.max(1));
             if let Some(t) = type_filter {
                 cmd.arg("TYPE").arg(t.as_scan_arg());
@@ -151,7 +142,7 @@ impl KvDriver for RedisDriver {
         let key = key.to_owned();
         run_in_tokio(async move {
             let mut mgr = pools.get_or_create(&config, db).await?;
-            // 先 TYPE，再按类型 dispatch
+            // 先 TYPE 再按类型 dispatch
             let t: String = redis::cmd("TYPE")
                 .arg(&key)
                 .query_async(&mut mgr)
@@ -252,12 +243,10 @@ impl KvDriver for RedisDriver {
     }
 
     fn evict_pool(&self, id: &ramag_domain::entities::ConnectionId) {
-        // 配置变更后强制重建：Redis 池缓存按 (ConnectionId, db) 索引，需清掉所有 db 的池
+        // 池按 (ConnectionId, db) 索引，需清空该连接所有 db
         self.pools.evict_all_dbs(id);
     }
 }
-
-// === 内部命令封装 ===
 
 async fn ping(mgr: &mut ConnectionManager) -> Result<()> {
     let pong: String = redis::cmd("PING")
@@ -282,7 +271,7 @@ async fn run_info(mgr: &mut ConnectionManager, sections: &[&str]) -> Result<Stri
     Ok(s)
 }
 
-/// 从 INFO server 文本里提取 redis_version 字段
+/// 从 INFO server 文本提取 redis_version
 fn parse_redis_version(info: &str) -> String {
     for line in info.lines() {
         if let Some(rest) = line.strip_prefix("redis_version:") {
@@ -372,7 +361,7 @@ async fn fetch_stream(mgr: &mut ConnectionManager, key: &str) -> Result<RedisVal
     decode_stream_entries(v)
 }
 
-/// SCAN 应答：`Array([cursor_str, Array([key1, key2, ...])])`
+/// SCAN 应答 `Array([cursor_str, Array([key, ...])])`
 fn parse_scan_response(v: RV) -> Result<ScanResult> {
     let mut top = match v {
         RV::Array(a) => a,

@@ -1,10 +1,4 @@
-//! 连接表单（新增 / 编辑）
-//!
-//! 弹出（或嵌入）的表单：name / host / port / user / password / database。
-//! 提供"测试连接"和"保存"两个按钮。
-//!
-//! Stage 2 简化：使用嵌入式表单（在 DbClientView 中作为子面板显示），
-//! 不引入完整 Modal 系统。Stage 3 可改为 Modal。
+//! 连接新增 / 编辑表单。在 DbClientView 内嵌入，提供「测试连接」+「保存」
 
 use std::sync::Arc;
 
@@ -45,10 +39,7 @@ pub enum FormEvent {
     Cancelled,
 }
 
-/// 数据库 driver 元数据（id / 显示名 / 是否当前可用）
-///
-/// 顺序固定：UI 选择器从左到右按此渲染。
-/// MongoDB / SQLite 暂不在路线图，先从选择器中移除避免误导
+/// driver 元数据 (id, 显示名, 当前可用)。UI 选择器按此顺序从左到右渲染
 const DRIVERS: &[(&str, &str, bool)] = &[
     ("mysql", "MySQL", true),
     ("postgres", "PostgreSQL", true),

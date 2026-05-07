@@ -1,7 +1,4 @@
-//! 工作区文件分组渲染（IDE Files 面板的内容部分）
-//!
-//! 提供 render_file_groups / render_group / render_file_row + bulk_op_button。
-//! 主入口（含 commit panel 与 diff）改由 ide_layout 组合。
+//! 工作区文件分组渲染（IDE Files 内容）。主入口含 commit panel 与 diff 由 ide_layout 组合
 
 use gpui::{
     AnyElement, ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div,
@@ -193,7 +190,7 @@ impl VcsView {
             .into_any_element()
     }
 
-    /// Changes 树行：dir 行（▾▸ + 名 + 计数，可折叠）/ file 行（复用 render_file_row + 缩进）
+    /// Changes 树行：dir（折叠图标 + 名 + 计数）/ file（复用 render_file_row + 缩进）
     fn render_changes_tree_row(
         &self,
         idx: usize,

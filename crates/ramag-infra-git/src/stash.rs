@@ -1,7 +1,4 @@
-//! Stash 列表查询
-//!
-//! 用 `git stash list --pretty=format:...` 拿结构化字段。`stash@{N}` 索引由 git 维护，
-//! UI 操作（apply / drop）按 idx 反向引用回 git。
+//! Stash 列表 + 操作。`stash@{N}` 索引由 git 维护，UI 按 idx 反查
 
 use std::path::Path;
 
@@ -10,7 +7,6 @@ use ramag_domain::error::Result;
 
 use crate::git_cmd::{run_git_bytes, run_git_text};
 
-/// 把当前未提交改动存进 stash
 pub fn save(repo_path: &Path, message: Option<&str>, include_untracked: bool) -> Result<()> {
     let mut args: Vec<&str> = vec!["stash", "push"];
     if include_untracked {
@@ -23,25 +19,20 @@ pub fn save(repo_path: &Path, message: Option<&str>, include_untracked: bool) ->
     run_git_bytes(repo_path, &args).map(|_| ())
 }
 
-/// 应用某个 stash（pop=true 应用后删除）
+/// pop=true 应用后删除
 pub fn apply(repo_path: &Path, idx: usize, pop: bool) -> Result<()> {
     let cmd = if pop { "pop" } else { "apply" };
     let r = format!("stash@{{{idx}}}");
     run_git_bytes(repo_path, &["stash", cmd, &r]).map(|_| ())
 }
 
-/// 仅删除某个 stash
 pub fn drop(repo_path: &Path, idx: usize) -> Result<()> {
     let r = format!("stash@{{{idx}}}");
     run_git_bytes(repo_path, &["stash", "drop", &r]).map(|_| ())
 }
 
 pub fn list(repo_path: &Path) -> Result<Vec<Stash>> {
-    // 用 `|` 分隔字段，避免与 stash message 内可能的 \x1f 等冲突
-    // %gd: stash@{N} reflog selector
-    // %H : stash 自身的 commit hash
-    // %ct: committer timestamp
-    // %s : subject (stash message)
+    // `|` 分字段：%gd selector / %H commit / %ct ts / %s message
     let out = run_git_text(
         repo_path,
         &["stash", "list", "--pretty=format:%gd|%H|%ct|%s"],

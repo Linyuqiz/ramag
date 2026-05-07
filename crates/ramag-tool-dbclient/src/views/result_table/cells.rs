@@ -1,6 +1,4 @@
-//! 表格 cell 级渲染：表头 / 数据行 / 草稿插入行
-//!
-//! 拆出来让 mod.rs 不超 600 行红线。
+//! 表格 cell：表头 / 数据行 / 草稿插入行
 
 use gpui::{
     AnyElement, ClickEvent, ClipboardItem, Context, InteractiveElement as _, IntoElement,

@@ -1,6 +1,4 @@
-//! 文件内容读取 helper：读盘 + 大文件截断 + 二进制识别 + 主线程 finalize
-//!
-//! 拆出来让 mod.rs 不超 600 行红线。
+//! 文件读盘 + 大文件截断 + 二进制识别 + 主线程 finalize
 
 use super::{PF_FILE_MAX_BYTES, RawFileContent};
 use crate::views::helpers::FileContentSnapshot;

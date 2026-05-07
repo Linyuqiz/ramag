@@ -8,12 +8,7 @@ use super::super::helpers::RemoteOp;
 use super::super::vcs_view::VcsView;
 
 impl VcsView {
-    /// 远程同步：fetch / pull / push
-    ///
-    /// remote 解析策略：
-    /// - 当前分支有 upstream（如 "origin/main"）→ 拆出 remote 名 + 远端分支名
-    /// - 当前分支无 upstream → push 自动加 -u 设置；pull 报错引导用户先 push
-    /// - fetch 总是 `git fetch --all --prune`，多 remote 一并拉
+    /// fetch=`--all --prune`；push 无 upstream 自动 -u；pull 无 upstream 引导先 push
     pub(in crate::views) fn run_remote_op(&mut self, op: RemoteOp, cx: &mut Context<Self>) {
         let Some(repo) = self.repo.as_ref().map(|r| r.id.clone()) else {
             return;

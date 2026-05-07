@@ -1,7 +1,4 @@
-//! 旧侧边栏的折叠段共享件
-//!
-//! 旧 sidebar panel 已被 IDE 三栏布局取代；本文件只保留 `SidebarSection` 与
-//! `section_header`，供 `history_panel` 左栏复用的几个段（本地 / 远程分支、Tag）使用。
+//! 折叠段共享件：SidebarSection + section_header，由 history_panel 左栏复用
 
 use gpui::{
     AnyElement, Context, IntoElement, ParentElement, SharedString, Styled, div, prelude::*, px,
@@ -18,7 +15,7 @@ pub(super) enum SidebarSection {
     Tag,
 }
 
-/// 段落标题：[▼/▶] 名称 (count) — 整行可点击折叠
+/// 段标题：折叠图标 + 名称 + 计数，整行可点折叠
 pub(super) fn section_header(
     title: &'static str,
     count: usize,

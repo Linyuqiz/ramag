@@ -1,7 +1,4 @@
-//! Rebase 操作（subprocess git rebase）
-//!
-//! 与 merge / cherry-pick 并列：把当前分支移到 onto 上方，
-//! 冲突时进入 RepoOperation::Rebase 状态，UI 通过 continue/skip/abort 推进。
+//! `git rebase`。冲突时进入 RepoOperation::Rebase，UI 推进 continue / skip / abort
 
 use std::path::Path;
 

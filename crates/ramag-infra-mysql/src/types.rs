@@ -1,13 +1,4 @@
-//! MySQL 类型 ↔ Domain Value 映射
-//!
-//! 把 sqlx::mysql::MySqlRow 的列值解码成 Domain 的 Value enum。
-//!
-//! # 设计原则
-//!
-//! 1. 优先按列的 SQL 类型名做精确匹配（更可控）
-//! 2. NULL 单独处理（任何类型的列都可能 NULL）
-//! 3. DECIMAL 用 Text 保留精度，不损失到 f64
-//! 4. 处理失败时不 panic，返回 Value::Text 兜底（保证总有值显示）
+//! MySQL 行解码：MySqlRow → Domain Value。按 SQL 类型名精确分发；DECIMAL 用 Text 保精度；失败 Text 兜底
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use ramag_domain::entities::{ColumnKind, ColumnType, Value};
@@ -16,7 +7,6 @@ use sqlx::TypeInfo as _;
 use sqlx::mysql::{MySqlColumn, MySqlRow};
 use sqlx::{Row, ValueRef};
 
-/// 解码一行所有列为 `Vec<Value>`
 pub fn decode_row(row: &MySqlRow) -> Vec<Value> {
     row.columns()
         .iter()
@@ -24,27 +14,22 @@ pub fn decode_row(row: &MySqlRow) -> Vec<Value> {
         .collect()
 }
 
-/// 解码单列值
 fn decode_column(row: &MySqlRow, col: &MySqlColumn) -> Value {
     let type_name = col.type_info().name();
     let idx = col.ordinal();
 
-    // 1. 先判断是否为 NULL（无关具体类型）
     if let Ok(raw) = row.try_get_raw(idx)
         && raw.is_null()
     {
         return Value::Null;
     }
 
-    // 2. 按 MySQL 类型名分发
     match type_name {
-        // 布尔
         "BOOLEAN" => row
             .try_get::<bool, _>(idx)
             .map(Value::Bool)
             .unwrap_or_else(|_| fallback_text(row, idx)),
 
-        // 整数家族
         "TINYINT" => decode_int::<i8>(row, idx),
         "TINYINT UNSIGNED" => decode_int::<u8>(row, idx),
         "SMALLINT" => decode_int::<i16>(row, idx),
@@ -57,7 +42,7 @@ fn decode_column(row: &MySqlRow, col: &MySqlColumn) -> Value {
         "BIGINT UNSIGNED" => row
             .try_get::<u64, _>(idx)
             .map(|v| {
-                // u64 可能溢出 i64，超大值用 Text 保留
+                // u64 超 i64::MAX 时用 Text 保值
                 if v > i64::MAX as u64 {
                     Value::Text(v.to_string())
                 } else {
@@ -66,7 +51,6 @@ fn decode_column(row: &MySqlRow, col: &MySqlColumn) -> Value {
             })
             .unwrap_or_else(|_| fallback_text(row, idx)),
 
-        // 浮点
         "FLOAT" => row
             .try_get::<f32, _>(idx)
             .map(|v| Value::Float(v as f64))
@@ -76,25 +60,22 @@ fn decode_column(row: &MySqlRow, col: &MySqlColumn) -> Value {
             .map(Value::Float)
             .unwrap_or_else(|_| fallback_text(row, idx)),
 
-        // DECIMAL：用字符串保留精度
+        // DECIMAL：字符串保精度
         "DECIMAL" | "NUMERIC" => row
             .try_get::<String, _>(idx)
             .map(Value::Text)
             .unwrap_or_else(|_| fallback_text(row, idx)),
 
-        // 字符串
         "CHAR" | "VARCHAR" | "TEXT" | "TINYTEXT" | "MEDIUMTEXT" | "LONGTEXT" => row
             .try_get::<String, _>(idx)
             .map(Value::Text)
             .unwrap_or_else(|_| fallback_text(row, idx)),
 
-        // 二进制
         "BINARY" | "VARBINARY" | "BLOB" | "TINYBLOB" | "MEDIUMBLOB" | "LONGBLOB" | "BIT" => row
             .try_get::<Vec<u8>, _>(idx)
             .map(Value::Bytes)
             .unwrap_or_else(|_| fallback_text(row, idx)),
 
-        // 时间
         "DATETIME" => row
             .try_get::<NaiveDateTime, _>(idx)
             .map(|nd| Value::DateTime(DateTime::<Utc>::from_naive_utc_and_offset(nd, Utc)))
@@ -113,19 +94,17 @@ fn decode_column(row: &MySqlRow, col: &MySqlColumn) -> Value {
             .unwrap_or_else(|_| fallback_text(row, idx)),
         "YEAR" => decode_int::<u16>(row, idx),
 
-        // JSON
         "JSON" => row
             .try_get::<serde_json::Value, _>(idx)
             .map(Value::Json)
             .unwrap_or_else(|_| fallback_text(row, idx)),
 
-        // ENUM/SET：MySQL 内部是字符串
+        // ENUM/SET 内部存字符串
         "ENUM" | "SET" => row
             .try_get::<String, _>(idx)
             .map(Value::Text)
             .unwrap_or_else(|_| fallback_text(row, idx)),
 
-        // 未知类型：尝试当字符串处理
         _ => fallback_text(row, idx),
     }
 }
@@ -139,16 +118,14 @@ where
         .unwrap_or_else(|_| fallback_text(row, idx))
 }
 
-/// 兜底：尝试当字符串读取，再失败就 Null
+/// 当字符串读，再失败 Null
 fn fallback_text(row: &MySqlRow, idx: usize) -> Value {
     row.try_get::<String, _>(idx)
         .map(Value::Text)
         .unwrap_or(Value::Null)
 }
 
-/// MySQL `data_type` + `column_type` → Domain ColumnType
-///
-/// 用于 list_columns 时把 INFORMATION_SCHEMA.COLUMNS 的列类型映射到 ColumnKind
+/// 把 INFORMATION_SCHEMA.COLUMNS 的 (data_type, column_type) 映射到 ColumnKind
 pub fn map_column_type(data_type: &str, column_type: &str) -> ColumnType {
     let kind = match data_type.to_ascii_uppercase().as_str() {
         "TINYINT" if column_type.eq_ignore_ascii_case("tinyint(1)") => ColumnKind::Bool,
@@ -190,12 +167,10 @@ mod tests {
 
     #[test]
     fn map_tinyint_one_is_bool() {
-        // TINYINT(1) 习惯上当布尔
         assert_eq!(
             map_column_type("TINYINT", "tinyint(1)").kind,
             ColumnKind::Bool
         );
-        // TINYINT(4) 是整数
         assert_eq!(
             map_column_type("TINYINT", "tinyint(4)").kind,
             ColumnKind::Integer

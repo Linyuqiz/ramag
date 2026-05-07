@@ -1,19 +1,5 @@
-//! Project Files 视图：完整目录树 + 文件级 git 状态标记
-//!
-//! 数据来源：[`super::vcs_view::VcsView::project_files`]（git ls-files 拉取）
-//! 渲染流程：
-//!   1. 把扁平 path 列表按 `/` 拆分构建嵌套树（[`build_tree`]）
-//!   2. 按当前展开状态把树扁平化为 `Vec<ProjectRow>`（[`flatten`]）
-//!   3. 用 `uniform_list` 行级虚拟化渲染（28px 等高，与 dbclient 表树同款方案）
-//!
-//! # 默认折叠
-//!
-//! `VcsView::project_expanded_dirs` 空集合 = 全部折叠（仅顶层节点可见）。
-//! 用户点 ▸ 才把目录加入 set，符合 IDE 默认习惯，避免一打开就把仓库全展开。
-//!
-//! # 文件级状态字母（M/A/D/?/U）
-//!
-//! 从 [`super::vcs_view::VcsView::status`] 的 files 中查找；颜色复用 [`super::helpers::code_letter_color`]。
+//! Project Files：git ls-files → 嵌套树 → ProjectRow → uniform_list 行级虚拟化（28px 等高）。
+//! 默认全部折叠（IDE 习惯，避免一打开全展开）；状态字母色复用 `helpers::code_letter_color`
 
 use std::collections::BTreeMap;
 use std::ops::Range;
@@ -43,11 +29,7 @@ type NodeMap = BTreeMap<String, Node>;
 /// `split_dirs_files` 返回类型：(目录节点列表, 文件节点列表)
 type SplitNodes = (Vec<(String, Node)>, Vec<(String, Node)>);
 
-/// 扁平化后的一行（uniform_list 数据单元）
-///
-/// 行高强制 28px：uniform_list 行级度量的硬约束，所有变体必须等高。
-///
-/// 公开到 super，让 VcsView 能在缓存字段里持有 `Rc<Vec<ProjectRow>>`。
+/// uniform_list 行单元，所有变体高度必须等于 28px
 #[derive(Clone)]
 pub(super) enum ProjectRow {
     /// 目录行：箭头 + 名字，可点击折叠/展开
@@ -65,14 +47,7 @@ pub(super) enum ProjectRow {
     },
 }
 
-/// Project Files 扁平化结果的缓存条目
-///
-/// 每次 render 拿当前 (files_version / expanded_version / query) 比对：
-/// - 三者全等 → 命中，复用 rows（Rc clone 廉价）
-/// - 任一不同 → 重建 build_tree + flatten，覆盖此条目
-///
-/// 失效信号：reload_project_files / toggle_project_dir / expand_all / collapse_all
-/// 都会递增对应 version；search query 变化由 cache 内部持有的 query 字段比对
+/// 缓存：三 key (files_version, expanded_version, query) 全等命中复用 rows
 pub(super) struct ProjectRowsCacheEntry {
     pub rows: Rc<Vec<ProjectRow>>,
     pub files_version: u64,
@@ -118,10 +93,7 @@ fn insert_path(map: &mut NodeMap, parts: &[&str], full_path: &str) {
     }
 }
 
-/// DFS 把树扁平化为 `Vec<ProjectRow>`，遇到未展开目录就跳过子节点
-///
-/// `expanded`：已展开目录路径集合；不在集合内的目录视为折叠（默认行为）。
-/// 顺序：每层先目录后文件、各自字母序（沿用 BTreeMap 的迭代序）。
+/// DFS 扁平化。`expanded` 不含的目录视为折叠；每层先目录后文件、按 BTreeMap 字母序
 fn flatten(
     map: NodeMap,
     expanded: &std::collections::HashSet<String>,
@@ -184,9 +156,7 @@ impl VcsView {
             .trim()
             .to_lowercase();
 
-        // ===== 缓存命中检查 =====
-        // 三个 key 全等 → 直接复用上一帧的 rows，跳过 build_tree + flatten
-        // 失败时（列表为空 / 项目空仓库）需要走"空态占位渲染"，所以缓存检查在这之后
+        // 三 key 全等命中缓存复用 rows，跳过 build_tree + flatten
         let rows_rc: Rc<Vec<ProjectRow>> = {
             let cache = self.project_rows_cache.borrow();
             let hit = cache.as_ref().filter(|e| {
@@ -258,7 +228,7 @@ impl VcsView {
         }
     }
 
-    /// 目录行：▸/▾ + 名字，整行可点切换展开
+    /// 目录行：折叠图标 + 名字，整行可点切换展开
     fn render_pf_dir_row(
         &self,
         name: String,
@@ -310,10 +280,7 @@ impl VcsView {
             .into_any_element()
     }
 
-    /// 文件行：状态字母 + 名字，整行可点查看**文件内容**
-    ///
-    /// 与 Changes 模式的 select_file 不同：Project 模式点文件展示磁盘内容（select_pf_file），
-    /// 不走 diff 路径——用户在这里关注的是项目结构 + 文件内容浏览
+    /// 行：状态字母 + 名字。Project 模式点文件走 select_pf_file 看内容，不走 diff
     fn render_pf_file_row(
         &self,
         name: String,
@@ -419,7 +386,7 @@ impl VcsView {
         rows_rc
     }
 
-    /// 切换 Project Files 视图中目录的折叠状态（点击 ▸/▾ 时调用）
+    /// 切换 Project Files 目录的折叠状态
     pub(super) fn toggle_project_dir(&mut self, dir_path: String, cx: &mut Context<Self>) {
         if !self.project_expanded_dirs.remove(&dir_path) {
             self.project_expanded_dirs.insert(dir_path);

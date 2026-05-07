@@ -1,10 +1,4 @@
-//! Redis Session 弹窗集合：新建 Key / 编辑 TTL / 编辑值 /
-//! Hash 字段增改 / List 元素新增 / Set 元素新增 / ZSet 成员新增 / 改 score /
-//! Stream 条目新增 / 通用破坏性操作二次确认
-//!
-//! 这些方法都是 [`super::RedisSessionPanel`] 上的 self method，跨文件用 impl 块继续扩展。
-//! 之所以拆出来：mod.rs 主体（state + new + Render）已 ~430 行，
-//! 9 个 open_*_dialog + confirm 又是 ~430 行模板代码，合在一起会突破 600 行红线。
+//! Redis Session 9 个 open_*_dialog + 破坏性操作二次确认
 
 use std::rc::Rc;
 
@@ -371,11 +365,7 @@ impl RedisSessionPanel {
         });
     }
 
-    /// 通用「破坏性操作二次确认」弹窗（薄封装）
-    ///
-    /// 委托给 [`ramag_ui::open_confirm`]：danger=true、确认按钮文案固定为「删除」。
-    /// 历史回调签名是 `Rc<dyn Fn(&mut Window, &mut App)>`，可能被多次构造但只触发一次，
-    /// 这里包成 `FnOnce` 等价语义。
+    /// 委托 `ramag_ui::open_confirm`，danger=true、按钮文案固定「删除」
     pub(super) fn confirm_delete_op(
         &mut self,
         title: SharedString,

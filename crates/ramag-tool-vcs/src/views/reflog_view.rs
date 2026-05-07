@@ -1,8 +1,5 @@
-//! Reflog 视图：每行 [hash] HEAD@{N} | action | subject | 时间 + 行尾 [Checkout]
-//!
-//! 与 history view 互斥（showing_reflog=true 时由 history_panel 调用）。
-//! 行级虚拟化：用 `uniform_list`（28px 等高）让上千条 reflog 也滚动流畅。
-//! 点击行尾按钮 → checkout 到该 commit（detached HEAD），用户可手动建分支保留。
+//! Reflog 视图：每行 hash / selector / action / subject / 时间 + Checkout 按钮（detached HEAD）。
+//! uniform_list 行级虚拟化，与 history 互斥
 
 use std::ops::Range;
 use std::rc::Rc;

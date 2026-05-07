@@ -1,6 +1,4 @@
-//! `impl Render for QueryTab`：编辑器 + 工具条 + 结果区
-//!
-//! 跨文件 impl 块。工具条按钮的实际行为由 [`super::actions`] 中的 self method 处理。
+//! `impl Render for QueryTab`：编辑器 + 工具条 + 结果区。按钮行为在 actions
 
 use gpui::{
     AppContext as _, ClickEvent, Context, Entity, IntoElement, ParentElement, Render, Styled,

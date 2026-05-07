@@ -1,9 +1,9 @@
-//! 连接配置相关实体
+//! 连接配置实体
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// 连接的唯一标识符
+/// 连接唯一标识
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ConnectionId(pub Uuid);
 
@@ -25,30 +25,18 @@ impl std::fmt::Display for ConnectionId {
     }
 }
 
-/// 数据库类型枚举
-///
-/// v0.1 MySQL，v0.4 起加入 Redis，v0.3+ 加入 PostgreSQL；未来可扩展 SQLite 等
-///
-/// `Hash` 派生让 `ConnectionService` 用 `HashMap<DriverKind, Arc<dyn Driver>>` 多 driver dispatch
+/// 数据库类型。Hash 派生用于 `ConnectionService` 的 `HashMap<DriverKind, Arc<dyn Driver>>` dispatch
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DriverKind {
     Mysql,
-    /// PostgreSQL（关系型，与 Mysql 共用 SqlBackend 抽象层）
+    /// 与 Mysql 共用 SqlBackend 抽象层
     Postgres,
-    /// Redis（KV 形态，使用 KvDriver trait 而非 Driver trait）
+    /// KV 形态，走 KvDriver 而非 Driver
     Redis,
-    // 后续阶段添加：
-    // Sqlite,
 }
 
 impl DriverKind {
-    /// 包裹 SQL 标识符（表名/列名/schema 名）用方言规定的引号
-    ///
-    /// - MySQL：反引号 `` ` `` （内部反引号转义为 ````` ``)
-    /// - PostgreSQL：双引号 `"`（内部双引号转义为 `""`）
-    /// - Redis：不适用（KV 不走 SQL），原样返回
-    ///
-    /// UI 层（如 cell_edit_dialog 拼 UPDATE）按 connection.driver 调用
+    /// 按方言加引号包裹标识符。MySQL 反引号、PG 双引号、Redis 原样
     pub fn quote_identifier(&self, ident: &str) -> String {
         match self {
             DriverKind::Mysql => format!("`{}`", ident.replace('`', "``")),
@@ -58,28 +46,19 @@ impl DriverKind {
     }
 }
 
-/// 连接颜色标签：用作环境提示（dev/prod 区分）
-///
-/// 选 None 时不显示色块；选其他时连接列表 + Tab Bar 都会染色
-/// （v0.2 加只读模式后还会用这个色和 readonly 联动加强 prod 警示）
+/// 连接环境色标（dev / staging / prod 视觉区分）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ConnectionColor {
     #[default]
     None,
-    /// 灰色（默认/本地）
     Gray,
-    /// 绿色（dev / 测试）
     Green,
-    /// 蓝色（staging / 预发）
     Blue,
-    /// 黄色（共享/QA）
     Yellow,
-    /// 红色（prod / 生产，警告）
     Red,
 }
 
 impl ConnectionColor {
-    /// 用于显示的中文标签
     pub fn label(&self) -> &'static str {
         match self {
             ConnectionColor::None => "无",
@@ -91,7 +70,7 @@ impl ConnectionColor {
         }
     }
 
-    /// 全枚举值，UI 选择器用
+    /// 全部枚举值（UI 选择器用）
     pub fn all() -> &'static [ConnectionColor] {
         &[
             ConnectionColor::None,
@@ -104,36 +83,23 @@ impl ConnectionColor {
     }
 }
 
-/// 连接配置
-///
-/// 用户在 UI 上填写的连接参数，序列化后存到本地（密码字段单独加密存储）
+/// 连接配置。密码运行时明文，落盘前由 storage 层 AES-GCM 加密
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectionConfig {
-    /// 唯一标识
     pub id: ConnectionId,
-    /// 用户起的名字（如 "midas-dev"）
     pub name: String,
-    /// 数据库类型
     pub driver: DriverKind,
-    /// 主机
     pub host: String,
-    /// 端口
     pub port: u16,
-    /// 用户名
     pub username: String,
-    /// 密码（运行时使用，存储时加密）
     pub password: String,
-    /// 默认数据库（可选）
     pub database: Option<String>,
-    /// 备注
     pub remark: Option<String>,
-    /// 颜色标签（环境区分）
     #[serde(default)]
     pub color: ConnectionColor,
 }
 
 impl ConnectionConfig {
-    /// 构造一个 MySQL 连接配置（常用入口）
     pub fn new_mysql(
         name: impl Into<String>,
         host: impl Into<String>,
@@ -154,10 +120,7 @@ impl ConnectionConfig {
         }
     }
 
-    /// 构造一个 Redis 连接配置（默认端口 6379）
-    ///
-    /// - `username` 可空字符串：用于 Redis 6.0+ ACL；空时走老版 AUTH（仅密码）
-    /// - `database` 默认 None，driver 启动时按 0 号库进入；后续 select_db 可切换
+    /// 构造 Redis 连接（username 留空走老版 AUTH，6.0+ ACL 时填用户名）
     pub fn new_redis(name: impl Into<String>, host: impl Into<String>, port: u16) -> Self {
         Self {
             id: ConnectionId::new(),
@@ -173,9 +136,7 @@ impl ConnectionConfig {
         }
     }
 
-    /// 构造一个 PostgreSQL 连接配置（默认端口 5432）
-    ///
-    /// PG 必须连接到具体 database（不能不指定），调用方必须提供非空 `database`
+    /// 构造 PostgreSQL 连接。PG 必须指定 database，不能省
     pub fn new_postgres(
         name: impl Into<String>,
         host: impl Into<String>,

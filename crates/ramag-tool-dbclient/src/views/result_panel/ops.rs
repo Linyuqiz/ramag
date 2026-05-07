@@ -1,7 +1,4 @@
-//! ResultPanel 的 DML 操作（行内编辑触发的 INSERT/DELETE/UPDATE）
-//!
-//! 所有方法都是 `impl ResultPanel` 跨文件扩展。共用的 helpers（PK/Where 子句构造）
-//! 在 [`super::helpers`] 中。
+//! ResultPanel DML：行内编辑触发的 INSERT / UPDATE / DELETE
 
 use gpui::Context;
 use gpui_component::notification::Notification;

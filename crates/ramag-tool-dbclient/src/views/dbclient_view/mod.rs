@@ -1,21 +1,4 @@
-//! DbClientView：DB Client 工具的根视图（多连接 Tab 版）
-//!
-//! 布局：
-//! ```text
-//! ┌────────────────────────────────────────────────────────┐
-//! │ [Conn-A ✕] [Conn-B ✕]              + 打开连接          │ ← 顶部连接 Tab Bar
-//! ├────────────────────────────────────────────────────────┤
-//! │                                                        │
-//! │  当前 Session 内容（左 Tree + 右 QueryPanel）           │
-//! │  或：连接管理面板（保存的连接 + 新建按钮）               │
-//! │                                                        │
-//! └────────────────────────────────────────────────────────┘
-//! ```
-//!
-//! 模块拆分：
-//! - 本文件：types + struct + 短的 session 操作（new/select/close/show_picker/open_session）
-//! - `render`：impl Render（顶部 tab bar + 中心内容渲染）
-//! - `dialogs`：连接表单弹窗 / 删除确认 / 异步删除处理
+//! DB Client 根视图：多连接 Tab，顶部连接 tab bar + 中心 session / picker
 
 mod dialogs;
 mod render;
@@ -41,11 +24,7 @@ pub(super) enum CenterMode {
     ConnectionPicker,
 }
 
-/// 已打开的会话：按 driver 区分两种内部组件
-///
-/// SQL 类（MySQL / Postgres）走 ConnectionSession（QueryPanel + Tree）；
-/// Redis 走 ramag-tool-redis 的 RedisSessionPanel（Key 树 + 详情）。
-/// 按 SqlBackend 抽象层后，未来加 SQLite 等关系型数据库直接复用 Sql 变体即可
+/// SQL 类（MySQL / Postgres / 未来 SQLite）走 ConnectionSession；Redis 走 RedisSessionPanel
 pub(super) enum SessionEntity {
     Sql(Entity<ConnectionSession>),
     Redis(Entity<RedisSessionPanel>),

@@ -1,6 +1,4 @@
-//! 列宽估算 + 列宽拖拽（ColResizeDrag）+ 单元格编辑器 + 数值列检测 + 排序比较 + Hsla.opacity 扩展
-//!
-//! 拆出来让 mod.rs 不超 600 行红线。
+//! 列宽估算 + 拖拽 + 单元格编辑器 + 数值列检测 + 排序比较 + Hsla.opacity 扩展
 
 use gpui::{
     AnyElement, AppContext as _, Context, DragMoveEvent, IntoElement, SharedString, Styled, div,

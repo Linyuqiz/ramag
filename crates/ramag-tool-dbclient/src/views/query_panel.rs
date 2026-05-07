@@ -1,7 +1,4 @@
-//! 多标签查询面板
-//!
-//! 顶部 TabBar（每个 Tab 显示标题 + ✕ 关闭按钮，最右边 + 按钮新建）
-//! 下方显示当前选中 Tab 的 QueryTab 视图。
+//! 多标签查询面板：顶部 TabBar + 当前 QueryTab 视图
 
 use std::sync::Arc;
 
@@ -39,11 +36,9 @@ pub struct QueryPanel {
     connection: Option<ConnectionConfig>,
     /// 当前激活的默认库（点表树/schema 行后同步给所有 Tab）
     active_schema: Option<String>,
-    /// 历史面板（懒创建一次，按 connection 切换内容）
-    /// 现在以 Dialog 弹框形式展示，⌘⇧H 触发；不再替换主区
+    /// 历史面板，懒创建一次。Dialog 弹框形式，cmd-shift-h 触发
     history: Entity<HistoryPanel>,
-    /// SQL 编辑器是否展示：默认 false；表树按钮 / ⌘E 切换
-    /// 全局生效（同步给所有 Tab），新建 Tab 时也按此初始化
+    /// SQL 编辑器显隐（cmd-e 或表树按钮切换；全局生效，新 Tab 按此初始化）
     show_editor: bool,
     /// tab bar 横向滚动句柄：tab 多到溢出时，新建后滚到末尾让新 tab 可见
     tabs_scroll: ScrollHandle,
@@ -86,8 +81,7 @@ impl QueryPanel {
             connection: None,
             active_schema: None,
             history,
-            // 默认隐藏 SQL 编辑器：数据浏览/导出是主场景，
-            // 用户要写 SQL 时按 ⌘E 或点表树按钮唤出
+            // 数据浏览 / 导出是主场景，写 SQL 走 cmd-e 或表树按钮唤出
             show_editor: false,
             tabs_scroll: ScrollHandle::new(),
             _subscriptions: subs,
@@ -193,10 +187,9 @@ impl QueryPanel {
         self.tabs.push(tab);
         self.titles.push(title);
         self.active = self.tabs.len() - 1;
-        // 新建后聚焦编辑器：⌘T 直接能开始打字
+        // 聚焦编辑器，cmd-t 后立即可输入
         self.focus_active_editor(window, cx);
-        // tab 多时溢出隐藏到右边；用大负值 offset 让 tab bar 滚到末尾，
-        // GPUI 会自动 clamp 到 max_offset，新 tab 立刻可见
+        // 大负 offset 让 tab bar 滚末尾，GPUI 自动 clamp 到 max_offset
         self.tabs_scroll
             .set_offset(Point::new(px(-99999.0), px(0.0)));
         cx.notify();
@@ -375,11 +368,11 @@ impl Render for QueryPanel {
         v_flex()
             .size_full()
             .key_context("QueryPanel")
-            // 监听全局 NewQueryTab / CloseTab action（绑定 ⌘T / ⌘W 见 main.rs）
+            // 监听 NewQueryTab / CloseTab，绑定见 main.rs
             .on_action(cx.listener(|this, _: &NewQueryTab, window, cx| {
                 this.add_tab(window, cx);
             }))
-            // ⌘W：多 tab 时关当前 tab；仅剩一个 tab 时让事件冒泡到全局 fallback 关窗（VSCode 风格）
+            // 多 tab 时关当前；剩一个时冒泡到全局 fallback 关窗（VSCode 风）
             .on_action(cx.listener(|this, _: &CloseTab, window, cx| {
                 if this.tabs.len() > 1 {
                     let idx = this.active;
@@ -388,12 +381,11 @@ impl Render for QueryPanel {
                     cx.propagate();
                 }
             }))
-            // ⌘⇧H：切换历史弹框（开则关、关则开）
+            // ToggleHistory 切换弹框开关
             .on_action(cx.listener(|this, _: &ToggleHistory, window, cx| {
                 this.toggle_history(window, cx);
             }))
-            // Tab Bar：仅在 SQL 编辑器可见时渲染（隐藏时 + / 格式化 / EXPLAIN 都无意义）
-            // 历史按钮迁移到弹框（⌘⇧H），不再放 TabBar 右侧
+            // Tab Bar 仅在 SQL 编辑器可见时渲染
             .when(self.show_editor, |panel| {
                 panel.child(
                     h_flex()

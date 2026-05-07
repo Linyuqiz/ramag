@@ -1,9 +1,4 @@
-//! SQL 自动补全
-//!
-//! 实现 gpui-component 的 `CompletionProvider` trait：
-//! - Phase 1：静态 SQL 关键字
-//! - Phase 2：当前连接默认 schema 的表名（`FROM` / `JOIN` 等位置后）
-//! - Phase 3：当前查询涉及表的列名（`SELECT` / `WHERE` 等位置后；待实现）
+//! SQL 补全：实现 gpui-component CompletionProvider。当前覆盖关键字 + 默认 schema 表名
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -175,12 +170,7 @@ fn extract_tables_with_schema(sql: &str) -> Vec<(Option<String>, String)> {
     tables
 }
 
-/// 构造一个 CompletionItem 的小帮手，统一格式
-///
-/// `documentation` 走 markdown 写整段说明（全名 + 类型 + 归属）；
-/// 上游 `CompletionMenu` 在选中项右侧渲染 docs 面板（`render_markdown`），
-/// 即使主弹窗 320px 卡死、长名被截断，用户上下移动光标到该项时
-/// 右边 docs 面板会显示完整信息。这是上游对长内容的官方推荐做法。
+/// `documentation` 走 markdown，长名在右侧 docs 面板可见（上游 CompletionMenu 行为）
 fn make_item(
     label: String,
     kind: CompletionItemKind,
@@ -260,9 +250,7 @@ impl CompletionProvider for SqlCompletionProvider {
         let mut items: Vec<CompletionItem> = Vec::new();
 
         match context {
-            // 1. Table 上下文：建议表名（默认 schema 优先）
-            // documentation 写 markdown 全名 + 所属 schema —— 即使弹窗被截 320px，
-            // 选中项右侧 docs 面板能显示完整信息
+            // Table：建议表名（默认 schema 优先）；documentation 走 markdown 让长名在 docs 面板可见
             SqlContext::Table => {
                 let cache = self.cache.read();
                 let default_schema = cache.default_schema.clone();
@@ -308,9 +296,7 @@ impl CompletionProvider for SqlCompletionProvider {
                     }
                 }
             }
-            // 2. Column 上下文：解析 FROM 找出涉及的表，从 cache.columns 取列
-            // 注意：用整段 SQL 解析（不只是光标前），因为 FROM 可能在光标后
-            // 如 `SELECT t|<cursor> FROM users`
+            // Column：用整段 SQL 解析（FROM 可能在光标后，如 `SELECT t|<cursor> FROM users`）
             SqlContext::Column => {
                 let tables_in_use = extract_tables_in_use(&text);
                 let cache = self.cache.read();
@@ -345,7 +331,7 @@ impl CompletionProvider for SqlCompletionProvider {
             SqlContext::Other => {}
         }
 
-        // 3. 关键字（任何上下文都可以补，作为兜底；总数控制在 50 内）
+        // 关键字兜底，总数 ≤ 50
         for kw in SQL_KEYWORDS {
             if items.len() >= 50 {
                 break;
@@ -374,13 +360,7 @@ impl CompletionProvider for SqlCompletionProvider {
     }
 }
 
-/// 列过滤框补全 provider：候选列 = 当前结果集列名（不属于 SchemaCache）
-///
-/// 由 ResultPanel 创建并把 `Arc<RwLock<Vec<String>>>` 共享：每次新查询返回时
-/// ResultPanel 把结果列名写入这个 Arc，下次用户在过滤框敲字就能看到最新列。
-///
-/// Token 切分：以光标前最近的 `,` 为左边界，跳过前导空格
-/// 目的：用户在 `id, na` 状态下敲字，只匹配 `na` 这段而非整个文本
+/// 候选列 = ResultPanel 的当前结果列名，按光标前最近的 `,` 切 token 仅匹配最后一段
 pub struct ColumnFilterCompletionProvider {
     columns: Arc<RwLock<Vec<String>>>,
 }

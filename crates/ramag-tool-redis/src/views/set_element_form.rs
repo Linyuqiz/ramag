@@ -1,9 +1,4 @@
-//! Set 成员新增弹窗
-//!
-//! 复用 [`super::lines_editor::LinesEditor`]（`LinesKind::Set`），与新建 Key
-//! 中 Set tab 完全一致：行编辑器 + 提交时客户端去重。
-//!
-//! 提交命令：`SADD key m1 m2 ...`（已去重）
+//! Set 成员新增：复用 LinesEditor(Set)，提交时客户端去重，发 `SADD`
 
 use std::collections::HashSet;
 use std::sync::Arc;

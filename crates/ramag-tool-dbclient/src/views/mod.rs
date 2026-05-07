@@ -1,10 +1,4 @@
-//! DB Client 工具视图集合
-//!
-//! 视图层次：
-//! - [`DbClientView`]：根视图，三栏布局
-//! - [`connection_list::ConnectionListPanel`]：左栏连接列表
-//! - [`connection_form::ConnectionFormPanel`]：连接增/改表单
-//! - [`table_tree::TableTreePanel`]：表树（schema → tables）
+//! DB Client 视图集合：DbClientView 根视图 + 连接 / 表单 / 表树等子面板
 
 pub mod cell_edit_dialog;
 pub mod connection_form;

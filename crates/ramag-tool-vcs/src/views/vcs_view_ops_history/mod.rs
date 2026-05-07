@@ -1,10 +1,4 @@
-//! VcsView 历史相关 ops 入口
-//!
-//! 模块拆分（防止 600 行红线）：
-//! - 本文件：history view 切换 + commit 详情加载 + 搜索查询解析（parse_search_query / parse_relative_time）
-//! - `modify`：HEAD 移动类（Reset / Revert / 切换分支前的 stash / discard）
-//! - `blame_ops`：blame 加载 + inline blame banner
-//! - `reflog_ops`：reflog 加载 + checkout
+//! VcsView 历史 ops：history 切换 + commit 详情 + 搜索解析。子模块 modify / blame_ops / reflog_ops
 
 mod blame_ops;
 mod modify;
@@ -20,10 +14,7 @@ use super::helpers::ViewMode;
 use super::vcs_view::VcsView;
 
 impl VcsView {
-    /// 进入「单文件历史」：设置 path_filter + 强制打开下半 history pane + 重新拉首页
-    ///
-    /// IDE 布局下 ViewMode::History 已不再用于切视图，但保留赋值兼容旧路径；
-    /// 关键是把 history_pane_visible=true，否则用户点按钮看不到任何反馈
+    /// 单文件历史：设 path_filter + 打开下半 history pane（history_pane_visible=true 必需，否则无反馈）
     pub(crate) fn view_file_history(&mut self, path: String, cx: &mut Context<Self>) {
         self.history_path_filter = Some(path);
         self.view_mode = ViewMode::History;

@@ -1,6 +1,4 @@
-//! 通用偏好 KV CRUD（同步内部实现）
-//!
-//! 用途：主题模式 / 上次连接 ID / 窗口尺寸等单条 string 偏好
+//! 偏好 KV：主题 / 上次连接 ID / 窗口尺寸等单条 string
 
 use std::sync::Arc;
 
@@ -17,7 +15,7 @@ pub(crate) fn get(db: Arc<Database>, key: String) -> Result<Option<String>> {
         .map_err(|e| DomainError::Storage(format!("启动读事务失败：{e}")))?;
     let table = match read_txn.open_table(PREFERENCES_TABLE) {
         Ok(t) => t,
-        Err(_) => return Ok(None), // 表不存在视为未设置
+        Err(_) => return Ok(None),
     };
     let v = table
         .get(key.as_str())

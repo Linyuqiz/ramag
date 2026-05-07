@@ -31,12 +31,9 @@ impl Render for ConnectionListPanel {
         let visible_count = visible.len();
         let selected = self.selected.clone();
 
-        // 内容统一限制最大宽度 1080px 居中，避免大屏摊得太开
-        // 头部和列表行用同一个容器宽度，左右对齐整齐
+        // 大屏限宽 1080px 居中，header 和列表共用同宽容器
         const CONTENT_MAX_W: f32 = 1080.0;
 
-        // ===== Header =====
-        // 极简布局：左侧搜索框（max 360px）+ 右侧"新建连接"（outline + small，更克制）
         let header_inner = h_flex()
             .w_full()
             .items_center()
@@ -62,7 +59,6 @@ impl Render for ConnectionListPanel {
                     })),
             );
 
-        // 顶部和 tab bar 之间留出呼吸空间（pt 比 pb 略大）
         let header = h_flex()
             .w_full()
             .justify_center()
@@ -73,7 +69,6 @@ impl Render for ConnectionListPanel {
             .border_color(border)
             .child(div().w_full().max_w(px(CONTENT_MAX_W)).child(header_inner));
 
-        // ===== Body =====
         let body: AnyElement = if loading {
             v_flex()
                 .size_full()

@@ -1,30 +1,16 @@
-//! ResultPanel 的自由函数辅助 + `PendingInsert` 结构
-//!
-//! - 主键定位（`find_pk_idx`）
-//! - WHERE 子句构造（`build_pk_where`，主键缺失时全列等值兜底）
-//! - 单元格类型转换（`build_new_value_for_old` / `escape_new_value_for_old`）
-//! - DML LIMIT 方言（`dml_row_limit`：MySQL 加 LIMIT 1，PG 不支持）
-//! - 首张表引用提取（`extract_first_table_ref` 用于复制 INSERT）
-//! - 用户输入校验转换（`parse_value_for_kind`：新增草稿行 / 单元格编辑共用）
+//! ResultPanel 自由函数：主键定位 / WHERE 拼装 / 类型转换 / DML LIMIT 方言 / 表名提取 / 输入校验
 
 use gpui::Entity;
 use gpui_component::input::InputState;
 use ramag_domain::entities::{Column, ColumnKind, QueryResult, Value};
 
-/// 新增草稿行的状态：渲染层从 `ResultPanel.pending_insert` 读
-///
-/// 跨模块（result_panel + views/result_table.rs）共用，因此 pub(crate)。
-/// 目标表 schema / table 不在这里——构造 INSERT 时调 `current_table_ref()`，
-/// 该函数走 `extract_first_table_ref` 从 SQL 文本反推（与 UPDATE/DELETE 一致路径）
+/// 新增草稿行。表名在 INSERT 时由 `extract_first_table_ref` 从 SQL 反推，与 UPDATE/DELETE 一致
 pub(crate) struct PendingInsert {
     pub columns: Vec<Column>,
     pub inputs: Vec<Entity<InputState>>,
 }
 
-/// 把用户输入按列类型转换 Value（提交新增 / 单元格编辑共用）
-/// - Ok(Some(v))：填了具体值
-/// - Ok(None)：留空 + 有 default → 跳过让 DB 用 DEFAULT
-/// - Err(msg)：必填空 / 类型不匹配 / 不可为 NULL 等
+/// 用户输入 → Value。Ok(Some)=有值、Ok(None)=留空且有 default 走 DB DEFAULT、Err=非法
 pub(super) fn parse_value_for_kind(
     kind: ColumnKind,
     text: &str,
@@ -150,11 +136,7 @@ pub(super) fn escape_new_value_for_old(old: &Value, new_text: &str) -> String {
     build_new_value_for_old(old, new_text).to_sql_literal()
 }
 
-/// 单行 DML（UPDATE/DELETE）的 LIMIT 子句（前缀含一个空格便于直接拼接）
-///
-/// - MySQL：` LIMIT 1` 防误删
-/// - PostgreSQL：空（PG 不支持 UPDATE/DELETE 加 LIMIT）
-/// - Redis：空（不走 SQL）
+/// 单行 DML LIMIT 子句。MySQL ` LIMIT 1` 防误删；PG / Redis 不支持，返回空
 pub(super) fn dml_row_limit(driver: ramag_domain::entities::DriverKind) -> &'static str {
     match driver {
         ramag_domain::entities::DriverKind::Mysql => " LIMIT 1",

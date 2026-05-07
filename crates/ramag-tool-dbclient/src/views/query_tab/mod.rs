@@ -1,10 +1,4 @@
-//! 单个查询标签的视图：编辑器 + 工具条 + 结果面板
-//!
-//! 模块拆分：
-//! - 本文件：`QueryTab` struct + `new` + 公共 API（getters / set_xxx / 公开 run）
-//! - [`actions`]：所有 self method 实现（运行 / 取消 / EXPLAIN / 格式化 / 保存 / 错误高亮）
-//! - [`render`]：`impl Render for QueryTab`
-//! - [`sql_utils`]：纯 SQL 工具函数（自动 LIMIT 注入 / 错误行号 / 光标处单语句提取等）
+//! 单个查询标签：编辑器 + 工具条 + 结果面板
 
 mod actions;
 mod render;

@@ -1,7 +1,4 @@
-//! Merge 操作（subprocess git merge）
-//!
-//! 与 cherry_pick / rebase 并列；冲突时仓库进入 RepoOperation::Merge 状态，
-//! UI 通过 continue / abort 推进。
+//! `git merge`。冲突时进入 RepoOperation::Merge，UI 推进 continue / abort
 
 use std::path::Path;
 
@@ -9,9 +6,7 @@ use ramag_domain::error::Result;
 
 use crate::git_cmd::run_git_bytes;
 
-/// 合并指定分支到当前 HEAD
-///
-/// `no_ff=true` 强制建 merge commit；`ff_only=true` 要求必须 ff，否则失败
+/// no_ff=强制 merge commit；ff_only=必须 ff 否则失败
 pub fn start(
     repo_path: &Path,
     branch: &str,

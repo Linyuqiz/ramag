@@ -1,20 +1,11 @@
-//! redis::Value (RESP) → ramag_domain::RedisValue 转换
-//!
-//! redis-rs 把 RESP 应答统一表达为 `redis::Value`：
-//! - RESP2: Nil / Int / BulkString / Array / SimpleString / Okay
-//! - RESP3: + Map / Set / Double / Boolean / VerbatimString / BigNumber / Push
-//!
-//! 本模块负责把这些应答原样翻译到 Domain 的 RedisValue；
-//! 类型专属命令（HGETALL/LRANGE/ZRANGE/XRANGE）由 driver 调用配套
-//! 解码函数（[`decode_hash_pairs`] 等）整理结构
+//! `redis::Value`（RESP2/RESP3）→ Domain `RedisValue`。
+//! 类型专属命令（HGETALL/LRANGE/ZRANGE/XRANGE）走配套解码函数整理结构
 
 use ramag_domain::entities::{RedisValue, StreamEntry};
 use ramag_domain::error::{DomainError, Result};
 use redis::Value as RV;
 
-/// 通用 RESP → RedisValue
-///
-/// 对未识别 / 不应在此层出现的变体（Push / Attribute / ServerError）兜底返回 Array
+/// 通用 RESP → RedisValue。Push/Attribute/ServerError 兜底成文本
 pub fn decode_value(v: RV) -> RedisValue {
     match v {
         RV::Nil => RedisValue::Nil,
@@ -30,13 +21,12 @@ pub fn decode_value(v: RV) -> RedisValue {
         RV::VerbatimString { text, .. } => RedisValue::Text(text),
         RV::BigNumber(s) => RedisValue::Text(s.to_string()),
         RV::Push { data, .. } => RedisValue::Array(data.into_iter().map(decode_value).collect()),
-        // ServerError / Attribute 兜底：转成简短文本，不当 Err 抛
-        // （正常路径上服务端错误已在 redis-rs 内部包装为 RedisError，到不了此处）
+        // ServerError / Attribute 不在正常路径出现（已被 redis-rs 包成 RedisError）
         other => RedisValue::Text(format!("{other:?}")),
     }
 }
 
-/// BulkString → Text（UTF-8 成功时）/ Bytes（失败时 fallback）
+/// UTF-8 成功 → Text；失败 → Bytes
 fn decode_bulk(bytes: Vec<u8>) -> RedisValue {
     match String::from_utf8(bytes) {
         Ok(s) => RedisValue::Text(s),
@@ -44,7 +34,7 @@ fn decode_bulk(bytes: Vec<u8>) -> RedisValue {
     }
 }
 
-/// RESP3 Map → RedisValue::Hash（key 强制 utf-8 字符串；非 utf-8 则 fallback Array）
+/// RESP3 Map → Hash（key 须 utf-8；否则 fallback Array）
 fn decode_map(pairs: Vec<(RV, RV)>) -> RedisValue {
     let mut hash: Vec<(String, RedisValue)> = Vec::with_capacity(pairs.len());
     for (k, v) in pairs {
@@ -83,11 +73,11 @@ fn fallback_map_to_array_other(
     RedisValue::Array(arr)
 }
 
-/// HGETALL 应答（扁平 [field, value, field, value, ...]）→ RedisValue::Hash
+/// HGETALL 扁平 [field, value, ...] → Hash
 pub fn decode_hash_pairs(v: RV) -> Result<RedisValue> {
     let arr = match v {
         RV::Array(a) => a,
-        // RESP3 直接返回 Map
+        // RESP3 直接 Map
         RV::Map(pairs) => return Ok(decode_map(pairs)),
         RV::Nil => return Ok(RedisValue::Nil),
         other => {
@@ -157,8 +147,7 @@ fn parse_score(v: RV) -> Result<f64> {
             .map_err(|e| DomainError::QueryFailed(format!("score 字节非 utf-8：{e}")))?
             .parse::<f64>()
             .map_err(|e| DomainError::QueryFailed(format!("score 解析失败：{e}"))),
-        // BigNumber 携带 BigInt（精度超 i64），通过其 Display 转字符串再解析
-        // 注意：极大数会损失精度，但 ZSCORE 不会返回此类值，仅是兜底
+        // BigNumber 极大数会丢精度，但 ZSCORE 不会回此类值，仅作兜底
         RV::BigNumber(big) => big
             .to_string()
             .parse::<f64>()
@@ -169,9 +158,7 @@ fn parse_score(v: RV) -> Result<f64> {
     }
 }
 
-/// XRANGE / XREVRANGE 应答 → RedisValue::Stream
-///
-/// 应答结构：`Array([Array([id_bulk, Array([f, v, f, v, ...])]), ...])`
+/// XRANGE / XREVRANGE 应答 `Array([Array([id, Array([f, v, ...])]), ...])` → Stream
 pub fn decode_stream_entries(v: RV) -> Result<RedisValue> {
     let entries = match v {
         RV::Array(a) => a,
@@ -295,7 +282,6 @@ mod tests {
 
     #[test]
     fn decode_zset_with_scores_works() {
-        // 用非 π/e 近似的常量避开 clippy::approx_constant
         let alice_score: f64 = 1.5;
         let bob_score: f64 = 4.25;
         let arr = RV::Array(vec![

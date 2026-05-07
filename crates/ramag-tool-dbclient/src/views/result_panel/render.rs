@@ -1,7 +1,4 @@
-//! `impl Render for ResultPanel` + 警告 banner + 复制操作
-//!
-//! - SHOW WARNINGS 提示条（仅 MySQL，从 `qr.warnings` 读）
-//! - ⌘C 复制选中单元格 / 列名（由 `actions::CopyCellValue` / `CopySelectedColumn` 触发）
+//! `impl Render for ResultPanel` + 警告 banner（MySQL SHOW WARNINGS） + 复制单元格 / 列名
 
 use gpui::{
     ClickEvent, ClipboardItem, Context, Focusable as _, IntoElement, ParentElement, Render,

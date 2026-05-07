@@ -1,6 +1,4 @@
-//! `QueryTab` 上的行为方法（运行 / 取消 / 格式化 / EXPLAIN / 保存 / 错误高亮 等）
-//!
-//! 跨文件 impl 块：所有方法都是 `impl QueryTab` 的成员，与 mod.rs 共享 struct 字段。
+//! `impl QueryTab` 行为方法：运行 / 取消 / 格式化 / EXPLAIN / 保存 / 错误高亮
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -78,10 +76,8 @@ impl QueryTab {
         self.submit_sql(to_run, trimmed, false, cx);
     }
 
-    /// 提交 SQL 到 driver：handle_run / handle_explain 共享的核心
-    /// - sql_to_run: 实际发给 driver 的语句
-    /// - title_sql: 用于 short_title 派生 + DDL 检测的"用户原始语句"
-    /// - is_run: 是 run 还是 explain；explain 不刷新 cache
+    /// run / explain 共用核心。`sql_to_run` 实际发给 driver；`title_sql` 用于派生标题 + DDL 检测；
+    /// `is_run=false` 时是 explain，不刷 schema cache
     pub(super) fn submit_sql(
         &mut self,
         sql_to_run: String,

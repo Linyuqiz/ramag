@@ -1,7 +1,4 @@
-//! Ramag 首页 — 终端风
-//!
-//! 结构：ANSI Shadow 大字 RAMAG + 一行 tagline + 两模块卡（数据库 · 版本管理）。
-//! 数据库卡点击直接进入 dbclient（数据库类型选择由 dbclient 内部完成）。
+//! 首页：ANSI Shadow Logo + tagline + 两模块卡（数据库 / 版本管理）
 
 use std::sync::Arc;
 
@@ -21,7 +18,7 @@ pub enum HomeEvent {
     OpenConnection(ConnectionId),
 }
 
-/// ANSI Shadow 风 "RAMAG" 大字（每行等宽，配合 mono 字体显示成连续色块）
+/// ANSI Shadow 大字，等宽对齐
 const RAMAG_LOGO: &[&str] = &[
     "██████╗  █████╗ ███╗   ███╗ █████╗  ██████╗ ",
     "██╔══██╗██╔══██╗████╗ ████║██╔══██╗██╔════╝ ",
@@ -57,7 +54,6 @@ impl Render for HomeView {
         let mono = theme.mono_font_family.clone();
         let bg = theme.background;
 
-        // 外层撑满 + 滚动；内容距顶 96px（视觉居中偏上 1/3）
         v_flex().size_full().bg(bg).overflow_y_scrollbar().child(
             v_flex().size_full().items_center().pt(px(96.0)).child(
                 v_flex()
@@ -106,9 +102,8 @@ impl Render for HomeView {
     }
 }
 
-/// Logo 区：ANSI Shadow 大字 + tagline（等宽字体居中）
 fn render_logo(mono: SharedString, accent: gpui::Hsla, muted_fg: gpui::Hsla) -> impl IntoElement {
-    // 渐变叠色：从顶部稍亮往下逐行掉点 alpha，制造层次感
+    // 顶部稍亮往下逐行掉 alpha 做层次
     let mut lines = Vec::with_capacity(RAMAG_LOGO.len());
     for (i, line) in RAMAG_LOGO.iter().enumerate() {
         let alpha = 1.0 - (i as f32) * 0.06;
@@ -142,7 +137,6 @@ fn render_logo(mono: SharedString, accent: gpui::Hsla, muted_fg: gpui::Hsla) -> 
         )
 }
 
-/// 主模块卡片：可点击，hover 高亮。水平布局 + shadow 立体感
 #[allow(clippy::too_many_arguments)]
 fn active_module_card(
     id: &'static str,
@@ -172,13 +166,11 @@ fn active_module_card(
         .bg(bg)
         .border_1()
         .border_color(border)
-        // 默认 shadow_sm 给卡片轻微悬浮感；hover 时升级到 shadow_md 模拟"抬起"
         .shadow_sm()
         .cursor_pointer()
         .hover(move |this| this.bg(hover_bg).border_color(accent).shadow_md())
         .on_click(on_click)
         .child(
-            // icon 自身也带 shadow，跟卡片层级错开 + 渐变更亮 → 立体小方块感
             div()
                 .flex_none()
                 .w(px(44.0))
@@ -203,7 +195,6 @@ fn active_module_card(
                         .text_color(fg)
                         .child(name),
                 )
-                // desc 为空字符串时不渲染副标题行
                 .when(!desc.is_empty(), |this| {
                     this.child(div().text_xs().text_color(muted_fg).child(desc))
                 }),

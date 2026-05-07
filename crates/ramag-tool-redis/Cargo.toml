@@ -21,10 +21,7 @@ gpui-component = { workspace = true }
 # 异步组合（key_detail 并发拉值 + TTL 用 futures::join）
 futures = { workspace = true }
 
-# 值显示增强：Stage 18.3
-# - serde_json：JSON pretty 渲染
-# - base64：Bytes ↔ base64 切换显示
-# - flate2：Gzip 自动解压（magic 1f 8b 检测后透明解压）
+# 值显示增强：JSON pretty / base64 切换 / Gzip 解压
 serde_json = { workspace = true }
 base64 = "0.22"
 flate2 = "1"

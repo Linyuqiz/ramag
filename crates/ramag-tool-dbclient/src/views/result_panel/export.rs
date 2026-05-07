@@ -1,9 +1,5 @@
-//! 结果集导出：CSV / JSON / Markdown
-//!
-//! 流程：序列化（同步）→ rfd 弹保存对话框（独立线程）→ 写文件 →
-//! oneshot 把结果送回主线程 → 设置 pending_notification → 触发 render 推 toast
-//!
-//! 范围：selected_rows 非空 → 仅导出勾选行；否则全部
+//! 结果集导出 CSV/JSON/Markdown：序列化→rfd 保存→oneshot 回主线程→pending_notification→toast。
+//! selected_rows 非空只导勾选行，否则全部
 
 use std::path::PathBuf;
 

@@ -1,13 +1,4 @@
-//! Ramag VCS（Git）可视化工具
-//!
-//! Phase A 骨架：仅注册 Tool 元数据，提供最小 view（仓库选择 + 状态预览）；
-//! Phase B+ 逐步补：commit / diff / branch / push / pull / stash / log 等。
-//!
-//! 与 dbclient 同分层：
-//! - 本 crate（tool-vcs）：UI 层
-//! - `ramag-infra-git`：gix 实现 GitDriver trait
-//! - `ramag-app::VcsService`：Use case 聚合（暂未抽出，先在 view 内直调 driver）
-//! - `ramag-domain`：实体 + GitDriver trait
+//! VCS（Git）UI 层。底层 ramag-infra-git；尚未抽 VcsService，view 直调 driver
 
 pub mod views;
 
@@ -18,7 +9,7 @@ use std::sync::Arc;
 use gpui::{App, AppContext as _, Entity, Window};
 use ramag_domain::traits::{GitDriver, Storage, Tool, ToolMeta};
 
-/// 工厂：main / dbclient_view 一行创建 VcsView 实体（storage 用于 recent_repos 持久化）
+/// storage 用于 recent_repos 持久化
 pub fn create_vcs_view(
     driver: Arc<dyn GitDriver>,
     storage: Arc<dyn Storage>,
@@ -28,7 +19,6 @@ pub fn create_vcs_view(
     cx.new(|cx_inner| VcsView::new(driver, storage, window, cx_inner))
 }
 
-/// 版本管理工具（Git 客户端）
 pub struct VcsTool {
     meta: ToolMeta,
 }

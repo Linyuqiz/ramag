@@ -1,22 +1,5 @@
-//! GitDriver trait：Git 仓库操作统一抽象
-//!
-//! 与 [`crate::traits::Driver`]（SQL）/ [`crate::traits::KvDriver`]（KV）并列。
-//!
-//! # 设计要点
-//!
-//! 1. **dyn-safe**：方法不引入关联类型；底层实现（gix）按 `RepoId` 索引缓存仓库句柄
-//! 2. **同步 → async 桥接**：gix 主要是同步 API，infra 层用 `std::thread + oneshot` 桥接
-//!    让 GPUI 异步任务能 await（参考 `ramag-infra-storage` 同款模式）
-//! 3. **路径而非句柄**：方法传 `&RepoId`，让上层保留稳定 ID；具体仓库句柄缓存在 driver 内部
-//! 4. **写操作分批**：commit / push / merge 这种"会改 HEAD/refs"的方法都是单次 RPC，
-//!    不暴露中间事务 / 锁，让 driver 内部串行化
-//!
-//! # 阶段
-//!
-//! Phase A（v0.1 骨架）：仅暴露 open_repo / status / list_branches / log / diff_file 等读操作
-//! Phase B（v0.1 daily）：补 stage / unstage / commit / checkout / create_branch
-//! Phase C（v0.1 远程）：补 fetch / push / pull / list_stashes / stash_*
-//! Phase D+（v0.2+）：merge / rebase / cherry-pick / tag / blame ...
+//! GitDriver trait：Git 操作统一抽象，与 SQL Driver / KvDriver 并列。
+//! dyn-safe；底层（gix）按 RepoId 缓存仓库句柄；同步 API 经 std::thread + oneshot 桥接异步
 
 use std::path::Path;
 
@@ -28,37 +11,30 @@ use crate::entities::{
 };
 use crate::error::{DomainError, Result};
 
-/// `NotImplemented` 默认实现统一短路：让 trait 默认方法体能压成单行调用，
-/// 避免每个 stub 方法都重复 5 行 `Err(DomainError::NotImplemented(...))`
 fn not_impl<T>(method: &'static str) -> Result<T> {
     Err(DomainError::NotImplemented(method.into()))
 }
 
 #[async_trait]
 pub trait GitDriver: Send + Sync {
-    /// 驱动名称（"gix" / "git2-fallback" 等）
+    /// 驱动名称，如 "gix"
     fn name(&self) -> &'static str;
 
-    /// 打开本地仓库目录（含 `.git`），返回 driver 内部分配的 RepoId
-    ///
-    /// 调用方持 RepoId 后续读写；driver 内部按 ConnectionId 缓存仓库句柄
+    /// 打开本地仓库目录（含 `.git`）
     async fn open_repo(&self, path: &Path) -> Result<RepoConfig>;
 
-    /// 关闭仓库（释放底层句柄；保留 RepoConfig 在 ramag 自己的存储里）
+    /// 释放底层句柄；ramag 侧的 RepoConfig 不受影响
     async fn close_repo(&self, repo: &RepoId) -> Result<()>;
 
-    /// 工作区当前状态：HEAD / 变更文件列表 / ahead-behind / merge 进行中等
+    /// 工作区状态：HEAD / 变更文件 / ahead-behind / 进行中操作
     async fn status(&self, repo: &RepoId) -> Result<WorkingTreeStatus>;
 
-    /// 列出本地或远程分支
     async fn list_branches(&self, repo: &RepoId, kind: BranchKind) -> Result<Vec<Branch>>;
 
-    /// 查询提交日志（流式分页：调用方按需多次调用调整 LogOptions::skip）
+    /// 提交日志，分页通过 LogOptions::skip
     async fn log(&self, repo: &RepoId, opts: LogOptions) -> Result<Vec<Commit>>;
 
-    /// 单文件 diff
-    ///
-    /// `kind` 控制对比来源（工作区 vs 暂存区 / 暂存区 vs HEAD / commit vs 父）
+    /// 单文件 diff，`kind` 控制对比来源
     async fn diff_file(
         &self,
         repo: &RepoId,
@@ -66,9 +42,7 @@ pub trait GitDriver: Send + Sync {
         kind: crate::entities::DiffKind,
     ) -> Result<FileDiff>;
 
-    /// 单文件 diff（带 ignore_whitespace 开关；UI 的 [⎵] toggle 用）
-    ///
-    /// 默认实现退化到 `diff_file`，忽略 ignore_whitespace 参数。
+    /// 带 ignore_whitespace 的 diff；默认退化到 `diff_file`
     async fn diff_file_opts(
         &self,
         repo: &RepoId,
@@ -79,13 +53,7 @@ pub trait GitDriver: Send + Sync {
         self.diff_file(repo, path, kind).await
     }
 
-    /// 单文件 diff（含 ignore_whitespace + 自定义上下文行数）
-    ///
-    /// `context_lines` 控制 unified diff 上下文行数：
-    /// - 3：标准（git diff 默认）
-    /// - 999_999：等价「展示全文件」
-    /// - 0：仅变更行（全靠后端去掉上下文）
-    /// 默认实现忽略 `context_lines` 退化到 `diff_file_opts`
+    /// 带 ignore_whitespace + 自定义上下文行数。`context_lines`：3=标准、0=仅变更行、999_999=全文件
     async fn diff_file_full_opts(
         &self,
         repo: &RepoId,
@@ -98,24 +66,22 @@ pub trait GitDriver: Send + Sync {
             .await
     }
 
-    // ---- 以下方法 Phase B+ 实现，先用默认 NotImplemented 占位 ----
-
-    /// 把指定文件加入暂存区
+    /// 加入暂存区
     async fn stage(&self, _repo: &RepoId, _paths: &[String]) -> Result<()> {
         not_impl("stage")
     }
 
-    /// 把指定文件从暂存区撤回
+    /// 暂存区撤回
     async fn unstage(&self, _repo: &RepoId, _paths: &[String]) -> Result<()> {
         not_impl("unstage")
     }
 
-    /// 丢弃工作区改动（git checkout -- <path>）
+    /// 丢弃工作区改动（`git checkout -- <path>`）
     async fn discard(&self, _repo: &RepoId, _paths: &[String]) -> Result<()> {
         not_impl("discard")
     }
 
-    /// 创建 commit（amend=true 时修改上一次而不是新建；sign=true 时 GPG 签名）
+    /// 创建 commit。amend=修改上一次，sign=GPG 签名
     async fn commit(
         &self,
         _repo: &RepoId,
@@ -131,25 +97,22 @@ pub trait GitDriver: Send + Sync {
         not_impl("checkout")
     }
 
-    /// 创建本地分支（base=None 时基于当前 HEAD）
+    /// 创建本地分支，base=None 时基于当前 HEAD
     async fn create_branch(&self, _repo: &RepoId, _name: &str, _base: Option<&str>) -> Result<()> {
         not_impl("create_branch")
     }
 
-    /// 删除本地分支（force=true 才允许删未合并的）
+    /// 删除本地分支，force=true 才允许删未合并的
     async fn delete_branch(&self, _repo: &RepoId, _name: &str, _force: bool) -> Result<()> {
         not_impl("delete_branch")
     }
 
-    /// 拉取远程更新（不合并）
+    /// fetch（不合并）
     async fn fetch(&self, _repo: &RepoId, _remote: &str) -> Result<()> {
         not_impl("fetch")
     }
 
-    /// 推送到远程
-    ///
-    /// - `set_upstream=true` 加 `-u`（首次推送新分支用，同时设置 upstream）
-    /// - `force_with_lease=true` 加 `--force-with-lease`（比 --force 安全的强推）
+    /// push。set_upstream=`-u`，force_with_lease=`--force-with-lease`
     async fn push(
         &self,
         _repo: &RepoId,
@@ -172,20 +135,15 @@ pub trait GitDriver: Send + Sync {
         not_impl("pull")
     }
 
-    /// 列出所有 stash
     async fn list_stashes(&self, _repo: &RepoId) -> Result<Vec<Stash>> {
         not_impl("list_stashes")
     }
 
-    /// 列出仓库内所有「git 跟踪 + 未跟踪但未被 ignore」的相对路径
-    ///
-    /// 用于 IDE 左侧 Project Files 视图（完整目录树）
-    /// 实现：等价于 `git ls-files --cached --others --exclude-standard -z`
+    /// 列出 git 跟踪 + 未跟踪但未 ignore 的相对路径，等价 `git ls-files --cached --others --exclude-standard`
     async fn list_files(&self, _repo: &RepoId) -> Result<Vec<String>> {
         not_impl("list_files")
     }
 
-    /// 保存当前工作区到 stash
     async fn stash_save(
         &self,
         _repo: &RepoId,
@@ -195,28 +153,21 @@ pub trait GitDriver: Send + Sync {
         not_impl("stash_save")
     }
 
-    /// 应用某个 stash（pop=true 应用后删除）
+    /// pop=true 应用后删除
     async fn stash_apply(&self, _repo: &RepoId, _idx: usize, _pop: bool) -> Result<()> {
         not_impl("stash_apply")
     }
 
-    /// 删除某个 stash
     async fn stash_drop(&self, _repo: &RepoId, _idx: usize) -> Result<()> {
         not_impl("stash_drop")
     }
 
-    // ---- Phase D：Tag 操作 ----
-
-    /// 列出仓库内所有 tag（轻量 + annotated）
+    /// 含轻量 + annotated
     async fn list_tags(&self, _repo: &RepoId) -> Result<Vec<Tag>> {
         not_impl("list_tags")
     }
 
-    /// 创建 tag
-    ///
-    /// - `target=None` 表示基于当前 HEAD
-    /// - `message=Some(_)` 创建 annotated tag，否则 lightweight
-    /// - `sign=true` 时 GPG 签名（隐含 annotated；message=None 时也强制 annotated）
+    /// target=None 基于 HEAD；message=Some 走 annotated；sign 隐含 annotated
     async fn create_tag(
         &self,
         _repo: &RepoId,
@@ -228,45 +179,30 @@ pub trait GitDriver: Send + Sync {
         not_impl("create_tag")
     }
 
-    /// 删除本地 tag
     async fn delete_tag(&self, _repo: &RepoId, _name: &str) -> Result<()> {
         not_impl("delete_tag")
     }
 
-    /// 推送指定 tag 到远程
     async fn push_tag(&self, _repo: &RepoId, _remote: &str, _name: &str) -> Result<()> {
         not_impl("push_tag")
     }
 
-    // ---- Phase D：行级 / 分块 stage（patch apply）----
-
-    /// 把一段 unified diff patch 写入暂存区
-    ///
-    /// 调用方负责构造合法的 patch 文本（含 file header / hunk header / 行）。
-    /// 实现内部用 `git apply --cached --recount -`，自动重算 line counts。
+    /// 写 patch 进暂存区。实现走 `git apply --cached --recount -`
     async fn stage_patch(&self, _repo: &RepoId, _patch: &str) -> Result<()> {
         not_impl("stage_patch")
     }
 
-    /// 反向：把一段 patch 从暂存区撤回（不影响工作区）
+    /// 反向：从暂存区撤回 patch（不影响工作区）
     async fn unstage_patch(&self, _repo: &RepoId, _patch: &str) -> Result<()> {
         not_impl("unstage_patch")
     }
 
-    /// 把 patch 反向应用到工作区：hunk 级回滚到 HEAD（不通过暂存区）
-    /// 用于 IDEA 风格 hunk「↶」按钮：仅回滚某段改动，保留其他改动
+    /// hunk 级回滚到 HEAD，仅回滚指定 patch，保留其他改动
     async fn discard_patch(&self, _repo: &RepoId, _patch: &str) -> Result<()> {
         not_impl("discard_patch")
     }
 
-    // ---- Phase D：合并 / Cherry-pick / 冲突解决 ----
-
-    /// 把指定分支合并到当前 HEAD
-    ///
-    /// - `no_ff=true`：即使可以 fast-forward 也强制创建 merge commit
-    /// - `ff_only=true`：要求必须能 fast-forward，否则失败（不创建 merge commit）
-    /// - 二者互斥；都为 false 时走 git 默认（可 ff 就 ff，否则建 merge commit）
-    /// - 出现冲突时本方法返回 Err，但仓库已进入 merge 进行中状态，由 status() 反映
+    /// 合并分支到 HEAD。no_ff/ff_only 互斥；都 false 走 git 默认；冲突时进入 merge 进行中
     async fn merge(
         &self,
         _repo: &RepoId,
@@ -278,122 +214,92 @@ pub trait GitDriver: Send + Sync {
         not_impl("merge")
     }
 
-    /// 中止进行中的 merge（git merge --abort）
     async fn merge_abort(&self, _repo: &RepoId) -> Result<()> {
         not_impl("merge_abort")
     }
 
-    /// 续接 merge（冲突解决完后；git merge --continue）
     async fn merge_continue(&self, _repo: &RepoId) -> Result<()> {
         not_impl("merge_continue")
     }
 
-    /// 把单个 commit 拣选到当前 HEAD（git cherry-pick <id>）
     async fn cherry_pick(&self, _repo: &RepoId, _commit: &str) -> Result<()> {
         not_impl("cherry_pick")
     }
 
-    /// 中止进行中的 cherry-pick
     async fn cherry_pick_abort(&self, _repo: &RepoId) -> Result<()> {
         not_impl("cherry_pick_abort")
     }
 
-    /// 续接 cherry-pick（冲突解决完后）
     async fn cherry_pick_continue(&self, _repo: &RepoId) -> Result<()> {
         not_impl("cherry_pick_continue")
     }
 
-    /// 冲突解决：采纳「我们」的版本（HEAD 侧）
-    ///
-    /// `git checkout --ours -- <paths>` + `git add <paths>`，一步搞定
+    /// 采纳 HEAD 侧（`git checkout --ours` + `git add`）
     async fn use_ours(&self, _repo: &RepoId, _paths: &[String]) -> Result<()> {
         not_impl("use_ours")
     }
 
-    /// 冲突解决：采纳「他们」的版本（对方分支侧）
+    /// 采纳对方分支侧
     async fn use_theirs(&self, _repo: &RepoId, _paths: &[String]) -> Result<()> {
         not_impl("use_theirs")
     }
 
-    // ---- Phase D：Reset / Revert / Rebase ----
-
-    /// 重置 HEAD 到指定 commit
-    ///
-    /// `kind`：决定是否同时重置暂存区 / 工作区
-    /// 慎用 Hard——会丢失工作区未提交改动；UI 应弹二次确认
+    /// 重置 HEAD。Hard 会丢未提交改动，UI 须弹二次确认
     async fn reset(&self, _repo: &RepoId, _target: &str, _kind: ResetKind) -> Result<()> {
         not_impl("reset")
     }
 
-    /// 生成一个反向 commit 撤销指定 commit（不改写历史，安全）
+    /// 生成反向 commit 撤销指定 commit，不改写历史
     async fn revert(&self, _repo: &RepoId, _commit: &str) -> Result<()> {
         not_impl("revert")
     }
 
-    /// 把当前分支 rebase 到 onto（onto 通常是另一分支名 / commit）
+    /// 把当前分支 rebase 到 onto
     async fn rebase(&self, _repo: &RepoId, _onto: &str) -> Result<()> {
         not_impl("rebase")
     }
 
-    /// 续接 rebase（冲突解决完后）
     async fn rebase_continue(&self, _repo: &RepoId) -> Result<()> {
         not_impl("rebase_continue")
     }
 
-    /// 跳过当前 commit（rebase 时；丢弃此 commit 继续下一个）
+    /// 丢弃当前 commit 继续下一个
     async fn rebase_skip(&self, _repo: &RepoId) -> Result<()> {
         not_impl("rebase_skip")
     }
 
-    /// 中止 rebase（恢复到 rebase 开始前的状态）
     async fn rebase_abort(&self, _repo: &RepoId) -> Result<()> {
         not_impl("rebase_abort")
     }
 
-    // ---- Phase D：Remote 管理 ----
-
-    /// 列出本仓库配置的所有 remote
     async fn list_remotes(&self, _repo: &RepoId) -> Result<Vec<Remote>> {
         not_impl("list_remotes")
     }
 
-    /// 添加新 remote（git remote add <name> <url>）
     async fn add_remote(&self, _repo: &RepoId, _name: &str, _url: &str) -> Result<()> {
         not_impl("add_remote")
     }
 
-    /// 删除 remote（git remote remove <name>）
     async fn remove_remote(&self, _repo: &RepoId, _name: &str) -> Result<()> {
         not_impl("remove_remote")
     }
 
-    /// 修改 remote 的 fetch URL（push URL 仍走 fetch URL，简化场景）
+    /// 修改 fetch URL（push URL 跟随 fetch）
     async fn set_remote_url(&self, _repo: &RepoId, _name: &str, _url: &str) -> Result<()> {
         not_impl("set_remote_url")
     }
 
-    // ---- Phase D：Commit 详情 ----
-
-    /// 列出指定 commit 引入的文件变更
-    ///
-    /// 返回的 [`FileStatus::staged`] 字段承载该 commit 的变更类型；
-    /// `unstaged` 始终为 None（commit 已落地，无工作区/暂存区概念）
+    /// commit 引入的文件变更。`staged` 承载该 commit 的变更类型，`unstaged` 始终 None
     async fn list_commit_files(&self, _repo: &RepoId, _commit: &str) -> Result<Vec<FileStatus>> {
         not_impl("list_commit_files")
     }
 
-    /// 取指定文件的 blame（每行最后改人 + 时间 + commit subject）
-    ///
-    /// 返回结果按文件当前行号 1-based 顺序，长度等于文件总行数
+    /// 按当前行号 1-based 顺序，长度等于文件总行数
     async fn blame(&self, _repo: &RepoId, _path: &str) -> Result<Vec<BlameLine>> {
         not_impl("blame")
     }
 
-    // ---- Phase E：Reflog ----
-
-    /// 列出指定 ref 的 reflog 条目（默认 HEAD）
-    ///
-    /// `ref_name=None` 等价于 HEAD；`limit=None` 让 git 用默认值
+    /// ref_name=None 等价 HEAD；limit=None 用 git 默认
     async fn list_reflog(
         &self,
         _repo: &RepoId,
@@ -403,21 +309,17 @@ pub trait GitDriver: Send + Sync {
         not_impl("list_reflog")
     }
 
-    // ---- Clone / Init ----
-
-    /// Clone 远程仓库到本地目录（`dest` 必须不存在或为空目录）
+    /// Clone 远程仓库，dest 必须不存在或空目录
     async fn clone_repo(&self, _url: &str, _dest: &Path) -> Result<RepoConfig> {
         not_impl("clone_repo")
     }
 
-    /// 在已有目录初始化新 git 仓库（`git init`）
+    /// `git init`
     async fn init_repo(&self, _path: &Path) -> Result<RepoConfig> {
         not_impl("init_repo")
     }
 
-    // ---- Interactive Rebase ----
-
-    /// 取得 interactive rebase 的初始计划（`onto..HEAD` 的 commit 列表，全部标 Pick）
+    /// 获取 interactive rebase 初始计划，全部 Pick
     async fn interactive_rebase_plan(
         &self,
         _repo: &RepoId,
@@ -426,7 +328,7 @@ pub trait GitDriver: Send + Sync {
         not_impl("interactive_rebase_plan")
     }
 
-    /// 执行 interactive rebase：把用户编辑后的 todos 写成 todo 文件，再调 `git rebase -i`
+    /// 写 todo 文件后调 `git rebase -i`
     async fn interactive_rebase_execute(
         &self,
         _repo: &RepoId,
@@ -436,9 +338,7 @@ pub trait GitDriver: Send + Sync {
         not_impl("interactive_rebase_execute")
     }
 
-    // ---- Conflict Content ----
-
-    /// 取冲突文件的三方内容（ours = stage 2，theirs = stage 3，base = stage 1）
+    /// 取冲突文件三方内容（ours=stage2、theirs=stage3、base=stage1）
     async fn get_conflict_content(&self, _repo: &RepoId, _path: &str) -> Result<ConflictContent> {
         not_impl("get_conflict_content")
     }

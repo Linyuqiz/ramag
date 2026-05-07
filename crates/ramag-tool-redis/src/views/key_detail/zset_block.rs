@@ -1,4 +1,4 @@
-//! ZSet 块渲染（行内 [✎][🗑] 图标按钮）+ score 简短格式化
+//! ZSet 块：每行编辑 / 删除按钮 + score 短格式
 
 use gpui::{ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div, px};
 use gpui_component::{
@@ -108,10 +108,7 @@ pub(super) fn render_zset_block(
     rows
 }
 
-/// 把 ZSet score 格式化为简短可读：整数不带小数，浮点去尾随零，避免 "234.000000" 占满列宽
-///
-/// - 整数（且在 i64 安全范围）→ 不带小数：`234`
-/// - 非整数 → 默认 Display 格式（已自动去尾随零）：`1.5` / `1e30`
+/// score 短格式：整数（i64 范围内）不带小数；其他走 Display（已去尾随零）
 fn pretty_score(s: f64) -> String {
     if s.is_finite() && s == s.trunc() && s.abs() < 1e15 {
         format!("{}", s as i64)

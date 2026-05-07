@@ -1,10 +1,4 @@
-//! Interactive rebase：生成初始计划 + 执行用户编辑后的 todos
-//!
-//! # 策略
-//!
-//! - `plan`：用 `git log --format=%H %s --reverse <onto>..HEAD` 取 commit 列表，全部标 Pick
-//! - `execute`：把 todos 写到临时 shell 脚本作为 GIT_SEQUENCE_EDITOR，再 `git rebase -i <onto>`
-//!   git 调用 SEQUENCE_EDITOR 时把 todo 文件路径作为 $1 传入，脚本 `cp` 我们的内容写进去
+//! Interactive rebase。plan：log onto..HEAD 全标 Pick；execute：用临时脚本作 GIT_SEQUENCE_EDITOR 注入 todo
 
 use std::path::Path;
 
@@ -13,7 +7,7 @@ use ramag_domain::error::{DomainError, Result};
 
 use crate::git_cmd::run_git_text;
 
-/// 生成 interactive rebase 初始计划（onto..HEAD，最老在前，全部 Pick）
+/// onto..HEAD 最老在前，全部 Pick
 pub fn plan(repo_path: &Path, onto: &str) -> Result<Vec<RebaseTodo>> {
     let out = run_git_text(
         repo_path,
@@ -41,9 +35,7 @@ pub fn plan(repo_path: &Path, onto: &str) -> Result<Vec<RebaseTodo>> {
     Ok(todos)
 }
 
-/// 执行 interactive rebase：把 todos 注入到 git rebase -i
-///
-/// 通过临时 shell 脚本作为 GIT_SEQUENCE_EDITOR，避免弹出 $EDITOR
+/// 临时 shell 脚本作 GIT_SEQUENCE_EDITOR，避免弹出 $EDITOR
 pub fn execute(repo_path: &Path, onto: &str, todos: &[RebaseTodo]) -> Result<()> {
     let todo_content: String = todos
         .iter()

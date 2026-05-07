@@ -1,7 +1,4 @@
-//! 分支 dropdown：把扁平分支列表按 `/` 路径分组成 submenu 嵌套
-//!
-//! 拆分自 `ide_layout.rs`，保持每文件 ≤ 600 行。
-//! 单段名（无 `/`）直接 `m.item`；多项同前缀进 submenu，单项不分组（避免一项也嵌套）
+//! 分支 dropdown：按 `/` 分组 submenu。单项不分组避免嵌套
 
 use std::collections::BTreeMap;
 
@@ -21,8 +18,7 @@ use super::vcs_view::VcsView;
 /// 分支 leaf：(完整名 / 是否 HEAD / 上游同步信息文本如 "↑3 ↓1"，None=无)
 pub(super) type BranchLeaf = (String, bool, Option<String>);
 
-/// 分支显示名截断：超长名（如 `sdafasd-sadfsdaf-asdfsadfa-...`）会撑破 PopupMenu 宽度，
-/// 超过阈值就用中间省略 `头20…尾15`，保留首尾辨识度，鼠标悬停 tooltip 仍可补全（暂未实现）
+/// 超长分支名中间省略 `头22…尾15`，避免撑破 PopupMenu 宽度
 fn truncate_branch_display(s: &str) -> String {
     const MAX_CHARS: usize = 40;
     const HEAD_KEEP: usize = 22;
@@ -36,17 +32,9 @@ fn truncate_branch_display(s: &str) -> String {
     format!("{head}…{tail}")
 }
 
-/// 分支按 / 路径分组渲染：单段名直接列出；多项同前缀走原生 submenu（hover 展开侧菜单，
-/// 父菜单不关闭，子菜单自身可滚动）。
-///
-/// 为什么用 submenu：PopupMenu 的 `Item.on_click` 必走 confirm → dismiss，
-/// 任何 inline 折叠展开方案都会要么关菜单（item dismiss）、要么菜单不刷新（menu_items 静态），
-/// 只有 `submenu`（gpui-component 内置）能做到"点击/悬停打开 + 父菜单保持开启 + 子项点击 checkout 并关闭整个菜单链"。
-///
-/// 注意：父级 PopupMenu **不能**调 `.scrollable(true)`，否则 submenu 不工作（gpui-component 限制）。
-/// 调用方需确保父菜单内容能在窗口高度内显示——分支用 group 收纳后通常没问题。
-///
-/// `is_remote=true` 时叶子前缀 ↗ 标记，且 click 时不限制 head_flag（远程分支总是允许 checkout）。
+/// 按 `/` 分组：单段直列、多项同前缀走 submenu（PopupMenu 的 inline 折叠会触发 dismiss，唯一可行方案）。
+/// 父级 PopupMenu 不能 `.scrollable(true)`，否则 submenu 失效（gpui-component 限制）。
+/// `is_remote=true` 加远程前缀且不限 head_flag
 pub(super) fn render_branches_grouped(
     mut m: PopupMenu,
     items: &[BranchLeaf],
@@ -73,7 +61,7 @@ pub(super) fn render_branches_grouped(
     for (name, is_head, sync) in &singles {
         m = push_branch_leaf(m, name, name, *is_head, is_remote, sync, entity.clone());
     }
-    // 有 / 路径前缀：每个 prefix 一个 submenu。submenu 自带 ▸ 图标 + hover 打开
+    // 有 `/` 前缀的每个 prefix 一个 submenu，hover 自动打开
     for (prefix, group_items) in groups {
         let entity_for_sub = entity.clone();
         let prefix_for_sub = prefix.clone();
@@ -104,10 +92,7 @@ pub(super) fn render_branches_grouped(
     m
 }
 
-/// 打开「新建分支」对话框：input + 源分支 dropdown（默认当前 HEAD，可手动选）
-///
-/// 调用前会 reset `view.create_branch_base = None`（让 dropdown 显示当前 HEAD 名）；
-/// 用户选 dropdown 项后写入 base；点「创建」时 handle_create_branch 用此 base
+/// 「新建分支」对话框：input + 源分支 dropdown（默认 HEAD）。打开前重置 create_branch_base=None
 pub(super) fn open_new_branch_dialog(
     view: Entity<VcsView>,
     head_name: String,
@@ -231,9 +216,7 @@ pub(super) fn open_new_branch_dialog(
     });
 }
 
-/// 新建分支对话框「基于」下拉的分组渲染：与主选择器同款 submenu 模式（hover 展开、父菜单不关），
-/// 但叶子点击调 `set_create_branch_base(Some(name))` 而非 checkout；不需要 HEAD ✓ 标记
-/// （HEAD 已在调用方作为顶部独立"✓ {head}（当前 HEAD）"重置项渲染）
+/// 新建分支「基于」下拉：同款 submenu 模式，叶子点击 `set_create_branch_base` 而非 checkout
 fn render_base_branches_grouped(
     mut m: PopupMenu,
     names: &[String],
@@ -295,7 +278,7 @@ fn push_base_leaf(
     }))
 }
 
-/// 在 PopupMenu 上加一个分支 item：HEAD 加 ✓ / 远程加 ↗ / 末尾追加 ahead/behind 同步信息
+/// PopupMenu 单分支 item：HEAD 加选中标记，远程加远程标记，末尾追 ahead / behind
 fn push_branch_leaf(
     m: PopupMenu,
     full_name: &str,

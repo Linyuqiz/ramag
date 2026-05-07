@@ -1,8 +1,4 @@
-//! PostgreSQL 连接池构造
-//!
-//! 连接池缓存逻辑由 `ramag-infra-sql-shared::PoolCache<Postgres>` 提供。
-//! 本模块按 [`ConnectionConfig`] 构造一个新的 [`PgPool`]，含 sslmode 4 档配置 +
-//! application_name 默认值。
+//! 按 ConnectionConfig 构造 PgPool。缓存在 sql-shared::PoolCache
 
 use std::time::Duration;
 
@@ -13,15 +9,12 @@ use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
 use tracing::warn;
 
-
 use crate::errors::map_postgres_error;
 
-/// 默认 application_name（在服务端 `pg_stat_activity` 里识别 ramag 连接）
+/// 服务端 `pg_stat_activity` 识别 ramag 连接用
 const DEFAULT_APPLICATION_NAME: &str = "ramag";
 
-/// 按配置构造 sqlx 连接池
-///
-/// PG 必须连接到具体 database，本函数对空 database 直接返回 InvalidConfig
+/// PG 必须指定 database，空时返回 InvalidConfig
 pub async fn build_pool(config: &ConnectionConfig) -> Result<PgPool> {
     if config.driver != DriverKind::Postgres {
         return Err(DomainError::InvalidConfig(format!(
@@ -44,7 +37,7 @@ pub async fn build_pool(config: &ConnectionConfig) -> Result<PgPool> {
         .password(&config.password)
         .database(database)
         .application_name(DEFAULT_APPLICATION_NAME)
-        // 默认 prefer 模式：有 SSL 用 SSL，无则降级；后续 Stage 9 暴露 UI 可选
+        // 有 SSL 用 SSL，无则降级
         .ssl_mode(PgSslMode::Prefer)
         .log_statements(tracing::log::LevelFilter::Debug)
         .log_slow_statements(tracing::log::LevelFilter::Warn, Duration::from_secs(1));
@@ -62,4 +55,3 @@ pub async fn build_pool(config: &ConnectionConfig) -> Result<PgPool> {
             map_postgres_error(&e)
         })
 }
-

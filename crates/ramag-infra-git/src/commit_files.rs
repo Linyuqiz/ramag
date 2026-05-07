@@ -1,14 +1,4 @@
-//! 单 commit 引入的文件变更列表（subprocess git diff-tree）
-//!
-//! `git diff-tree --no-commit-id --name-status -r <commit>` 输出每行：
-//! - `M\tpath`     → Modified
-//! - `A\tpath`     → Added
-//! - `D\tpath`     → Deleted
-//! - `R100\told\tnew` → Renamed（带相似度百分比）
-//! - `C100\told\tnew` → Copied
-//! - `T\tpath`     → TypeChanged
-//!
-//! 返回的 [`FileStatus::staged`] 承载变更类型；`unstaged` 永远 None。
+//! commit 涉及的文件列表，走 `git diff-tree --name-status`。`staged` 承载类型，`unstaged` 永远 None
 
 use std::path::Path;
 
@@ -17,7 +7,6 @@ use ramag_domain::error::Result;
 
 use crate::git_cmd::run_git_text;
 
-/// 列出 commit 涉及的文件
 pub fn list(repo_path: &Path, commit: &str) -> Result<Vec<FileStatus>> {
     let raw = run_git_text(
         repo_path,
@@ -37,7 +26,7 @@ fn parse_diff_tree(text: &str) -> Vec<FileStatus> {
             Some(c) => c,
             None => continue,
         };
-        // R / C 后面带相似度数字，例如 R100；只取首字母
+        // R/C 后跟相似度数字，仅取首字母
         let code = code_raw.chars().next().unwrap_or(' ');
         let kind = match code {
             'M' => FileChangeKind::Modified,

@@ -1,16 +1,5 @@
-//! TTL chip picker：永久 / 4 个预设秒数 / 自定义
-//!
-//! 通用组件，被新建 Key 对话框（[`super::key_create`]）和编辑 TTL 弹窗
-//! （[`super::ttl_edit`]）共同复用，统一交互体验。
-//!
-//! # 公共 API
-//!
-//! - [`TtlPicker::new`]：默认 mode=Forever
-//! - [`TtlPicker::set_initial_ms`]：按当前 PTTL（毫秒）回填初始 mode + custom 输入
-//! - [`TtlPicker::collect`]：当前选择转秒数：
-//!   - `Ok(None)` = 永久（PERSIST 或 SET 不带 EX）
-//!   - `Ok(Some(secs))` = 设置 TTL 秒
-//!   - `Err(msg)` = 自定义模式下输入不合法
+//! TTL chip picker：永久 / 4 预设 / 自定义。新建 Key + 编辑 TTL 共用。
+//! collect 返回 Ok(None)=永久，Ok(Some(secs))=设 TTL，Err=自定义输入非法
 
 use gpui::{
     App, ClickEvent, Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
@@ -49,10 +38,7 @@ impl TtlPicker {
         }
     }
 
-    /// 用现有 PTTL（毫秒）回填初始模式
-    /// - None / -1（永久）/ -2（key 不存在）→ Forever
-    /// - 命中 PRESETS（按秒整数比较）→ 对应 Preset
-    /// - 其余正秒数 → Custom + 把秒数填入输入框
+    /// PTTL 回填：None/-1/-2→Forever；命中 PRESETS→对应 Preset；正秒数→Custom 填入框
     pub fn set_initial_ms(&mut self, ms: Option<i64>, window: &mut Window, cx: &mut Context<Self>) {
         let secs_opt: Option<i64> = match ms {
             Some(m) if m > 0 => Some(m / 1000),

@@ -1,11 +1,4 @@
-//! Diff 渲染面板
-//!
-//! 提供两种视图：
-//! - **Unified**：行号双列 + `+/-` 标记单列流式渲染（git 默认风格）
-//! - **Split**：左右两栏并排，左旧右新；删除/新增同行对齐显示
-//!
-//! 每个 `+/-` 行可点击，触发 [`VcsView::toggle_diff_line`]，让用户挑选要 stage
-//! 的具体行；调用方判断是否给某行勾选 / 高亮。
+//! Diff 面板：Unified（行号双列 + `+/-`）/ Split（左旧右新对齐）。`+/-` 行点击 = `toggle_diff_line`
 
 use std::collections::HashSet;
 use std::ops::Range;
@@ -60,10 +53,7 @@ pub(super) fn max_line_chars(diff: &FileDiff) -> usize {
     max
 }
 
-/// 渲染整个文件的 diff（Unified 模式）
-///
-/// pf_content 同款方案：list 设固定 w(total_w) + min_w_full，外层 div.overflow_x_scroll
-/// 包整个 list → 整体横滚（含底部空白），共享 ScrollHandle，restrict_scroll_to_axis 防 wheel 错位
+/// Unified diff。固定 list w + 外层 overflow_x_scroll 共享 ScrollHandle，restrict_scroll_to_axis 防 wheel 错位
 #[allow(clippy::too_many_arguments)]
 pub fn render_file_diff(
     diff: &FileDiff,
@@ -164,7 +154,7 @@ pub fn render_file_diff(
         .into_any_element()
 }
 
-/// hunk header unified 风格：占整行宽（容器宽），enable_discard 时显示「↶」回滚按钮
+/// hunk header unified：整行宽，enable_discard 时显示回滚按钮
 pub(super) fn render_hunk_header_unified(
     hunk: &ramag_domain::entities::Hunk,
     hunk_idx: usize,
@@ -177,7 +167,7 @@ pub(super) fn render_hunk_header_unified(
     render_hunk_header_common(hunk, hunk_idx, enable_discard, mono, muted_fg, muted_bg, cx)
 }
 
-/// 通用 hunk header（unified / split 共用）：左侧 hunk text + 右侧可选「↶」按钮
+/// hunk header 通用渲染：左 hunk text + 右可选回滚按钮
 pub(super) fn render_hunk_header_common(
     hunk: &ramag_domain::entities::Hunk,
     hunk_idx: usize,
@@ -216,7 +206,7 @@ pub(super) fn render_hunk_header_common(
                 .overflow_hidden()
                 .child(header_text),
         );
-    // unified 模式下 ↶ 按钮已并入 split 中间分隔条；此处不再渲染
+    // unified 回滚按钮在 split 中间分隔条，这里不渲染
     let _ = enable_discard;
     let _ = hunk_idx;
     let _ = cx;

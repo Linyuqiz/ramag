@@ -1,4 +1,4 @@
-//! `parse_search_query` 单元测试（拆出独立 mod 以让 mod.rs 不超 600 行红线）
+//! `parse_search_query` 单元测试
 
 #![allow(clippy::unwrap_used)]
 

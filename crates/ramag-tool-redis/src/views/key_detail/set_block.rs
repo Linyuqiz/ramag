@@ -1,4 +1,4 @@
-//! Set 块渲染（每行 [🗑] 图标删除按钮）
+//! Set 块：每行带删除按钮
 
 use gpui::{ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div, px};
 use gpui_component::{

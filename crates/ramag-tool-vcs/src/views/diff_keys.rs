@@ -1,7 +1,4 @@
-//! Diff 虚拟化扁平 key：把 FileDiff hunks 转成 uniform_list 索引序列
-//!
-//! 抽出独立模块让 diff_panel.rs 保持 < 600 行。两种 key：unified（每行单独）
-//! 和 split（左右配对，删除/新增对齐）。
+//! Diff 扁平 key：unified（每行单独）/ split（左右配对，对齐删除/新增）
 
 use std::collections::HashSet;
 
@@ -14,11 +11,7 @@ pub(super) enum UnifiedKey {
     Line { hunk_idx: usize, line_idx: usize },
 }
 
-/// Split 模式扁平 key：hunk header / 左右配对行 / Spacer 间隔分隔
-///
-/// 全部用 Pair 渲染（删除行 left=Some/right=None；新增行 left=None/right=Some），
-/// 保持 split 视觉对称：删/增不跨栏，对侧空白对齐。
-/// Spacer：连续 ≥SPLIT_SPACER_THRESHOLD 行 Context 时压缩中间，让逻辑上不相干的两段变更视觉拆开
+/// Split 模式扁平 key：hunk header / 左右配对行（删/增对侧空白对齐）/ Spacer 压缩长 Context
 #[derive(Clone, Copy)]
 pub(super) enum SplitKey {
     Header {
@@ -70,11 +63,8 @@ pub(super) fn build_unified_keys(diff: &FileDiff, changes_only: bool) -> Vec<Uni
     out
 }
 
-/// 把 FileDiff 扁平化成 SplitKey 序列（删除/新增按出现顺序左右配对）
-///
-/// `changes_only=true` 时跳过 Context 行；只保留删除/新增配对。
-/// 大块连续 Context（≥SPLIT_SPACER_THRESHOLD）时压缩中间，插入 Spacer 让视觉拆开两段变更。
-/// `expanded_spacers` 包含 (hunk_idx, run_start) 的 spacer 不再压缩，全部展开（用户点击触发）
+/// 删除 / 新增按出现顺序左右配对。changes_only 跳过 Context；
+/// 长 Context（≥SPLIT_SPACER_THRESHOLD）压缩为 Spacer，`expanded_spacers` 内的展开
 pub(super) fn build_split_keys(
     diff: &FileDiff,
     changes_only: bool,

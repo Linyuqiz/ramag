@@ -1,11 +1,4 @@
-//! VcsView：Git 工具主视图。承载状态结构 + Render 入口 + active_view 路由
-//! 顶部 tab 在 vcs_tabs；仓库管理页在 repo_list；IDE 布局在 ide_layout；
-//! 异步操作集中在 vcs_view_ops / vcs_view_ops_repo
-//!
-//! 模块拆分（防止单文件 600 行红线）：
-//! - 本文件：types + struct + 短的状态方法 + EventEmitter / Focusable
-//! - `new`：`pub fn new` 完整字段初始化
-//! - `render`：`impl Render` + body 路由
+//! VcsView：Git 主视图。状态 + Render + active_view 路由
 
 mod new;
 mod render;
@@ -142,7 +135,7 @@ pub struct VcsView {
     pub(super) showing_blame: bool,
     /// 行号 inline blame：Some = 顶部 banner 显示该行作者；点行号触发，× 关闭
     pub(super) inline_blame_text: Option<SharedString>,
-    /// diff 是否忽略空白（IDEA 风格 [⎵] toggle；调 git diff 加 -w）
+    /// diff 忽略空白，对应 git diff -w
     pub(super) diff_ignore_whitespace: bool,
     /// diff 视图模式：标准（默认带 3 行上下文）/ 全文件 / 仅变更（前端过滤 Context）
     pub(super) diff_view_mode: DiffViewMode,
@@ -172,8 +165,7 @@ pub struct VcsView {
     pub(super) project_files: Vec<String>,
     /// Project Files 是否正在拉取
     pub(super) loading_project_files: bool,
-    /// Project Files 树节点已展开目录集合（key = 目录相对路径）
-    /// 默认空 = 全部折叠（仅顶层节点可见，IDE 习惯）；用户点 ▸ 才加入此集合
+    /// Project Files 已展开目录（相对路径），默认空集合 = 全部折叠
     pub(super) project_expanded_dirs: std::collections::HashSet<String>,
     /// 缓存版本号：reload / toggle / expand_all / collapse_all 时递增对应字段；
     /// render 用 (files_version, expanded_version, query) 比对 cache 命中，
@@ -232,7 +224,7 @@ pub struct VcsView {
     pub(super) conflict_content: Option<ConflictContent>,
     pub(super) loading_conflict: bool,
 
-    /// 视图焦点（⌘W / 全局 action dispatch）
+    /// 视图焦点（cmd-w / 全局 action dispatch）
     pub(super) focus_handle: FocusHandle,
 }
 
@@ -302,10 +294,7 @@ impl VcsView {
         self.active_file_tab_idx = None;
     }
 
-    /// 切换下半区 history / reflog pane 显示
-    ///
-    /// 首次打开（visible=true 且 history 列表为空）时 lazy load 第一页 commits，
-    /// 避免仓库打开就预先拉 git log（用户可能从不打开 history pane）
+    /// 首次打开 lazy load 首页 commits，避免仓库打开就预拉 git log
     pub(super) fn toggle_history_pane(&mut self, cx: &mut Context<Self>) {
         self.history_pane_visible = !self.history_pane_visible;
         if self.history_pane_visible

@@ -55,7 +55,7 @@ impl Render for VcsView {
             .bg(bg)
             .key_context("VcsView")
             .track_focus(&self.focus_handle)
-            // ⌘W：有 active file tab 时关闭它；否则把事件冒泡到全局 fallback（关窗）
+            // CloseTab：有 active file tab 关它，否则冒泡到全局 fallback 关窗
             .on_action(cx.listener(|this, _: &ramag_ui::CloseTab, window, cx| {
                 if let Some(idx) = this.active_file_tab_idx {
                     this.close_file_tab(idx, cx);

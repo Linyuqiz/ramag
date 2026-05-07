@@ -1,27 +1,5 @@
-//! IDE 风格布局（IDEA Git Tool Window + dbclient 风格混合）
-//!
-//! ```text
-//! ┌──────────────────────────────────────────────────────────────────┐
-//! │ Toolbar：[选仓库] [仓库名+分支徽标] [Fetch][Pull][Push][⚠] [≡]    │
-//! ├──────────────────────────────────────────────────────────────────┤
-//! │ Op Banner（merge / rebase / cherry-pick 进行中时显示）             │
-//! ├──┬───────────────────────────────────────────────────────────────┤
-//! │侧│  ╭─ 上半区（h_resizable，可拖左右）                            │
-//! │栏│  │   ┌──────┬───────────────────────────────────────────────┐ │
-//! │可│  │   │ Left │ Main                                          │ │
-//! │选│  │   │ Files│ ─ 选中文件 → diff / blame                      │ │
-//! │  │  │   │ + Commit Panel │ ─ 选中 commit → commit detail        │ │
-//! │  │  │   └──────┴───────────────────────────────────────────────┘ │
-//! │  │  ├──────────────────────────────────────────────────────────  │
-//! │  │  │ 下半区（横跨整个右半，提交历史 + 搜索 / Reflog 控件）         │
-//! │  │  ╰─                                                           │
-//! └──┴───────────────────────────────────────────────────────────────┘
-//! ```
-//!
-//! 三处可拖拽分隔条：
-//! - `ide_main_resize`：整体上下（上半工作区 / 下半 history）
-//! - `ide_left_resize`：上半左右（左 files / 右 main）
-//! - 侧栏靠 [≡] toggle，无拖拽（固定 220px）
+//! IDE 风布局：toolbar + op banner + 上半（左 files / 右 main）+ 下半 history。
+//! 拖拽：`ide_main_resize` 上下 / `ide_left_resize` 上半左右；侧栏靠 toggle 切换，固定 220px
 
 use gpui::{
     AnyElement, ClickEvent, Context, IntoElement, ParentElement, Styled, div, prelude::*, px,
@@ -247,9 +225,7 @@ impl VcsView {
         }
     }
 
-    /// 分支选择器：mode_row 末尾按钮（显示当前 HEAD 分支名 + ▾ dropdown）
-    ///
-    /// dropdown 顺序：[✦ 新建分支...] → 分隔线 → 本地分支 → 分隔线 → 远程分支
+    /// 当前 HEAD 分支按钮 + dropdown：新建分支 / 本地 / 远程
     fn render_branch_picker(&self, cx: &mut Context<Self>) -> AnyElement {
         if self.repo.is_none() {
             return div().into_any_element();
@@ -393,17 +369,12 @@ impl VcsView {
             .into_any_element()
     }
 
-    /// 下半区「History」：commit 列表 + 顶部搜索 / Reflog 切换
-    ///
-    /// 横跨整个右半（侧栏外），仿 IDEA Git Tool Window 底部 Log
+    /// 下半区 History：commit 列表 + 搜索 / Reflog 切换。横跨右半（侧栏外）
     fn render_history_pane(&self, cx: &mut Context<Self>) -> AnyElement {
         self.render_history_view(cx)
     }
 
-    /// 上半右侧主区：根据 mode + 状态决定渲染哪种视图
-    ///
-    /// 优先级：rebase 计划 > 冲突编辑器 > 统一 file_tab（Changes / Commit / ProjectFiles）
-    /// commit 文件不再走 commit_diff_main 单独分支，与 Changes 共用 render_diff_block
+    /// 优先级：rebase 计划 > 冲突编辑器 > file_tab（Changes / Commit / ProjectFiles 共用 render_diff_block）
     fn render_main_area(&self, cx: &mut Context<Self>) -> AnyElement {
         if self.show_rebase_plan {
             return self.render_rebase_plan(cx);

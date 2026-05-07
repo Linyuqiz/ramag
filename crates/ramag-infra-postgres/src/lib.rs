@@ -1,14 +1,5 @@
-//! Ramag PostgreSQL 驱动
-//!
-//! 实现 [`ramag_infra_sql_shared::SqlBackend`] trait，由 `impl_driver_for!` 宏一行
-//! 自动获得 [`ramag_domain::traits::Driver`] 实现。
-//!
-//! # 设计要点
-//!
-//! - **唯一抽象层**：只 impl `SqlBackend` 一个 trait，与 MySQL crate 完全对称
-//! - **连接池缓存**：复用 `sql-shared::PoolCache<Postgres>`（按 ConnectionId 缓存）
-//! - **方言**：双引号标识符 / `pg_cancel_backend(pid)` 取消 / 必须连接时绑定 db /
-//!   多语句切分识别 `$$ ... $$` dollar-quoted
+//! PostgreSQL 驱动。impl SqlBackend，`impl_driver_for!` 宏代理到 Driver。
+//! 方言：双引号 / `pg_cancel_backend()` / 连接级 db / 切默认 schema 走 SET search_path / 识别 dollar-quoted
 
 pub mod errors;
 pub mod execute;
@@ -29,10 +20,7 @@ use ramag_infra_sql_shared::sql::SplitOptions;
 use sqlx::postgres::{PgPool, PgQueryResult, PgRow, Postgres};
 use sqlx::{Column as _, Row as _, TypeInfo as _};
 
-/// PostgreSQL driver
-///
-/// 内部仅持有 `Arc` 包装的连接池缓存；Clone 是 O(1) 引用计数 +1，
-/// 满足 [`impl_driver_for!`](ramag_infra_sql_shared::impl_driver_for) 对 Clone 的要求
+/// 内部仅持 Arc 包装池缓存，Clone 是 O(1)
 #[derive(Clone, Default)]
 pub struct PostgresDriver {
     pools: PoolCache<Postgres>,
@@ -43,12 +31,10 @@ impl PostgresDriver {
         Self::default()
     }
 
-    /// 配置变更后调用，强制下次重建连接池
     pub fn evict_pool(&self, id: &ConnectionId) {
         self.pools.evict(id);
     }
 
-    /// 显式关闭所有池（程序退出前调用）
     pub async fn shutdown(&self) {
         self.pools.close_all().await;
     }
@@ -75,9 +61,7 @@ impl SqlBackend for PostgresDriver {
     }
 
     fn use_database_sql(&self, db: &str) -> Option<String> {
-        // PG 不能像 MySQL 那样 USE 切库（PG 库是连接级），但可以切默认 schema
-        // 解析顺序——MySQL 双击 schema 节点会发 USE，PG 这里改发 SET search_path
-        // 让裸表名 SQL 解析到该 schema（与 MySQL 体验对齐）
+        // PG 库是连接级，无法切；这里发 SET search_path 让裸表名按选定 schema 解析（对齐 MySQL UX）
         Some(format!(
             "SET search_path TO \"{}\"",
             db.replace('"', "\"\"")

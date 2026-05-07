@@ -1,21 +1,8 @@
-//! query_tab 共享的 SQL 工具函数
-//!
-//! - 自动 LIMIT 注入（`inject_limits` / `inject_limit_one`）
-//! - SQL 多语句切分（`split_sql_statements` 转发到 `infra-sql-shared`）
-//! - 光标处单语句提取（`extract_statement_at_cursor`，含 PG dollar-quoted 识别）
-//! - 错误行号解析（`parse_mysql_error_line` 兼容 MySQL `at line N` / PG `LINE N:`）
-//! - SQL → 短标题派生（`make_short_title`）
-//! - 耗时格式化（`format_elapsed`）
-//!
-//! 全部纯函数，无 GPUI 依赖；测试在文件末尾
+//! query_tab 的 SQL 纯函数：LIMIT 注入 / 多语句切分 / 光标处取语句 / 错误行号 / 短标题 / 耗时格式
 
 use std::time::Duration;
 
-/// 默认自动 LIMIT 注入的上限
-///
-/// 提到 10000 配合表格虚拟化：服务端拉 1w 行 + 客户端 uniform_list 虚拟渲染都流畅；
-/// 用户已写 LIMIT N 不会被覆盖（见 [`inject_limits`]）
-/// 暴露给 connection_session 等同模块用，统一双击表名 / SHOW TABLE 等场景的 LIMIT
+/// 自动 LIMIT 注入上限。用户已写 LIMIT 不被覆盖（见 `inject_limits`）
 pub(crate) const AUTO_LIMIT: usize = 10_000;
 
 /// 格式化运行中耗时：< 60s 显示 "X.Xs"，>= 60s 显示 "Mm Ss"
@@ -157,10 +144,7 @@ pub(super) fn split_sql_statements(
     ramag_infra_sql_shared::sql::split_statements(sql, opts)
 }
 
-/// 从错误消息里提取行号（兼容 MySQL / PostgreSQL 两种格式）
-///
-/// - MySQL：消息含 `... at line N`
-/// - PostgreSQL：消息含 `LINE N:`（PG 错误的次行标准格式）
+/// MySQL `at line N` / PG `LINE N:` 格式提取行号
 pub(crate) fn parse_mysql_error_line(msg: &str) -> Option<usize> {
     if let Some(idx) = msg.find(" at line ") {
         let tail = &msg[idx + " at line ".len()..];
@@ -179,14 +163,8 @@ pub(crate) fn parse_mysql_error_line(msg: &str) -> Option<usize> {
     None
 }
 
-/// 提取光标所在的那条 SQL 语句（按 `;` 切分）
-///
-/// 切分时跳过下列结构里的 `;`：
-/// - 单引号 / 双引号 / 反引号 字符串（含 `\\` 转义）
-/// - `--` 行注释 / `/* */` 块注释
-/// - PG dollar-quoted 函数体（`$$ ... $$` / `$tag$ ... $tag$`，仅 driver=Postgres）
-///
-/// `cursor` 是 UTF-8 byte offset；越界时按最后一条处理。
+/// 按 `;` 切分提取光标处语句，跳过字符串 / 行 / 块注释 / PG dollar-quoted 内的 `;`。
+/// `cursor` 是 UTF-8 byte offset；越界按最后一条
 pub(super) fn extract_statement_at_cursor(
     sql: &str,
     cursor: usize,

@@ -1,12 +1,5 @@
-//! 破坏性操作的二次确认对话框集中地
-//!
-//! 设计原则：
-//! - **统一入口**：click handler 都调 `confirm_xxx(op, window, cx)`，由本文件分发；
-//!   非破坏性 op 直接转发到原 `run_xxx`，破坏性 op 弹 dialog 等用户确认
-//! - **公共 helper**：[`open_confirm_dialog`] 抽取自最早的 `confirm_remove_recent_repo`
-//! - **danger 颜色**：危险按钮（删 / 强推 / 丢工作）用红；中等危险（合并 / rebase / amend）用 primary
-//!
-//! 危险等级判定见 README 风险表。
+//! 破坏性操作二次确认。click 统一走 `confirm_xxx`，非破坏性直转 run，破坏性弹 dialog。
+//! 删 / 强推 / 丢工作 用 danger 红；合并 / rebase / amend 用 primary 蓝
 
 use gpui::{ClickEvent, Context, Entity, ParentElement, SharedString, Styled, Window, div, px};
 use gpui_component::{
@@ -19,10 +12,7 @@ use ramag_domain::entities::RepoOperation;
 use super::helpers::{BranchOp, FileOp, RemoteOp, StashOp, TagOp};
 use super::vcs_view::VcsView;
 
-/// 通用二次确认对话框（薄封装）
-///
-/// 委托给 [`ramag_ui::open_confirm`]，把 `FnOnce(&mut VcsView, &mut Context<VcsView>)` 适配成
-/// `FnOnce(&mut Window, &mut App)`：内部 `view.update` 自己。
+/// 委托 `ramag_ui::open_confirm`，把 `FnOnce(&mut VcsView, &mut Context)` 适配成 `FnOnce(&mut Window, &mut App)`
 #[allow(clippy::too_many_arguments)]
 pub(super) fn open_confirm_dialog(
     view: Entity<VcsView>,
@@ -308,10 +298,7 @@ impl VcsView {
     }
 }
 
-/// Checkout 时工作区有未提交改动 → 三选一对话框：取消 / Stash 后切换 / 丢弃后切换
-///
-/// - Stash：调 stash_save（含 untracked）保存工作区，再 checkout；stash 不自动 pop（用户自己决定）
-/// - Discard：调 discard 所有 dirty 路径丢弃工作区，再 checkout（红色危险按钮）
+/// 工作区脏 + checkout：取消 / Stash 后切（不自动 pop）/ Discard 后切（红色危险）
 pub(super) fn open_checkout_dirty_dialog(
     view: Entity<VcsView>,
     target: String,

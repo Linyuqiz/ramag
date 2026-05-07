@@ -1,18 +1,4 @@
-//! Key 详情面板：选中 key 后右侧渲染
-//!
-//! 按 [`RedisValue`] variant dispatch 渲染：
-//! - String / Bytes → [`scalar`] 单值文本（含 Gzip 自动解压 + 编辑入口）
-//! - List → [`list_block`]
-//! - Hash → [`hash_block`]
-//! - Set → [`set_block`]
-//! - ZSet → [`zset_block`]
-//! - Stream → [`stream_block`]
-//!
-//! 模块拆分：
-//! - [`header`]  顶部 key 名 + DB/类型/TTL/元素数/估算大小 chips + [+] 新增 / 删除 Key
-//! - [`scalar`]  String/Bytes 标量值的内容渲染
-//! - `*_block`   各容器类型行渲染（含行内 [✎][🗑] 图标按钮）
-//! - [`helpers`] 通用辅助：值分发 + 标量小块（Array fallback）+ 时长格式化 + 并发 join
+//! Key 详情：按 RedisValue variant dispatch 到 scalar / list_block / hash_block / set_block / zset_block / stream_block
 
 mod hash_block;
 mod header;
@@ -38,10 +24,9 @@ use helpers::{futures_join, render_value};
 
 #[derive(Debug, Clone)]
 pub enum KeyDetailEvent {
-    /// key 已删除（详情面板请求 KeyTree 刷新）
+    /// 详情面板触发 DEL 后通知 KeyTree 刷新
     Deleted(String),
-    /// 请求编辑 TTL（弹窗由上层 Session 处理）
-    /// (key 名, 当前 ttl_ms)
+    /// 请求编辑 TTL，弹窗由上层 Session 处理。(key, 当前 ttl_ms)
     RequestEditTtl(String, Option<i64>),
     /// 请求编辑 String 值（弹窗由上层 Session 处理）
     /// (key 名, 当前文本值)
@@ -104,8 +89,7 @@ pub struct KeyDetailPanel {
     /// 单 Key 字节估算（MEMORY USAGE，需用户主动点击触发）
     pub(super) key_size_bytes: Option<u64>,
     pub(super) estimating_size: bool,
-    /// 面板整体焦点：上层 Session 在切到 Detail tab 时调 focus_panel
-    /// 让 ⌘W / 其他 action 能通过焦点链路由到 Session 的 on_action 监听
+    /// Session 切到 Detail tab 时调 focus_panel，让 cmd-w 等 action 走焦点链路由到 Session
     focus_handle: FocusHandle,
 }
 
@@ -247,8 +231,7 @@ impl KeyDetailPanel {
         cx.notify();
     }
 
-    /// 估算当前 Key 占用字节（MEMORY USAGE）→ 写入 self.key_size_bytes
-    /// pub(super)：让 header 的 [📊 估算大小] 按钮能调到
+    /// `MEMORY USAGE` 写入 self.key_size_bytes，由 header 估算按钮调用
     pub(super) fn estimate_size(&mut self, cx: &mut Context<Self>) {
         let Some(config) = self.config.clone() else {
             return;

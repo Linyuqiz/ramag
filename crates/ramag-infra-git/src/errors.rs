@@ -1,7 +1,4 @@
-//! gix 各模块错误 → DomainError 映射
-//!
-//! gix 的错误是按 sub-crate 分散的（gix-open / gix-status / gix-diff 等）。
-//! 本模块统一映射成 [`DomainError`]，附中文消息
+//! gix 错误 + git subprocess stderr → DomainError，附中文友好提示
 
 use ramag_domain::error::DomainError;
 
@@ -25,20 +22,7 @@ pub fn map_diff_error(e: impl std::fmt::Display) -> DomainError {
     DomainError::QueryFailed(format!("Diff 计算失败: {e}"))
 }
 
-/// 把 git subprocess 的 stderr 翻译成中文 + 给下一步建议
-///
-/// 命中常见错误模式（远程不可达 / 凭证 / 锁冲突 / 冲突 / 工作区脏 / no upstream 等）时
-/// 给出友好提示；未命中时返回原始 stderr，避免吞错。
-///
-/// # 示例
-/// ```
-/// use ramag_infra_git::errors::friendly_git_error;
-/// let msg = friendly_git_error(
-///     &["push", "origin", "main"],
-///     "fatal: 'origin' does not appear to be a git repository\n",
-/// );
-/// assert!(msg.contains("远程仓库不可达"));
-/// ```
+/// 翻译 git subprocess stderr 为中文 + 操作建议；未命中模式时返回原文，不吞错
 pub fn friendly_git_error(args: &[&str], stderr: &str) -> String {
     let raw = stderr.trim();
     let cmd = args.join(" ");

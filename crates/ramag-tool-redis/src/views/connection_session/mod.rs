@@ -1,11 +1,4 @@
-//! Redis 连接会话面板（dbclient 装载，作为 Redis 连接的会话视图）
-//!
-//! 布局：左侧 Key 树（含 DB 切换 / 搜索 / 新建），右侧 KeyDetail 主区。
-//! 点 key 树某项 → 主区 load_key；DB 切换 → 主区清空。无 tab、无 CLI、无 Pub/Sub。
-//!
-//! 模块拆分：
-//! - 本文件：state + new（含订阅闭包总分发） + Render
-//! - [`dialogs`]：所有 open_*_dialog + 二次确认 + 事件→弹窗映射
+//! Redis 会话：左 Key 树（DB 切换 / 搜索 / 新建），右 KeyDetail。点 key→load_key，切 DB→清主区
 
 mod dialogs;
 
@@ -66,7 +59,7 @@ impl RedisSessionPanel {
             t.set_connection(Some(conn_for_tree), initial_db, cx)
         });
 
-        // 主区 KeyDetail：单实例 + 初始即聚焦面板，确保 ⌘W 等 action 链路通畅
+        // 主区 KeyDetail：单实例 + 初始即聚焦，让 cmd-w 等 action 走焦点链
         let svc = service.clone();
         let detail = cx.new(|cx| KeyDetailPanel::new(svc, cx));
         detail.update(cx, |p, cx| {
@@ -306,7 +299,7 @@ impl Render for RedisSessionPanel {
         let border = theme.border;
         let bg = theme.background;
 
-        // ⌘W：KeyDetail 加载了 key 时清空回到默认空态；空态时冒泡到全局 fallback 关窗
+        // CloseTab：KeyDetail 有 key 时清回空态；空态时冒泡到全局 fallback 关窗
         let workspace = v_flex()
             .size_full()
             .key_context("RedisSession")

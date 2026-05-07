@@ -1,6 +1,4 @@
-//! PG 元数据查询：schemas / tables / columns / indexes / foreign keys / 服务端版本
-//!
-//! 优先用 information_schema（标准 SQL），少量索引方法 + 列注释走 pg_catalog。
+//! PG 元数据：优先 information_schema，少量索引/列注释走 pg_catalog
 
 use ramag_domain::entities::{Column, ForeignKey, Index, Schema, Table};
 use ramag_domain::error::Result;
@@ -10,11 +8,7 @@ use tracing::debug;
 use crate::errors::map_postgres_error;
 use crate::types::map_column_kind;
 
-/// 列出当前 database 内所有 schema（含系统 schema）
-///
-/// 系统 schema（`pg_catalog` / `information_schema` / `pg_toast` / `pg_temp_*`）由 UI 层
-/// 通过 `is_system_schema()` + 眼睛 toggle 决定显隐，driver 层不做过滤——这样用户开启
-/// "显示系统库"时能直接浏览 PG 内置 catalog（如查 `pg_catalog.pg_indexes` / `information_schema.columns`）
+/// 含系统 schema（pg_catalog / information_schema / pg_toast / pg_temp_*）；过滤交给 UI
 pub async fn list_schemas(pool: &PgPool) -> Result<Vec<Schema>> {
     debug!("list_schemas (postgres)");
 
@@ -34,20 +28,16 @@ pub async fn list_schemas(pool: &PgPool) -> Result<Vec<Schema>> {
         .map(|(name, charset)| Schema {
             name,
             charset,
-            // PG schema 没有 collation 概念（collation 是列/表级），保持 None
+            // PG 的 collation 是列 / 表级，schema 无此概念
             collation: None,
         })
         .collect())
 }
 
-/// 列出指定 schema 下所有 BASE TABLE / VIEW / MATERIALIZED VIEW
-///
-/// PG 的 information_schema.tables 不含 matview，要 union pg_matviews
+/// 列出 BASE TABLE / VIEW / MATERIALIZED VIEW。matview 不在 information_schema.tables，需 union pg_matviews
 pub async fn list_tables(pool: &PgPool, schema: &str) -> Result<Vec<Table>> {
     debug!(?schema, "list_tables (postgres)");
 
-    // information_schema.tables: BASE TABLE / VIEW
-    // pg_matviews: 物化视图（独立来源）
     let rows: Vec<(String, String, Option<String>, Option<i64>)> = sqlx::query_as(
         r#"
         SELECT
@@ -81,9 +71,8 @@ pub async fn list_tables(pool: &PgPool, schema: &str) -> Result<Vec<Table>> {
     Ok(rows
         .into_iter()
         .map(|(name, table_type, comment, row_estimate)| {
-            // BASE TABLE 之外都视作视图（VIEW + MATERIALIZED VIEW）
             let is_view = !table_type.eq_ignore_ascii_case("BASE TABLE");
-            // reltuples 是估算值（非精确）；负数代表"未分析"，归零更友好
+            // reltuples 估算值，负数表示未分析，归零
             let row_estimate = Some(row_estimate.map(|v| v.max(0) as u64).unwrap_or(0));
             Table {
                 name,
@@ -96,9 +85,7 @@ pub async fn list_tables(pool: &PgPool, schema: &str) -> Result<Vec<Table>> {
         .collect())
 }
 
-/// PG COLUMNS 一行的元组（避免 clippy::type_complexity）
-///
-/// 列：column_name / data_type / udt_name / column_default / column_comment / character_maximum_length / is_nullable
+/// COLUMNS 一行：column_name / data_type / udt_name / default / comment / char_max_len / nullable
 type PgColumnRow = (
     String,
     String,
@@ -109,9 +96,7 @@ type PgColumnRow = (
     bool,
 );
 
-/// 列出指定表的所有列（含注释）
-///
-/// 列注释走 pg_catalog.col_description；其他属性走 information_schema.columns
+/// 列注释走 pg_catalog.col_description，其他走 information_schema.columns
 pub async fn list_columns(pool: &PgPool, schema: &str, table: &str) -> Result<Vec<Column>> {
     debug!(?schema, ?table, "list_columns (postgres)");
 
@@ -138,7 +123,7 @@ pub async fn list_columns(pool: &PgPool, schema: &str, table: &str) -> Result<Ve
     .await
     .map_err(|e| map_postgres_error(&e))?;
 
-    // 主键列：另查一次 information_schema.key_column_usage + table_constraints
+    // 主键列另查一次 key_column_usage + table_constraints
     let pk_cols: Vec<(String,)> = sqlx::query_as(
         r#"
         SELECT kcu.column_name::text
@@ -161,8 +146,7 @@ pub async fn list_columns(pool: &PgPool, schema: &str, table: &str) -> Result<Ve
         .into_iter()
         .map(
             |(name, data_type, udt_name, default_value, comment, char_max_len, nullable)| {
-                // 拼一个用户友好的完整类型字符串：varchar(255) / numeric(10,2) 等
-                // PG information_schema 没有现成的"完整类型"列，需要手动拼
+                // PG information_schema 没现成完整类型列，手动拼 varchar(255) / numeric(10,2)
                 let full_type = compose_full_type(&data_type, &udt_name, char_max_len);
                 Column {
                     name: name.clone(),
@@ -177,8 +161,6 @@ pub async fn list_columns(pool: &PgPool, schema: &str, table: &str) -> Result<Ve
         .collect())
 }
 
-/// 拼接 PG 列的友好完整类型字符串
-///
 /// 例：data_type=character varying / udt=varchar / char_max=255 → "varchar(255)"
 fn compose_full_type(data_type: &str, udt: &str, char_max: Option<i32>) -> String {
     let base = if udt.is_empty() { data_type } else { udt };
@@ -189,7 +171,7 @@ fn compose_full_type(data_type: &str, udt: &str, char_max: Option<i32>) -> Strin
     }
 }
 
-/// 列出指定表的所有索引（含主键 / 唯一 / 普通；含 BTREE/GIN/GIST/HASH/BRIN 索引方法）
+/// 含 BTREE/GIN/GIST/HASH/BRIN 等所有索引方法
 pub async fn list_indexes(pool: &PgPool, schema: &str, table: &str) -> Result<Vec<Index>> {
     debug!(?schema, ?table, "list_indexes (postgres)");
 
@@ -227,7 +209,6 @@ pub async fn list_indexes(pool: &PgPool, schema: &str, table: &str) -> Result<Ve
         .collect())
 }
 
-/// 列出指定表的所有外键
 pub async fn list_foreign_keys(
     pool: &PgPool,
     schema: &str,
@@ -277,7 +258,7 @@ pub async fn list_foreign_keys(
     Ok(grouped.into_values().collect())
 }
 
-/// SELECT 1 测试连接
+/// SELECT 1
 pub async fn ping(pool: &PgPool) -> Result<()> {
     let _: (i32,) = sqlx::query_as("SELECT 1")
         .fetch_one(pool)
@@ -286,9 +267,7 @@ pub async fn ping(pool: &PgPool) -> Result<()> {
     Ok(())
 }
 
-/// 取服务端版本字符串
-///
-/// PG 13.5 / 14.10 / 15.x 这种格式
+/// `SHOW server_version`，形如 "13.5"
 pub async fn server_version(pool: &PgPool) -> Result<String> {
     let (v,): (String,) = sqlx::query_as("SHOW server_version")
         .fetch_one(pool)

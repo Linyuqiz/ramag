@@ -1,7 +1,4 @@
-//! ConnectionFormPanel 的状态变更与异步操作：driver 切换 / 校验 / 测试 / 保存
-//!
-//! 拆出来让 mod.rs 不超 600 行红线。render_driver_selector 也在这里——
-//! 它的逻辑（端口默认值匹配 / 状态切换）跟 set_driver 强耦合，留在一起便于阅读。
+//! ConnectionForm 状态 + 异步：driver 切换 / 校验 / 测试 / 保存。render_driver_selector 也在这里
 
 use gpui::{
     ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, Window, prelude::*, px,
@@ -15,10 +12,7 @@ use super::{
 };
 
 impl ConnectionFormPanel {
-    /// 切换 driver（仅可用 driver 才会通过 UI 触发）
-    ///
-    /// 端口字段联动：仅当用户没改动过端口（仍是另一 driver 的默认值）时才自动切换
-    /// - mysql=3306 / postgres=5432 / redis=6379
+    /// 端口仍是某 driver 默认值（mysql=3306 / postgres=5432 / redis=6379）时才自动切换
     pub(super) fn set_driver(
         &mut self,
         id: &'static str,

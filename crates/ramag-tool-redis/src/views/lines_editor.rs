@@ -1,7 +1,4 @@
-//! List / Set 共用的单列行编辑器
-//!
-//! - `LinesKind::List`：行号 + 插入方向（默认尾部 RPUSH）
-//! - `LinesKind::Set`：无行号；提交时主对话框做去重
+//! List（行号 + 默认 RPUSH 方向）/ Set（无行号、提交时去重）共用单列行编辑器
 
 use gpui::{
     App, ClickEvent, Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
@@ -116,7 +113,7 @@ impl Render for LinesEditor {
         let mut accent_border = accent;
         accent_border.a = 0.55;
 
-        // === toolbar：[+ 添加] + 计数 + （List）方向选择 ===
+        // toolbar：添加 + 计数 + List 方向
         let label_add = match self.kind {
             LinesKind::List => "添加元素",
             LinesKind::Set => "添加成员",
@@ -186,7 +183,7 @@ impl Render for LinesEditor {
                 );
         }
 
-        // === 行列表 ===
+        // 行列表
         let mut list = v_flex().w_full().gap(px(6.0));
         for (idx, row) in self.rows.iter().enumerate() {
             let id = row.id;

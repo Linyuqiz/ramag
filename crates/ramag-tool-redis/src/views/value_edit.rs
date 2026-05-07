@@ -1,7 +1,4 @@
-//! String 类型 Key 的值编辑弹窗
-//!
-//! Stage 16 范围：仅支持 String 值的全量替换（SET key value）
-//! 后续 Stage 17 扩展 Hash 字段编辑、List 元素编辑、ZSet score 修改等
+//! String key 的值全量替换弹窗（SET key value）
 
 use std::sync::Arc;
 

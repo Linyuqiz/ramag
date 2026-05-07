@@ -1,26 +1,12 @@
-//! 集成测试：连接真实 MySQL 跑通完整流程
-//!
-//! # 运行方式
-//!
-//! ```bash
-//! # 设置环境变量后运行（否则 skip）
-//! export RAMAG_TEST_MYSQL_HOST=10.0.17.38
-//! export RAMAG_TEST_MYSQL_PORT=3306
-//! export RAMAG_TEST_MYSQL_USER=root
-//! export RAMAG_TEST_MYSQL_PASSWORD='Midas@Mysql2027!'
-//! export RAMAG_TEST_MYSQL_DB=midas_storage
-//!
-//! cargo test -p ramag-infra-mysql --test integration -- --nocapture
-//! ```
+//! 集成测试：连接真实 MySQL。缺 RAMAG_TEST_MYSQL_* 环境变量时跳过
 
-// 测试代码局部豁免 unwrap/expect/panic：失败即用例失败，不需要 graceful 处理
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use ramag_domain::entities::{ConnectionConfig, ConnectionId, DriverKind, Query};
 use ramag_domain::traits::Driver;
 use ramag_infra_mysql::MysqlDriver;
 
-/// 从环境变量读取连接配置；缺任一字段就跳过测试
+/// 缺任一字段就跳过测试
 fn config_from_env() -> Option<ConnectionConfig> {
     let host = std::env::var("RAMAG_TEST_MYSQL_HOST").ok()?;
     let port: u16 = std::env::var("RAMAG_TEST_MYSQL_PORT").ok()?.parse().ok()?;
@@ -42,7 +28,7 @@ fn config_from_env() -> Option<ConnectionConfig> {
     })
 }
 
-/// 跳过日志：方便定位 skip 原因
+/// 缺环境变量时打印 skip 提示再 return
 macro_rules! require_env {
     () => {{
         match config_from_env() {
@@ -92,7 +78,7 @@ async fn list_tables_for_db() {
         .await
         .expect("list_tables 失败");
     println!("tables in {}: {:#?}", schema, tables);
-    // 不强制有表（用户库可能为空），只验证调用成功
+    // 不强制有表，只验证调用成功
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -145,7 +131,6 @@ async fn execute_select_with_types() {
     let config = require_env!();
     let driver = MysqlDriver::new();
 
-    // 测试多种类型映射
     let result = driver
         .execute(
             &config,

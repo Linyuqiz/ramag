@@ -1,6 +1,4 @@
 //! 仓库 storage 管理 + Clone / Init / 确认弹窗
-//!
-//! 拆出来让 mod.rs 不超 600 行红线。
 
 use gpui::prelude::*;
 use gpui::{Context, Window};

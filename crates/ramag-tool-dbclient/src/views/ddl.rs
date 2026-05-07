@@ -1,10 +1,4 @@
-//! 表 / 视图 DDL 查询 SQL 拼装（按 driver 方言）
-//!
-//! - **MySQL**：直接 `SHOW CREATE TABLE` / `SHOW CREATE VIEW`，结果是单行双列 `(Table, Create Table)`
-//! - **PostgreSQL**：
-//!   - 视图 → 内置 `pg_get_viewdef(::regclass, true)`
-//!   - 表 → 拼一句长 SQL，覆盖 MySQL `SHOW CREATE TABLE` 的实际内容：
-//!     列定义（类型 + NOT NULL + DEFAULT）+ 约束（PK/UNIQUE/FK/CHECK）+ 索引（非约束）+ 表注释 + 列注释
+//! 按方言拼 DDL 查询。MySQL `SHOW CREATE TABLE/VIEW`；PG 视图走 `pg_get_viewdef`，表手拼列+约束+索引+注释
 
 use ramag_domain::entities::DriverKind;
 
@@ -40,14 +34,7 @@ pub fn build_ddl_query(driver: DriverKind, schema: &str, table: &str, is_view: b
 ///
 /// `s_lit / t_lit` 已转义 SQL 单引号（`'` → `''`），可直接嵌入 SQL 字面量
 fn postgres_table_ddl_sql(s_lit: &str, t_lit: &str) -> String {
-    // SQL 模板：
-    // 1. cols：列定义（类型 / NOT NULL / DEFAULT）
-    // 2. cons：约束（PK / UNIQUE / FK / CHECK），通过 pg_get_constraintdef 拿现成定义
-    // 3. idx：非约束索引（用 pg_get_indexdef 拿现成 CREATE INDEX 语句）
-    // 4. tab_cmt：表注释 COMMENT ON TABLE
-    // 5. col_cmt：列注释 COMMENT ON COLUMN（多行 string_agg）
-    //
-    // 最终 SELECT 把上面 5 段拼成一行 ddl 字段：CREATE TABLE 主体 + 后续追加项
+    // 拼接 cols（列+NOT NULL+DEFAULT）+ cons（pg_get_constraintdef）+ idx（pg_get_indexdef）+ 表/列 COMMENT
     format!(
         "WITH lines AS ( \
             SELECT a.attnum AS sort_key, \

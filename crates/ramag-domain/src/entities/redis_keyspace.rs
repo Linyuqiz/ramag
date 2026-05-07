@@ -1,10 +1,8 @@
-//! Redis Key 空间元数据
-//!
-//! 用于 SCAN 浏览：每个 key 携带 `(name, type, ttl, size)` 用于 UI 表/树展示
+//! Redis key 空间元数据：SCAN 浏览的 (name, type, ttl) 载体
 
 use serde::{Deserialize, Serialize};
 
-/// Key 类型（与 Redis `TYPE <key>` 应答对齐）
+/// 与 `TYPE <key>` 应答对齐
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum RedisType {
     String,
@@ -13,14 +11,12 @@ pub enum RedisType {
     Set,
     ZSet,
     Stream,
-    /// `TYPE` 返回 `none` —— key 不存在
+    /// key 不存在
     None,
 }
 
 impl RedisType {
-    /// Redis TYPE 应答字符串 → 枚举
-    ///
-    /// 未知类型（如模块自定义类型）映射为 None；上层若需保留原值，请改走原始命令
+    /// `TYPE` 应答 → 枚举。未知（模块自定义）映射为 None
     pub fn parse(s: &str) -> Self {
         match s {
             "string" => RedisType::String,
@@ -33,7 +29,7 @@ impl RedisType {
         }
     }
 
-    /// 给 SCAN ... TYPE <type> 用的字面量（小写，与服务端一致）
+    /// `SCAN ... TYPE <type>` 用的小写字面量
     pub fn as_scan_arg(&self) -> &'static str {
         match self {
             RedisType::String => "string",
@@ -46,7 +42,6 @@ impl RedisType {
         }
     }
 
-    /// UI 显示用的人类可读标签
     pub fn label(&self) -> &'static str {
         match self {
             RedisType::String => "String",
@@ -60,26 +55,19 @@ impl RedisType {
     }
 }
 
-/// Key 元数据
-///
-/// 由 SCAN + 后续 TYPE/PTTL 组合得到。`key_type` 和 `ttl_ms` 在 SCAN 阶段
-/// 可能为 None（未取），UI 层按需补查
+/// Key 元数据。SCAN 阶段 `key_type` / `ttl_ms` 可为 None，UI 按需补查
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyMeta {
-    /// Key 名（utf-8 字符串；二进制 key 暂不支持，由 driver 保证 utf-8）
+    /// utf-8 字符串，driver 保证（暂不支持二进制 key）
     pub key: String,
-    /// 类型（None = 未查询；Some(RedisType::None) = 查过但 key 不存在）
+    /// None=未查询，Some(RedisType::None)=查过但 key 不存在
     pub key_type: Option<RedisType>,
-    /// 剩余 TTL（毫秒）
-    /// - None: 未查询
-    /// - Some(-1): 永久（无 TTL）
-    /// - Some(-2): key 不存在
-    /// - Some(n>=0): 剩余毫秒
+    /// PTTL：None=未查询，-1=永久，-2=key 不存在，>=0=剩余毫秒
     pub ttl_ms: Option<i64>,
 }
 
 impl KeyMeta {
-    /// 仅有 key 名的最简元数据
+    /// 仅 key 名的最简元数据
     pub fn bare(key: impl Into<String>) -> Self {
         Self {
             key: key.into(),
@@ -92,9 +80,8 @@ impl KeyMeta {
 /// SCAN 一批应答
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanResult {
-    /// 下次迭代游标；0 表示遍历结束
+    /// 下次游标，0 = 遍历结束
     pub cursor: u64,
-    /// 本批 key 列表
     pub keys: Vec<KeyMeta>,
 }
 
