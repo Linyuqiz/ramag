@@ -39,6 +39,7 @@ impl Render for ConnectionFormPanel {
         let database_label = match self.driver_id {
             "redis" => "DB（0-15）",
             "postgres" => "默认库（必填）",
+            "mongodb" => "默认库（可选，留空=admin）",
             _ => "默认库（可选）",
         };
         let username_label = if is_redis {

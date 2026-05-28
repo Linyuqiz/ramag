@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use gpui::{AppContext as _, Context, Entity, EventEmitter, Window};
 use gpui_component::input::{InputEvent, InputState};
-use ramag_app::{ConnectionService, RedisService};
+use ramag_app::{ConnectionService, MongoService, RedisService};
 use ramag_domain::entities::{ConnectionConfig, ConnectionId, DriverKind};
 use tracing::{debug, error};
 
@@ -17,6 +17,8 @@ pub struct ConnectionListPanel {
     pub(super) service: Arc<ConnectionService>,
     /// Redis 连接的 server_version 走 redis_service
     redis_service: Arc<RedisService>,
+    /// MongoDB 连接的 server_version 走 mongo_service
+    mongo_service: Arc<MongoService>,
     pub(super) connections: Vec<ConnectionConfig>,
     pub(super) selected: Option<ConnectionId>,
     pub(super) loading: bool,
@@ -42,6 +44,7 @@ impl ConnectionListPanel {
     pub fn new(
         service: Arc<ConnectionService>,
         redis_service: Arc<RedisService>,
+        mongo_service: Arc<MongoService>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -63,6 +66,7 @@ impl ConnectionListPanel {
         let mut this = Self {
             service,
             redis_service,
+            mongo_service,
             connections: Vec::new(),
             selected: None,
             loading: true,
@@ -107,10 +111,12 @@ impl ConnectionListPanel {
         };
         let mysql_svc = self.service.clone();
         let redis_svc = self.redis_service.clone();
+        let mongo_svc = self.mongo_service.clone();
         cx.spawn(async move |this, cx| {
             let result = match conn.driver {
                 DriverKind::Mysql | DriverKind::Postgres => mysql_svc.server_version(&conn).await,
                 DriverKind::Redis => redis_svc.server_version(&conn).await,
+                DriverKind::Mongodb => mongo_svc.server_version(&conn).await,
             };
             match result {
                 Ok(v) => {
@@ -171,8 +177,9 @@ impl ConnectionListPanel {
 pub fn create(
     service: Arc<ConnectionService>,
     redis_service: Arc<RedisService>,
+    mongo_service: Arc<MongoService>,
     window: &mut Window,
     cx: &mut gpui::App,
 ) -> Entity<ConnectionListPanel> {
-    cx.new(|cx| ConnectionListPanel::new(service, redis_service, window, cx))
+    cx.new(|cx| ConnectionListPanel::new(service, redis_service, mongo_service, window, cx))
 }

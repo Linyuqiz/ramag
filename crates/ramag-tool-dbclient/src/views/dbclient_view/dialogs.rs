@@ -13,7 +13,9 @@ impl DbClientView {
     pub(super) fn open_form_create(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let svc = self.service.clone();
         let redis_svc = self.redis_service.clone();
-        let form = cx.new(|cx| ConnectionFormPanel::new_create(svc, redis_svc, window, cx));
+        let mongo_svc = self.mongo_service.clone();
+        let form =
+            cx.new(|cx| ConnectionFormPanel::new_create(svc, redis_svc, mongo_svc, window, cx));
         self.subscribe_form_and_open_dialog(form, window, cx);
     }
 
@@ -25,7 +27,9 @@ impl DbClientView {
     ) {
         let svc = self.service.clone();
         let redis_svc = self.redis_service.clone();
-        let form = cx.new(|cx| ConnectionFormPanel::new_edit(svc, redis_svc, conn, window, cx));
+        let mongo_svc = self.mongo_service.clone();
+        let form =
+            cx.new(|cx| ConnectionFormPanel::new_edit(svc, redis_svc, mongo_svc, conn, window, cx));
         self.subscribe_form_and_open_dialog(form, window, cx);
     }
 
@@ -78,6 +82,9 @@ impl DbClientView {
                     }
                     DriverKind::Redis => {
                         self.redis_service.evict_pool(&conn.id);
+                    }
+                    DriverKind::Mongodb => {
+                        self.mongo_service.evict_pool(&conn.id);
                     }
                 }
                 // 编辑场景：若该连接有正在打开的 Session，旧 config 已过期（如 database 改了）→

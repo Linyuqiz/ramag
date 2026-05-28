@@ -136,12 +136,13 @@ pub(super) fn escape_new_value_for_old(old: &Value, new_text: &str) -> String {
     build_new_value_for_old(old, new_text).to_sql_literal()
 }
 
-/// 单行 DML LIMIT 子句。MySQL ` LIMIT 1` 防误删；PG / Redis 不支持，返回空
+/// 单行 DML LIMIT 子句。MySQL ` LIMIT 1` 防误删；PG / Redis / MongoDB 不支持，返回空
 pub(super) fn dml_row_limit(driver: ramag_domain::entities::DriverKind) -> &'static str {
     match driver {
         ramag_domain::entities::DriverKind::Mysql => " LIMIT 1",
         ramag_domain::entities::DriverKind::Postgres
-        | ramag_domain::entities::DriverKind::Redis => "",
+        | ramag_domain::entities::DriverKind::Redis
+        | ramag_domain::entities::DriverKind::Mongodb => "",
     }
 }
 

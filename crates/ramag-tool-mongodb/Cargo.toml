@@ -1,0 +1,29 @@
+[package]
+name = "ramag-tool-mongodb"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Ramag MongoDB 工具：仿 MySQL 三栏 UI（左 db/collection 树 + 中多 Tab 查询编辑 + 下结果）"
+
+[lints]
+workspace = true
+
+[dependencies]
+ramag-domain = { workspace = true }
+ramag-app = { workspace = true }
+ramag-ui = { workspace = true }
+
+# GPUI
+gpui = { workspace = true }
+gpui-component = { workspace = true }
+
+# JSON 操作（编辑器内容解析 / pretty print）
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# GPUI Action 派生（仅 derive 用）
+schemars = { workspace = true }
+
+# 日志
+tracing = { workspace = true }

@@ -33,15 +33,17 @@ pub enum DriverKind {
     Postgres,
     /// KV 形态，走 KvDriver 而非 Driver
     Redis,
+    /// 文档形态，走 DocDriver 而非 Driver / KvDriver
+    Mongodb,
 }
 
 impl DriverKind {
-    /// 按方言加引号包裹标识符。MySQL 反引号、PG 双引号、Redis 原样
+    /// 按方言加引号包裹标识符。MySQL 反引号、PG 双引号、Redis / MongoDB 原样
     pub fn quote_identifier(&self, ident: &str) -> String {
         match self {
             DriverKind::Mysql => format!("`{}`", ident.replace('`', "``")),
             DriverKind::Postgres => format!("\"{}\"", ident.replace('"', "\"\"")),
-            DriverKind::Redis => ident.to_string(),
+            DriverKind::Redis | DriverKind::Mongodb => ident.to_string(),
         }
     }
 }
@@ -153,6 +155,22 @@ impl ConnectionConfig {
             username: user.into(),
             password: String::new(),
             database: Some(database.into()),
+            remark: None,
+            color: ConnectionColor::default(),
+        }
+    }
+
+    /// 构造 MongoDB 连接。database 可选，留空表示默认 `admin`
+    pub fn new_mongodb(name: impl Into<String>, host: impl Into<String>, port: u16) -> Self {
+        Self {
+            id: ConnectionId::new(),
+            name: name.into(),
+            driver: DriverKind::Mongodb,
+            host: host.into(),
+            port,
+            username: String::new(),
+            password: String::new(),
+            database: None,
             remark: None,
             color: ConnectionColor::default(),
         }

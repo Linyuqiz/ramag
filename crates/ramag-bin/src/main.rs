@@ -9,9 +9,10 @@ use gpui::{
     WindowOptions, prelude::*, px, size,
 };
 use gpui_component::Root;
-use ramag_app::{ConnectionService, RedisService, ToolRegistry};
-use ramag_domain::traits::{Driver, GitDriver, KvDriver, Storage};
+use ramag_app::{ConnectionService, MongoService, RedisService, ToolRegistry};
+use ramag_domain::traits::{DocDriver, Driver, GitDriver, KvDriver, Storage};
 use ramag_infra_git::GitDriverImpl;
+use ramag_infra_mongodb::MongoDriver;
 use ramag_infra_mysql::MysqlDriver;
 use ramag_infra_postgres::PostgresDriver;
 use ramag_infra_redis::RedisDriver;
@@ -20,6 +21,7 @@ use ramag_tool_dbclient::{
     DbClientTool, ExplainQuery, FindInResults, FormatSql, NewQueryTab, RunQuery,
     RunStatementAtCursor, SaveSqlFile, ToggleHistory, ToggleSqlEditor, create_dbclient_view,
 };
+use ramag_tool_mongodb::{FormatMongoJson, NewMongoQueryTab, RunMongoQuery, ToggleMongoEditor};
 use ramag_tool_vcs::{VcsTool, create_vcs_view};
 use ramag_ui::{
     CloseTab, HomeEvent, HomeView, Mode, NavTarget, RamagAssets, Shell, StorageGlobal, apply_theme,
@@ -51,6 +53,8 @@ fn main() {
 
     // Redis 共用同一 storage
     let redis_service: Arc<RedisService> = build_redis_service(storage.clone());
+    // MongoDB 共用同一 storage
+    let mongo_service: Arc<MongoService> = build_mongo_service(storage.clone());
 
     // 主题偏好。None / "system" 跟随系统，"dark"/"light" 用户固定
     let initial_pref = read_theme_preference(&storage);
@@ -64,6 +68,7 @@ fn main() {
     let registry_for_reopen = registry.clone();
     let conn_service_for_reopen = conn_service.clone();
     let redis_service_for_reopen = redis_service.clone();
+    let mongo_service_for_reopen = mongo_service.clone();
     let storage_for_reopen = storage.clone();
     app.on_reopen(move |cx: &mut App| {
         if cx.windows().is_empty() {
@@ -73,6 +78,7 @@ fn main() {
                 registry_for_reopen.clone(),
                 conn_service_for_reopen.clone(),
                 redis_service_for_reopen.clone(),
+                mongo_service_for_reopen.clone(),
                 storage_for_reopen.clone(),
                 pref,
                 cx,
@@ -100,6 +106,7 @@ fn main() {
 
         cx.bind_keys([
             KeyBinding::new("cmd-q", Quit, None),
+            // dbclient (MySQL / PG) 视图的快捷键（context=QueryPanel/QueryTab 见 dbclient 视图实现）
             KeyBinding::new("cmd-enter", RunQuery, None),
             KeyBinding::new("cmd-shift-enter", RunStatementAtCursor, None),
             KeyBinding::new("cmd-t", NewQueryTab, None),
@@ -110,6 +117,11 @@ fn main() {
             KeyBinding::new("cmd-s", SaveSqlFile, None),
             KeyBinding::new("cmd-shift-h", ToggleHistory, None),
             KeyBinding::new("cmd-e", ToggleSqlEditor, None),
+            // MongoDB 视图的快捷键，用 KeyContext 限定（焦点在 Mongo 视图时优先）
+            KeyBinding::new("cmd-enter", RunMongoQuery, Some("MongoQueryTab")),
+            KeyBinding::new("cmd-t", NewMongoQueryTab, Some("MongoQueryPanel")),
+            KeyBinding::new("cmd-shift-f", FormatMongoJson, Some("MongoQueryTab")),
+            KeyBinding::new("cmd-e", ToggleMongoEditor, Some("MongoQueryPanel")),
         ]);
 
         cx.set_menus(vec![Menu {
@@ -122,6 +134,7 @@ fn main() {
             registry.clone(),
             conn_service.clone(),
             redis_service.clone(),
+            mongo_service.clone(),
             storage.clone(),
             initial_pref.clone(),
             cx,
@@ -134,6 +147,7 @@ fn open_main_window(
     registry: Arc<ToolRegistry>,
     conn_service: Arc<ConnectionService>,
     redis_service: Arc<RedisService>,
+    mongo_service: Arc<MongoService>,
     storage: Arc<dyn Storage>,
     theme_pref: Option<String>,
     cx: &mut App,
@@ -161,8 +175,13 @@ fn open_main_window(
                 let home_view =
                     cx.new(|cx| HomeView::new(registry.clone(), conn_service.clone(), cx));
 
-                let dbclient_view =
-                    create_dbclient_view(conn_service.clone(), redis_service.clone(), window, cx);
+                let dbclient_view = create_dbclient_view(
+                    conn_service.clone(),
+                    redis_service.clone(),
+                    mongo_service.clone(),
+                    window,
+                    cx,
+                );
 
                 let git_driver: Arc<dyn GitDriver> = Arc::new(GitDriverImpl::new());
                 let vcs_view = create_vcs_view(git_driver, storage.clone(), window, cx);
@@ -241,6 +260,11 @@ fn build_tool_registry() -> Arc<ToolRegistry> {
 fn build_redis_service(storage: Arc<dyn Storage>) -> Arc<RedisService> {
     let driver: Arc<dyn KvDriver> = Arc::new(RedisDriver::new());
     Arc::new(RedisService::new(driver, storage))
+}
+
+fn build_mongo_service(storage: Arc<dyn Storage>) -> Arc<MongoService> {
+    let driver: Arc<dyn DocDriver> = Arc::new(MongoDriver::new());
+    Arc::new(MongoService::new(driver, storage))
 }
 
 fn init_tracing() {

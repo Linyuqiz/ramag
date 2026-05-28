@@ -1,0 +1,37 @@
+[package]
+name = "ramag-infra-mongodb"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Ramag MongoDB 驱动实现（实现 Domain 的 DocDriver trait，封装 mongodb 官方驱动）"
+
+[lints]
+workspace = true
+
+[dependencies]
+ramag-domain = { workspace = true }
+
+# MongoDB 异步驱动 + BSON 序列化
+mongodb = { workspace = true }
+bson = { workspace = true }
+
+# 异步运行时（GPUI 用 smol，mongodb 必须 tokio，桥接）
+async-trait = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+
+# 序列化与时间
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+
+# 连接池缓存
+dashmap = { workspace = true }
+once_cell = { workspace = true }
+
+# 日志
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

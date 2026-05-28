@@ -187,6 +187,7 @@ impl ConnectionSession {
             DriverKind::Mysql => "MySQL",
             DriverKind::Postgres => "PostgreSQL",
             DriverKind::Redis => "Redis",
+            DriverKind::Mongodb => "MongoDB",
         }
     }
 }

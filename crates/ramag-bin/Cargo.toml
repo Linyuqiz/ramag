@@ -30,10 +30,13 @@ ramag-app = { workspace = true }
 ramag-ui = { workspace = true }
 # dbclient 是统一连接入口，已 transitively 依赖 ramag-tool-redis；bin 不再直接依赖
 ramag-tool-dbclient = { workspace = true }
+# bin 直接依赖 ramag-tool-mongodb 是为了拿 NewMongoQueryTab / RunMongoQuery / FormatMongoJson 这些 Action 类型来绑快捷键
+ramag-tool-mongodb = { workspace = true }
 ramag-tool-vcs = { workspace = true }
 ramag-infra-mysql = { workspace = true }
 ramag-infra-postgres = { workspace = true }
 ramag-infra-redis = { workspace = true }
+ramag-infra-mongodb = { workspace = true }
 ramag-infra-storage = { workspace = true }
 ramag-infra-git = { workspace = true }
 

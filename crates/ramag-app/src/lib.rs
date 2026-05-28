@@ -7,4 +7,4 @@ pub mod tool_registry;
 pub mod usecases;
 
 pub use tool_registry::ToolRegistry;
-pub use usecases::{ConnectionService, RedisService};
+pub use usecases::{ConnectionService, MongoService, RedisService};

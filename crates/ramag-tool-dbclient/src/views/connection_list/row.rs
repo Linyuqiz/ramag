@@ -47,16 +47,19 @@ pub(super) fn connection_row(
         DriverKind::Mysql => "MySQL",
         DriverKind::Postgres => "PostgreSQL",
         DriverKind::Redis => "Redis",
+        DriverKind::Mongodb => "MongoDB",
     };
 
     // driver 配色（一类一色，便于扫一眼连接列表区分）：
     // - MySQL：蓝（沿用主题 accent，保持品牌主线）
     // - PostgreSQL：紫（贴近 PG 海豚品牌色）
     // - Redis：红（贴近 Redis 官方红）
+    // - MongoDB：绿（贴近官方树叶绿）
     let badge_fg: gpui::Hsla = match conn.driver {
         DriverKind::Mysql => accent,
         DriverKind::Postgres => gpui::hsla(265.0 / 360.0, 0.55, 0.55, 1.0),
         DriverKind::Redis => gpui::hsla(0.0, 0.65, 0.55, 1.0),
+        DriverKind::Mongodb => gpui::hsla(140.0 / 360.0, 0.55, 0.45, 1.0),
     };
     let mut badge_bg = badge_fg;
     badge_bg.a = 0.12;

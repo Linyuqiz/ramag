@@ -382,6 +382,6 @@ fn pick_default_schema(conn: &ConnectionConfig, schemas: &[Schema]) -> Option<St
                 first_user_schema()
             }
         }
-        DriverKind::Redis => None,
+        DriverKind::Redis | DriverKind::Mongodb => None,
     }
 }

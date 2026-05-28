@@ -11,7 +11,7 @@ use gpui_component::{
     input::{Input, InputEvent, InputState},
     v_flex,
 };
-use ramag_app::{ConnectionService, RedisService};
+use ramag_app::{ConnectionService, MongoService, RedisService};
 use ramag_domain::entities::{ConnectionColor, ConnectionConfig, ConnectionId, DriverKind};
 
 /// 表单模式：新增 or 编辑
@@ -44,6 +44,7 @@ const DRIVERS: &[(&str, &str, bool)] = &[
     ("mysql", "MySQL", true),
     ("postgres", "PostgreSQL", true),
     ("redis", "Redis", true),
+    ("mongodb", "MongoDB", true),
 ];
 
 /// 连接表单面板
@@ -51,6 +52,8 @@ pub struct ConnectionFormPanel {
     service: Arc<ConnectionService>,
     /// Redis 服务（test_connection 时按 driver 路由）；Storage 与 service 共用
     redis_service: Arc<RedisService>,
+    /// MongoDB 服务（同上，按 driver 路由）
+    mongo_service: Arc<MongoService>,
     pub(super) mode: FormMode,
     /// 当前选中的 driver id（"mysql" / "postgres" / ...）
     pub(super) driver_id: &'static str,
@@ -73,26 +76,45 @@ impl ConnectionFormPanel {
     pub fn new_create(
         service: Arc<ConnectionService>,
         redis_service: Arc<RedisService>,
+        mongo_service: Arc<MongoService>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        Self::build(service, redis_service, FormMode::Create, None, window, cx)
+        Self::build(
+            service,
+            redis_service,
+            mongo_service,
+            FormMode::Create,
+            None,
+            window,
+            cx,
+        )
     }
 
     pub fn new_edit(
         service: Arc<ConnectionService>,
         redis_service: Arc<RedisService>,
+        mongo_service: Arc<MongoService>,
         existing: ConnectionConfig,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let mode = FormMode::Edit(existing.id.clone());
-        Self::build(service, redis_service, mode, Some(existing), window, cx)
+        Self::build(
+            service,
+            redis_service,
+            mongo_service,
+            mode,
+            Some(existing),
+            window,
+            cx,
+        )
     }
 
     fn build(
         service: Arc<ConnectionService>,
         redis_service: Arc<RedisService>,
+        mongo_service: Arc<MongoService>,
         mode: FormMode,
         prefill: Option<ConnectionConfig>,
         window: &mut Window,
@@ -168,6 +190,7 @@ impl ConnectionFormPanel {
         Self {
             service,
             redis_service,
+            mongo_service,
             mode,
             driver_id,
             name,
@@ -231,6 +254,7 @@ fn driver_kind_to_id(kind: DriverKind) -> &'static str {
         DriverKind::Mysql => "mysql",
         DriverKind::Postgres => "postgres",
         DriverKind::Redis => "redis",
+        DriverKind::Mongodb => "mongodb",
     }
 }
 
@@ -240,6 +264,7 @@ fn id_to_driver_kind(id: &str) -> Option<DriverKind> {
         "mysql" => Some(DriverKind::Mysql),
         "postgres" => Some(DriverKind::Postgres),
         "redis" => Some(DriverKind::Redis),
+        "mongodb" => Some(DriverKind::Mongodb),
         _ => None,
     }
 }

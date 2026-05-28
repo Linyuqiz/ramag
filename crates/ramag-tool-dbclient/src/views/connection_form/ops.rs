@@ -26,7 +26,7 @@ impl ConnectionFormPanel {
         let is_default_for = |port: &str, driver: &str| -> bool {
             matches!(
                 (driver, port),
-                ("mysql", "3306") | ("postgres", "5432") | ("redis", "6379")
+                ("mysql", "3306") | ("postgres", "5432") | ("redis", "6379") | ("mongodb", "27017")
             )
         };
         // 用户没改过端口（保持当前 driver 默认）才自动切换到新 driver 默认
@@ -36,6 +36,7 @@ impl ConnectionFormPanel {
                     "mysql" => Some("3306"),
                     "postgres" => Some("5432"),
                     "redis" => Some("6379"),
+                    "mongodb" => Some("27017"),
                     _ => None,
                 }
             } else {
@@ -192,13 +193,15 @@ impl ConnectionFormPanel {
         self.test_state = TestState::Testing;
         cx.notify();
 
-        // 按 driver 走对应的 service.test：SQL 类（MySQL/Postgres）→ ConnectionService；Redis → RedisService
+        // 按 driver 走对应的 service.test：SQL 类（MySQL/Postgres）→ ConnectionService；Redis → RedisService；MongoDB → MongoService
         let sql_svc = self.service.clone();
         let redis_svc = self.redis_service.clone();
+        let mongo_svc = self.mongo_service.clone();
         cx.spawn(async move |this, cx| {
             let result = match config.driver {
                 DriverKind::Mysql | DriverKind::Postgres => sql_svc.test(&config).await,
                 DriverKind::Redis => redis_svc.test(&config).await,
+                DriverKind::Mongodb => mongo_svc.test(&config).await,
             };
             let _ = this.update(cx, |this, cx| {
                 this.test_state = match result {

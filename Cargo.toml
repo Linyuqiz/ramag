@@ -6,11 +6,13 @@ members = [
     "crates/ramag-infra-mysql",
     "crates/ramag-infra-postgres",
     "crates/ramag-infra-redis",
+    "crates/ramag-infra-mongodb",
     "crates/ramag-infra-sql-shared",
     "crates/ramag-infra-storage",
     "crates/ramag-infra-git",
     "crates/ramag-tool-dbclient",
     "crates/ramag-tool-redis",
+    "crates/ramag-tool-mongodb",
     "crates/ramag-tool-vcs",
     "crates/ramag-ui",
     "crates/ramag-bin",
@@ -31,11 +33,13 @@ ramag-app = { path = "crates/ramag-app" }
 ramag-infra-mysql = { path = "crates/ramag-infra-mysql" }
 ramag-infra-postgres = { path = "crates/ramag-infra-postgres" }
 ramag-infra-redis = { path = "crates/ramag-infra-redis" }
+ramag-infra-mongodb = { path = "crates/ramag-infra-mongodb" }
 ramag-infra-sql-shared = { path = "crates/ramag-infra-sql-shared" }
 ramag-infra-storage = { path = "crates/ramag-infra-storage" }
 ramag-infra-git = { path = "crates/ramag-infra-git" }
 ramag-tool-dbclient = { path = "crates/ramag-tool-dbclient" }
 ramag-tool-redis = { path = "crates/ramag-tool-redis" }
+ramag-tool-mongodb = { path = "crates/ramag-tool-mongodb" }
 ramag-tool-vcs = { path = "crates/ramag-tool-vcs" }
 ramag-ui = { path = "crates/ramag-ui" }
 
@@ -86,6 +90,15 @@ gix = { version = "0.74", default-features = false, features = [
     "blob-diff",
     "status",
 ] }
+
+# MongoDB：官方驱动 + BSON。bson-2 与 workspace 单独 bson="2" 对齐；
+# compat-3-3-0 显式接受 mongodb 3.3+ 兼容性约束（mongodb crate 强制）；rustls 选 TLS
+mongodb = { version = "3", default-features = false, features = [
+    "rustls-tls",
+    "bson-2",
+    "compat-3-3-0",
+] }
+bson = "2"
 
 # 嵌入式存储
 redb = "3"

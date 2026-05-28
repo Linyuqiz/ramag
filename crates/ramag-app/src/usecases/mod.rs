@@ -2,7 +2,9 @@
 
 pub mod connection_service;
 pub mod export;
+pub mod mongo_service;
 pub mod redis_service;
 
 pub use connection_service::ConnectionService;
+pub use mongo_service::MongoService;
 pub use redis_service::RedisService;

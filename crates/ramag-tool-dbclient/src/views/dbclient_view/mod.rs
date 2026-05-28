@@ -8,9 +8,10 @@ use std::sync::Arc;
 use gpui::{
     AnyView, App, AppContext as _, Context, Entity, Point, ScrollHandle, Subscription, Window, px,
 };
-use ramag_app::{ConnectionService, RedisService};
+use ramag_app::{ConnectionService, MongoService, RedisService};
 use ramag_domain::entities::{ConnectionConfig, DriverKind};
 
+use ramag_tool_mongodb::MongoSessionPanel;
 use ramag_tool_redis::RedisSessionPanel;
 
 use crate::views::connection_list::{ConnectionListPanel, ListEvent};
@@ -24,10 +25,11 @@ pub(super) enum CenterMode {
     ConnectionPicker,
 }
 
-/// SQL 类（MySQL / Postgres / 未来 SQLite）走 ConnectionSession；Redis 走 RedisSessionPanel
+/// SQL 类（MySQL / Postgres / 未来 SQLite）走 ConnectionSession；Redis 走 RedisSessionPanel；MongoDB 走 MongoSessionPanel
 pub(super) enum SessionEntity {
     Sql(Entity<ConnectionSession>),
     Redis(Entity<RedisSessionPanel>),
+    Mongo(Entity<MongoSessionPanel>),
 }
 
 impl SessionEntity {
@@ -35,12 +37,14 @@ impl SessionEntity {
         match self {
             SessionEntity::Sql(e) => e.read(cx).config(),
             SessionEntity::Redis(e) => e.read(cx).config(),
+            SessionEntity::Mongo(e) => e.read(cx).config(),
         }
     }
     pub(super) fn title<'a>(&'a self, cx: &'a App) -> &'a str {
         match self {
             SessionEntity::Sql(e) => e.read(cx).title(),
             SessionEntity::Redis(e) => e.read(cx).title(),
+            SessionEntity::Mongo(e) => e.read(cx).title(),
         }
     }
     /// 数据库类型副标签（Tab Bar 副标题）。Sql 变体走 ConnectionSession 自身的 kind_label
@@ -48,12 +52,14 @@ impl SessionEntity {
         match self {
             SessionEntity::Sql(e) => e.read(cx).kind_label(),
             SessionEntity::Redis(_) => "Redis",
+            SessionEntity::Mongo(_) => "MongoDB",
         }
     }
     pub(super) fn to_any_view(&self) -> AnyView {
         match self {
             SessionEntity::Sql(e) => e.clone().into(),
             SessionEntity::Redis(e) => e.clone().into(),
+            SessionEntity::Mongo(e) => e.clone().into(),
         }
     }
 }
@@ -61,7 +67,8 @@ impl SessionEntity {
 pub struct DbClientView {
     pub(super) service: Arc<ConnectionService>,
     pub(super) redis_service: Arc<RedisService>,
-    /// 已打开的连接会话（含 MySQL + Redis）
+    pub(super) mongo_service: Arc<MongoService>,
+    /// 已打开的连接会话（含 MySQL + Redis + MongoDB）
     pub(super) sessions: Vec<SessionEntity>,
     /// 当前激活的 session 索引
     pub(super) active_session: Option<usize>,
@@ -78,17 +85,26 @@ impl DbClientView {
     pub fn new(
         service: Arc<ConnectionService>,
         redis_service: Arc<RedisService>,
+        mongo_service: Arc<MongoService>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let picker = cx
-            .new(|cx| ConnectionListPanel::new(service.clone(), redis_service.clone(), window, cx));
+        let picker = cx.new(|cx| {
+            ConnectionListPanel::new(
+                service.clone(),
+                redis_service.clone(),
+                mongo_service.clone(),
+                window,
+                cx,
+            )
+        });
 
         let subs = vec![cx.subscribe_in(&picker, window, Self::on_picker_event)];
 
         Self {
             service,
             redis_service,
+            mongo_service,
             sessions: Vec::new(),
             active_session: None,
             // 启动时显示连接管理（用户挑选打开哪个）
@@ -144,7 +160,7 @@ impl DbClientView {
 
         // 在 config 被 move 进 session 之前先抓 id 用于版本探测
         let conn_id = config.id.clone();
-        // 按 driver dispatch：SQL 类（MySQL/Postgres）走 ConnectionSession；Redis 走 RedisSessionPanel
+        // 按 driver dispatch：SQL 类（MySQL/Postgres）走 ConnectionSession；Redis 走 RedisSessionPanel；MongoDB 走 MongoSessionPanel
         let new_session = match config.driver {
             DriverKind::Mysql | DriverKind::Postgres => {
                 let svc = self.service.clone();
@@ -155,6 +171,11 @@ impl DbClientView {
                 let svc = self.redis_service.clone();
                 let entity = cx.new(|cx| RedisSessionPanel::new(config, svc, window, cx));
                 SessionEntity::Redis(entity)
+            }
+            DriverKind::Mongodb => {
+                let svc = self.mongo_service.clone();
+                let entity = cx.new(|cx| MongoSessionPanel::new(config, svc, window, cx));
+                SessionEntity::Mongo(entity)
             }
         };
         self.sessions.push(new_session);

@@ -3,6 +3,7 @@
 pub mod connection;
 pub mod git;
 pub mod history;
+pub mod mongo;
 pub mod query;
 pub mod redis_keyspace;
 pub mod redis_value;
@@ -16,6 +17,10 @@ pub use git::{
     Tag, TagKind, WorkingTreeStatus,
 };
 pub use history::{QueryRecord, QueryRecordId, QueryStatus};
+pub use mongo::{
+    MongoCollection, MongoCollectionStats, MongoDatabase, MongoDocument, MongoIndex,
+    MongoQueryResult, MongoQuerySpec,
+};
 pub use query::{Query, QueryResult, Row, Value, Warning};
 pub use redis_keyspace::{KeyMeta, RedisType, ScanResult};
 pub use redis_value::{RedisValue, StreamEntry};

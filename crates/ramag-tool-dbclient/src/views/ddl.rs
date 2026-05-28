@@ -25,8 +25,8 @@ pub fn build_ddl_query(driver: DriverKind, schema: &str, table: &str, is_view: b
                 postgres_table_ddl_sql(&s_lit, &t_lit)
             }
         }
-        // Redis 不走 SQL DDL
-        DriverKind::Redis => String::new(),
+        // Redis / MongoDB 不走 SQL DDL
+        DriverKind::Redis | DriverKind::Mongodb => String::new(),
     }
 }
 
