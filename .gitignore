@@ -28,3 +28,4 @@ Cargo.lock.bak
 
 # AI code
 CLAUDE.md
+/.codegraph/
