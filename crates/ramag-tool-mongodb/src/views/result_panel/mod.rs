@@ -4,21 +4,25 @@
 //! - 单元格点击 → 弹文档详情 dialog
 
 mod flatten;
+mod ops;
 mod table;
 mod toolbar;
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use gpui::{
-    AppContext as _, Context, Entity, IntoElement, ParentElement, Point, Render, ScrollHandle,
-    SharedString, Styled, UniformListScrollHandle, Window, div, prelude::*, px,
+    AppContext as _, Context, Entity, EventEmitter, IntoElement, ParentElement, Point, Render,
+    ScrollHandle, SharedString, Styled, UniformListScrollHandle, Window, div, prelude::*, px,
 };
 use gpui_component::{
     ActiveTheme, Sizable as _, WindowExt as _,
     input::{Input, InputEvent, InputState},
     v_flex,
 };
-use ramag_domain::entities::MongoQueryResult;
+use parking_lot::RwLock;
+use ramag_app::MongoService;
+use ramag_domain::entities::{ConnectionConfig, MongoQueryResult};
 use serde_json::Value;
 
 pub use flatten::FlatTable;
@@ -37,13 +41,41 @@ pub struct ResultPanel {
     pub(crate) uniform_scroll: UniformListScrollHandle,
     /// 横滚句柄（外层 div X；与 dbclient::result_table 同模式）
     pub(crate) h_scroll: ScrollHandle,
+    /// 列过滤框补全候选源（set_result 时填入当前结果集列 path）
+    pub(crate) column_completion_source: Arc<RwLock<Vec<String>>>,
+    /// DML 执行上下文（由 query_tab 注入；None 时禁用增删改）
+    pub(crate) service: Option<Arc<MongoService>>,
+    pub(crate) config: Option<ConnectionConfig>,
+    pub(crate) database: String,
+    /// 当前结果对应的 collection（run 时从命令提取，是增删改的目标）
+    pub(crate) target_collection: Option<String>,
+    /// 异步 DML 完成后挂起的 toast，下次 render 推送
+    pub(crate) pending_notification: Option<gpui_component::notification::Notification>,
+    /// 勾选的行（按 documents 索引）；删除文档用
+    pub(crate) selected_rows: BTreeSet<usize>,
     _subscriptions: Vec<gpui::Subscription>,
 }
 
+/// 结果区事件：DML 成功后请求 query_tab 重跑当前命令以刷新结果
+#[derive(Clone, Debug)]
+pub enum ResultEvent {
+    Refresh,
+}
+
+impl EventEmitter<ResultEvent> for ResultPanel {}
+
 impl ResultPanel {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let column_filter =
-            cx.new(|cx| InputState::new(window, cx).placeholder("过滤列（逗号分隔多列名）"));
+        // 列过滤补全源：set_result 时填入当前结果集列 path，供 ColumnFilterCompletionProvider 读取
+        let column_completion_source: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
+        let provider = crate::completion::ColumnFilterCompletionProvider::new_rc(
+            column_completion_source.clone(),
+        );
+        let column_filter = cx.new(|cx| {
+            let mut state = InputState::new(window, cx).placeholder("过滤列（逗号分隔多列名）");
+            state.lsp.completion_provider = Some(provider);
+            state
+        });
         let row_filter =
             cx.new(|cx| InputState::new(window, cx).placeholder("过滤行（任意单元格包含）"));
 
@@ -61,8 +93,61 @@ impl ResultPanel {
             row_filter,
             uniform_scroll: UniformListScrollHandle::new(),
             h_scroll: ScrollHandle::new(),
+            column_completion_source,
+            service: None,
+            config: None,
+            database: String::new(),
+            target_collection: None,
+            pending_notification: None,
+            selected_rows: BTreeSet::new(),
             _subscriptions: subs,
         }
+    }
+
+    /// 注入 DML 执行上下文（连接 + 默认库）；由 query_tab::new 调
+    pub fn set_context(
+        &mut self,
+        service: Arc<MongoService>,
+        config: ConnectionConfig,
+        database: String,
+    ) {
+        self.service = Some(service);
+        self.config = Some(config);
+        self.database = database;
+    }
+
+    /// 设置当前结果对应的 collection（增删改目标）；run 提取命令后调
+    pub fn set_target_collection(&mut self, coll: Option<String>) {
+        self.target_collection = coll;
+    }
+
+    /// 能否写（增删改）：上下文齐全 + 有目标 collection
+    pub(crate) fn can_write(&self) -> bool {
+        self.service.is_some() && self.config.is_some() && self.target_collection.is_some()
+    }
+
+    /// 切换某行勾选（按 documents 索引）
+    pub(crate) fn toggle_row(&mut self, idx: usize, cx: &mut Context<Self>) {
+        if !self.selected_rows.insert(idx) {
+            self.selected_rows.remove(&idx);
+        }
+        cx.notify();
+    }
+
+    /// 全选 / 全不选（传入当前可见的全部行索引）
+    pub(crate) fn toggle_all(&mut self, all: &[usize], cx: &mut Context<Self>) {
+        if !all.is_empty() && all.iter().all(|i| self.selected_rows.contains(i)) {
+            for i in all {
+                self.selected_rows.remove(i);
+            }
+        } else {
+            self.selected_rows.extend(all.iter().copied());
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn is_row_selected(&self, idx: usize) -> bool {
+        self.selected_rows.contains(&idx)
     }
 
     pub fn set_running(&mut self, cx: &mut Context<Self>) {
@@ -72,11 +157,20 @@ impl ResultPanel {
     }
 
     pub fn set_result(&mut self, r: MongoQueryResult, cx: &mut Context<Self>) {
+        self.selected_rows.clear();
         let table = if r.documents.is_empty() {
             None
         } else {
             Some(Arc::new(flatten::build_flat_table(&r.documents)))
         };
+        // 同步列过滤补全源（当前结果集所有列 path）
+        match &table {
+            Some(t) => {
+                *self.column_completion_source.write() =
+                    t.columns.iter().map(|c| c.path.clone()).collect()
+            }
+            None => self.column_completion_source.write().clear(),
+        }
         self.table = table;
         self.result = Some(r);
         self.error = None;
@@ -220,7 +314,11 @@ impl ResultPanel {
 }
 
 impl Render for ResultPanel {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // 异步 DML 完成的 toast 在这里推送
+        if let Some(n) = self.pending_notification.take() {
+            window.push_notification(n, cx);
+        }
         // 把需要的颜色字段提前 Copy 出来，避免 cx.theme() 的 immut borrow 与 toolbar/table 的 mut borrow 冲突
         let bg = cx.theme().background;
         let border = cx.theme().border;
@@ -288,9 +386,9 @@ impl Render for ResultPanel {
             (true, true, _) => format!(
                 "命中 {visible_cols_count} / {total_cols} 列 · {filtered_rows} / {total_docs} 行 · 耗时 {elapsed}ms"
             ),
-            (true, false, _) => format!(
-                "命中 {filtered_rows} / {total_docs} 行 · 耗时 {elapsed}ms"
-            ),
+            (true, false, _) => {
+                format!("命中 {filtered_rows} / {total_docs} 行 · 耗时 {elapsed}ms")
+            }
             (false, true, _) => format!(
                 "命中 {visible_cols_count} / {total_cols} 列 · {total_docs} 行 · 耗时 {elapsed}ms"
             ),

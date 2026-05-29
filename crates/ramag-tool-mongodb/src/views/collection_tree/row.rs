@@ -3,7 +3,7 @@
 use gpui::{
     AnyElement, Context, IntoElement, ParentElement, SharedString, Styled, div, prelude::*, px,
 };
-use gpui_component::{ActiveTheme, h_flex};
+use gpui_component::{ActiveTheme, Icon, IconName, Sizable as _, h_flex};
 
 use super::{CollectionTreePanel, is_system_db};
 
@@ -23,6 +23,8 @@ pub(super) enum TreeRow {
         name: String,
         is_view: bool,
         is_selected: bool,
+        /// 文档数估算（collStats.count）；view 为 None
+        doc_count: Option<u64>,
     },
     /// 全局占位：加载 / 错误 / 空
     GlobalPlaceholder {
@@ -33,17 +35,13 @@ pub(super) enum TreeRow {
 
 impl CollectionTreePanel {
     /// 单行渲染（在 uniform_list 闭包内被调）；与 dbclient::table_tree::row 同款 28px 固定高度
-    pub(super) fn render_tree_row(
-        &self,
-        row: &TreeRow,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    pub(super) fn render_tree_row(&self, row: &TreeRow, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme();
         let fg = theme.foreground;
         let muted_fg = theme.muted_foreground;
         let accent = theme.accent;
         let accent_fg = theme.accent_foreground;
-        let list_hover = theme.list_hover;
+        let muted_bg = theme.muted;
         let danger = theme.danger;
 
         match row {
@@ -55,26 +53,31 @@ impl CollectionTreePanel {
                     .h(px(28.0))
                     .flex_none()
                     .items_center()
-                    .gap(px(6.0))
-                    .px(px(10.0))
-                    .text_xs()
-                    .text_color(fg)
-                    .hover(move |s| s.bg(list_hover))
+                    .gap_1p5()
+                    .px_2()
+                    .rounded_md()
                     .cursor_pointer()
+                    .hover(move |s| s.bg(muted_bg))
                     .child(
                         div()
                             .w(px(12.0))
+                            .text_xs()
                             .text_color(muted_fg)
                             .child(SharedString::from(arrow.to_string())),
                     )
+                    .child(Icon::new(IconName::HardDrive).small().text_color(muted_fg))
                     .child(
                         div()
-                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .text_sm()
+                            .text_color(fg)
+                            .whitespace_nowrap()
                             .child(SharedString::from(name.clone())),
                     )
                     .on_mouse_down(
                         gpui::MouseButton::Left,
-                        cx.listener(move |this, _, _, cx| this.toggle_database(&name_for_click, cx)),
+                        cx.listener(move |this, _, _, cx| {
+                            this.toggle_database(&name_for_click, cx)
+                        }),
                     )
                     .into_any_element()
             }
@@ -93,35 +96,61 @@ impl CollectionTreePanel {
                 name,
                 is_view,
                 is_selected,
+                doc_count,
             } => {
                 let db_for_click = db.clone();
                 let name_for_click = name.clone();
                 let selected = *is_selected;
-                h_flex()
+                let mut row = h_flex()
                     .id(SharedString::from(format!("mongo-coll-row-{db}-{name}")))
                     .h(px(28.0))
                     .flex_none()
                     .items_center()
-                    .gap(px(6.0))
-                    .px(px(28.0))
-                    .text_xs()
-                    .text_color(fg)
-                    .when(selected, |s| s.bg(accent).text_color(accent_fg))
-                    .hover(move |s| s.bg(list_hover))
+                    .gap_1()
+                    .pl(px(40.0))
+                    .pr_2()
+                    .rounded_md()
                     .cursor_pointer()
-                    .child(if *is_view { "👁" } else { "▦" })
-                    .child(SharedString::from(name.clone()))
+                    .hover(move |s| s.bg(muted_bg))
+                    .child(
+                        Icon::new(if *is_view {
+                            IconName::Frame
+                        } else {
+                            IconName::MemoryStick
+                        })
+                        .small()
+                        .text_color(muted_fg),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(if selected { accent_fg } else { fg })
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .whitespace_nowrap()
+                            .child(SharedString::from(name.clone())),
+                    )
                     .on_mouse_down(
                         gpui::MouseButton::Left,
                         cx.listener(move |this, _, _, cx| {
-                            this.select_collection(
-                                db_for_click.clone(),
-                                name_for_click.clone(),
-                                cx,
-                            )
+                            this.select_collection(db_for_click.clone(), name_for_click.clone(), cx)
                         }),
-                    )
-                    .into_any_element()
+                    );
+                if selected {
+                    row = row.bg(accent);
+                }
+                if let Some(n) = doc_count {
+                    row = row.child(
+                        div()
+                            .text_xs()
+                            .text_color(muted_fg)
+                            .flex_none()
+                            .child(format!("(~{n})")),
+                    );
+                }
+                row.into_any_element()
             }
             TreeRow::GlobalPlaceholder { text, is_error } => div()
                 .h(px(28.0))
@@ -212,6 +241,7 @@ impl CollectionTreePanel {
                         name: c.name.clone(),
                         is_view: c.is_view,
                         is_selected: selected,
+                        doc_count: c.doc_count_estimate,
                     });
                 }
             }

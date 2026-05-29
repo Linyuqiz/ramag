@@ -4,7 +4,6 @@ use gpui::{
     AppContext as _, ClickEvent, Context, Entity, IntoElement, ParentElement, Render, Styled,
     Window, div, prelude::*, px,
 };
-use gpui_component::Selectable as _;
 use gpui_component::{
     ActiveTheme, Disableable as _, IconName, Sizable as _, WindowExt as _,
     button::{Button, ButtonVariants as _},
@@ -14,7 +13,6 @@ use gpui_component::{
     notification::Notification,
     v_flex,
 };
-use tracing::info;
 
 use super::QueryTab;
 use super::sql_utils::format_elapsed;
@@ -111,7 +109,7 @@ impl Render for QueryTab {
                     .items_center()
                     .gap_3()
                     .px_3()
-                    .py_2()
+                    .py(px(6.0))
                     .border_b_1()
                     .border_color(border)
                     .bg(secondary_bg)
@@ -174,18 +172,6 @@ impl Render for QueryTab {
                     })
                     .when_some(result_summary, |this, summary| {
                         this.child(div().text_xs().text_color(muted_fg).child(summary))
-                    })
-                    .child({
-                        let on = self.auto_limit_on();
-                        Button::new("toolbar-auto-limit")
-                            .ghost()
-                            .small()
-                            .label("10K")
-                            .selected(on)
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                let now_on = this.toggle_auto_limit(cx);
-                                info!(enabled = now_on, "auto limit toggled");
-                            }))
                     })
                     .child({
                         let can_insert = self.connection.is_some()

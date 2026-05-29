@@ -18,6 +18,16 @@ ramag-ui = { workspace = true }
 gpui = { workspace = true }
 gpui-component = { workspace = true }
 
+# 编辑器 / 过滤框补全 provider（实现 gpui-component CompletionProvider）
+anyhow = { workspace = true }
+lsp-types = { workspace = true }
+ropey = { workspace = true }
+parking_lot = { workspace = true }
+
+# 结果导出：原生文件保存框 + 线程结果回传主线程
+rfd = { workspace = true }
+futures = { workspace = true }
+
 # JSON 操作（编辑器内容解析 / pretty print）
 serde = { workspace = true }
 serde_json = { workspace = true }

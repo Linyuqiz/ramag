@@ -8,20 +8,21 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    Context, Entity, EventEmitter, IntoElement, ParentElement, Render, SharedString, Styled,
-    Subscription, UniformListScrollHandle, Window, div, prelude::*, px, uniform_list,
+    Anchor, Context, Entity, EventEmitter, IntoElement, ParentElement, Render, SharedString,
+    Styled, Subscription, UniformListScrollHandle, Window, div, prelude::*, px, uniform_list,
 };
 
-use row::TreeRow;
 use gpui_component::{
-    ActiveTheme, Sizable as _,
+    ActiveTheme, Selectable as _, Sizable as _,
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
+    menu::{DropdownMenu as _, PopupMenuItem},
     v_flex,
 };
 use ramag_app::MongoService;
 use ramag_domain::entities::{ConnectionConfig, MongoCollection, MongoDatabase};
+use row::TreeRow;
 use tracing::{error, info};
 
 pub struct CollectionTreePanel {
@@ -46,15 +47,31 @@ pub struct CollectionTreePanel {
     editor_visible: bool,
     /// 树体行虚拟化滚动句柄（与 dbclient::table_tree 同款）
     uniform_scroll: UniformListScrollHandle,
+    /// 切连接后是否待自动展开默认库（仅首次加载消费一次，refresh 不重复展开）
+    auto_expand_pending: bool,
     _subscriptions: Vec<Subscription>,
 }
-
 
 /// MongoDB 系统库名（与 MySQL information_schema / mysql 等同位）
 const SYSTEM_DBS: &[&str] = &["admin", "config", "local"];
 
 pub(super) fn is_system_db(name: &str) -> bool {
     SYSTEM_DBS.contains(&name)
+}
+
+/// 选默认展开的 db：连接配置的 database 优先（须在列表内），否则首个非系统库
+fn pick_default_db(conn: Option<&ConnectionConfig>, databases: &[MongoDatabase]) -> Option<String> {
+    if let Some(db) = conn
+        .and_then(|c| c.database.as_deref())
+        .filter(|s| !s.is_empty())
+        && databases.iter().any(|d| d.name == db)
+    {
+        return Some(db.to_string());
+    }
+    databases
+        .iter()
+        .find(|d| !is_system_db(&d.name))
+        .map(|d| d.name.clone())
 }
 
 #[derive(Default)]
@@ -100,6 +117,7 @@ impl CollectionTreePanel {
             show_system: false,
             editor_visible: false,
             uniform_scroll: UniformListScrollHandle::new(),
+            auto_expand_pending: false,
             _subscriptions: subs,
         }
     }
@@ -128,6 +146,8 @@ impl CollectionTreePanel {
         self.expanded.clear();
         self.selected = None;
         self.error = None;
+        // 切连接后首次加载完 db 列表时自动展开默认库（仅一次）
+        self.auto_expand_pending = self.connection.is_some();
         if self.connection.is_some() {
             self.refresh_databases(cx);
         }
@@ -159,6 +179,15 @@ impl CollectionTreePanel {
                     Ok(dbs) => {
                         info!(count = dbs.len(), "mongo databases loaded");
                         this.databases = dbs;
+                        // 首次加载：自动展开并激活默认库（config.database 优先，否则首个非系统库）
+                        if this.auto_expand_pending {
+                            this.auto_expand_pending = false;
+                            if let Some(default_db) =
+                                pick_default_db(this.connection.as_ref(), &this.databases)
+                            {
+                                this.toggle_database(&default_db, cx);
+                            }
+                        }
                     }
                     Err(e) => {
                         error!(error = %e, "mongo list_databases failed");
@@ -230,6 +259,17 @@ impl CollectionTreePanel {
         cx.notify();
     }
 
+    /// picker 选库：激活 + 确保展开 + 通知（不像 toggle_database 会把已展开的库收起）
+    fn select_database(&mut self, db: String, cx: &mut Context<Self>) {
+        self.active_db = Some(db.clone());
+        if !self.expanded.contains_key(&db) {
+            self.expanded.insert(db.clone(), ExpandedState::default());
+            self.load_collections(db.clone(), cx);
+        }
+        cx.emit(TreeEvent::DatabaseActivated { database: db });
+        cx.notify();
+    }
+
     fn current_filter(&self, cx: &gpui::App) -> String {
         self.search
             .read(cx)
@@ -249,32 +289,56 @@ impl Render for CollectionTreePanel {
 
         let filter = self.current_filter(cx);
 
-        // 顶栏第 1 行：「DB {active_db}」标题，与 dbclient::table_tree 的「DB xxx」格式统一
-        let title_text: SharedString = match &self.active_db {
-            Some(db) => SharedString::from(format!("DB {db}")),
-            None => SharedString::from("DB"),
-        };
+        // 顶栏第 1 行：DB picker 下拉（仿 dbclient::table_tree 的 schema picker，点开切换 active_db）
+        let show_system = self.show_system;
+        let active_label = self
+            .active_db
+            .clone()
+            .unwrap_or_else(|| "未选库".to_string());
+        let picker_label = format!("DB {active_label} ▾");
+        let entity_for_picker = cx.entity().clone();
+        let active_for_menu = self.active_db.clone();
+        let picker_dbs: Vec<String> = self
+            .databases
+            .iter()
+            .filter(|d| show_system || !is_system_db(&d.name))
+            .map(|d| d.name.clone())
+            .collect();
         let header = h_flex()
+            .w_full()
             .px(px(10.0))
-            .py(px(8.0))
+            .py(px(6.0))
             .border_b_1()
             .border_color(border)
             .items_center()
             .gap(px(8.0))
             .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .text_xs()
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .text_color(fg)
-                    .child(title_text),
+                Button::new("mongo-db-picker")
+                    .ghost()
+                    .small()
+                    .label(picker_label)
+                    .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _, _| {
+                        let mut m = menu;
+                        let active = active_for_menu.clone();
+                        for d in &picker_dbs {
+                            let d_owned = d.clone();
+                            let is_active = active.as_deref() == Some(d.as_str());
+                            let label = if is_active {
+                                format!("✓ {d}")
+                            } else {
+                                format!("  {d}")
+                            };
+                            let entity = entity_for_picker.clone();
+                            m = m.item(PopupMenuItem::new(label).on_click(move |_, _, app| {
+                                let d = d_owned.clone();
+                                entity.update(app, |this, cx| this.select_database(d, cx));
+                            }));
+                        }
+                        m
+                    }),
             );
 
         // 顶栏第 2 行：搜索框 + 三个工具按钮（眼睛 / 刷新 / 命令编辑器切换）—— 与 MySQL 同款布局
-        let show_system = self.show_system;
         let editor_visible = self.editor_visible;
         let toggle_sys_tip = if show_system {
             "隐藏系统库（admin / config / local）"
@@ -290,21 +354,18 @@ impl Render for CollectionTreePanel {
         let search_row = h_flex()
             .w_full()
             .items_center()
-            .px(px(8.0))
+            .px(px(10.0))
             .py(px(6.0))
             .border_b_1()
             .border_color(border)
             .gap(px(6.0))
             .child(
                 div().flex_1().min_w_0().child(
-                    Input::new(&self.search)
-                        .small()
-                        .cleanable(true)
-                        .prefix(
-                            gpui_component::Icon::new(gpui_component::IconName::Search)
-                                .small()
-                                .text_color(muted_fg),
-                        ),
+                    Input::new(&self.search).small().cleanable(true).prefix(
+                        gpui_component::Icon::new(gpui_component::IconName::Search)
+                            .small()
+                            .text_color(muted_fg),
+                    ),
                 ),
             )
             .child(
@@ -332,6 +393,7 @@ impl Render for CollectionTreePanel {
                     .ghost()
                     .xsmall()
                     .icon(gpui_component::IconName::SquareTerminal)
+                    .selected(editor_visible)
                     .tooltip(toggle_editor_tip)
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(TreeEvent::ToggleEditor))),
             );

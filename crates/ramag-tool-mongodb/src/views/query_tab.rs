@@ -12,9 +12,7 @@ use gpui::{
     prelude::*, px,
 };
 use gpui_component::{
-    ActiveTheme, Disableable as _, IconName, Sizable as _,
-    button::{Button, ButtonVariants as _},
-    h_flex,
+    ActiveTheme,
     input::{Input, InputState},
     v_flex,
 };
@@ -24,7 +22,7 @@ use serde_json::Value;
 use tracing::{info, warn};
 
 use crate::actions::{FormatMongoJson, RunMongoQuery};
-use crate::views::result_panel::ResultPanel;
+use crate::views::result_panel::{ResultEvent, ResultPanel};
 
 pub struct MongoQueryTab {
     pub(crate) service: Arc<MongoService>,
@@ -56,14 +54,27 @@ impl MongoQueryTab {
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "admin".to_string());
 
-        // multi_line 默认占满，line 高度由父级控制
+        // code_editor("json") 提供 JSON 语法高亮 + 行号 + 自动缩进；命令补全挂 lsp.completion_provider
         let editor = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder("{\"find\": \"users\", \"filter\": {}, \"limit\": 10000}")
+            let mut state = InputState::new(window, cx)
+                .code_editor("json")
                 .multi_line(true)
-                .default_value(default_command_template())
+                .line_number(true)
+                .placeholder("{\"find\": \"users\", \"filter\": {}, \"limit\": 10000}")
+                .default_value(default_command_template());
+            state.lsp.completion_provider =
+                Some(crate::completion::CommandCompletionProvider::new_rc());
+            state
         });
         let result = cx.new(|cx_inner| ResultPanel::new(window, cx_inner));
+        // 注入 DML 执行上下文，让结果区能增删改
+        result.update(cx, |r, _| {
+            r.set_context(service.clone(), config.clone(), database.clone());
+        });
+        // 结果区 DML 成功后请求刷新：重跑当前命令
+        let refresh_sub = cx.subscribe(&result, |this, _, _e: &ResultEvent, cx| {
+            this.run(cx);
+        });
 
         Self {
             service,
@@ -74,7 +85,7 @@ impl MongoQueryTab {
             show_editor: false,
             result,
             running: false,
-            _subscriptions: Vec::new(),
+            _subscriptions: vec![refresh_sub],
         }
     }
 
@@ -130,7 +141,7 @@ impl MongoQueryTab {
     }
 
     /// 运行：编辑器内容解析为 JSON 命令 → run_command → 智能解包 cursor.firstBatch
-    pub fn run(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    pub fn run(&mut self, cx: &mut Context<Self>) {
         if self.running {
             return;
         }
@@ -150,6 +161,11 @@ impl MongoQueryTab {
             });
             return;
         }
+        // 提取命令目标 collection，注入结果区作为增删改目标
+        let target = extract_collection(&cmd);
+        self.collection = target.clone();
+        self.result
+            .update(cx, |p, _| p.set_target_collection(target));
 
         let svc = self.service.clone();
         let conf = self.config.clone();
@@ -228,9 +244,7 @@ impl Render for MongoQueryTab {
         let border = cx.theme().border;
         let _ = self.title(); // 当前 db.collection 标签已由左侧 collection_tree header 展示，不再重复
 
-        // 工具条 + 编辑器：仅在 show_editor=true 时整体显示；
-        // 工具条不再含「当前：xxx」标签（左侧 collection_tree 顶部已展示），只保留 [运行] [格式化]
-        let running = self.running;
+        // 编辑器仅在 show_editor=true 时显示；运行 / 格式化按钮已移到 query_panel 顶部 tab 栏（与 dbclient 一致）
         let show_editor = self.show_editor;
         let editor_clone = self.editor.clone();
 
@@ -239,52 +253,47 @@ impl Render for MongoQueryTab {
             .bg(bg)
             .text_color(fg)
             .key_context("MongoQueryTab")
-            .on_action(cx.listener(|this, _: &RunMongoQuery, window, cx| this.run(window, cx)))
+            .on_action(cx.listener(|this, _: &RunMongoQuery, _, cx| this.run(cx)))
             .on_action(
                 cx.listener(|this, _: &FormatMongoJson, window, cx| this.format_json(window, cx)),
             )
             .when(show_editor, move |v| {
                 v.child(
-                    h_flex()
-                        .px(px(8.0))
-                        .py(px(6.0))
-                        .gap(px(6.0))
-                        .items_center()
-                        .border_b_1()
-                        .border_color(border)
-                        .child(div().flex_1())
-                        .child(
-                            Button::new("mongo-run")
-                                .primary()
-                                .xsmall()
-                                .icon(IconName::Play)
-                                .label("运行")
-                                .disabled(running)
-                                .on_click(cx.listener(|this, _, window, cx| this.run(window, cx))),
-                        )
-                        .child(
-                            Button::new("mongo-format")
-                                .ghost()
-                                .xsmall()
-                                .icon(IconName::Settings)
-                                .label("格式化")
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.format_json(window, cx)
-                                })),
-                        ),
-                )
-                .child(
                     div()
                         .h(px(220.0))
+                        .flex_none()
                         .border_b_1()
                         .border_color(border)
-                        .px(px(8.0))
-                        .py(px(6.0))
-                        .child(Input::new(&editor_clone).small().h_full()),
+                        .child(
+                            Input::new(&editor_clone)
+                                .h_full()
+                                .bordered(false)
+                                .focus_bordered(false),
+                        ),
                 )
             })
             .child(div().flex_1().min_h_0().child(self.result.clone()))
     }
+}
+
+/// 从 runCommand JSON 提取目标 collection（find/aggregate/insert 等命令名的字符串值）
+fn extract_collection(cmd: &Value) -> Option<String> {
+    const CMD_KEYS: &[&str] = &[
+        "find",
+        "aggregate",
+        "count",
+        "distinct",
+        "insert",
+        "update",
+        "delete",
+        "findAndModify",
+    ];
+    for key in CMD_KEYS {
+        if let Some(c) = cmd.get(*key).and_then(|v| v.as_str()) {
+            return Some(c.to_string());
+        }
+    }
+    None
 }
 
 /// 默认编辑器模板（无 collection 时显示）

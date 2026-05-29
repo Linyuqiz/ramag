@@ -17,7 +17,7 @@ use gpui_component::{
 };
 use ramag_app::MongoService;
 use ramag_domain::entities::ConnectionConfig;
-use ramag_ui::CloseTab;
+use ramag_ui::{CloseTab, icons};
 
 use crate::actions::{NewMongoQueryTab, ToggleMongoEditor};
 use crate::views::query_tab::MongoQueryTab;
@@ -106,7 +106,7 @@ impl MongoQueryPanel {
         };
         tab.update(cx, |t, cx| {
             t.prefill_for_collection(database, collection, window, cx);
-            t.run(window, cx);
+            t.run(cx);
         });
         self.focus_active_editor(window, cx);
         cx.notify();
@@ -298,6 +298,7 @@ impl Render for MongoQueryPanel {
                         .border_b_1()
                         .border_color(border)
                         .bg(theme.muted.opacity(0.10))
+                        // 左：tabs 滚动区 + 「+」新建（跟在 tabs 之后，与 dbclient 一致）
                         .child(
                             h_flex()
                                 .id("mongo-tabs-scroll")
@@ -307,24 +308,42 @@ impl Render for MongoQueryPanel {
                                 .items_center()
                                 .overflow_x_scroll()
                                 .track_scroll(&self.tabs_scroll)
-                                .children(tab_items),
-                        )
-                        .child(
-                            h_flex()
-                                .flex_none()
-                                .items_center()
-                                .px(px(4.0))
-                                .border_l_1()
-                                .border_color(border)
+                                .children(tab_items)
                                 .child(
                                     Button::new("mongo-tab-add")
                                         .ghost()
                                         .small()
                                         .icon(IconName::Plus)
-                                        .tooltip("新建查询")
+                                        .tooltip("新建查询 (⌘T)")
                                         .on_click(cx.listener(
                                             |this, _: &ClickEvent, window, cx| {
                                                 this.add_tab(window, cx);
+                                            },
+                                        )),
+                                ),
+                        )
+                        // 右：格式化（运行已移到结果区工具栏，与 dbclient 同位）
+                        .child(
+                            h_flex()
+                                .flex_none()
+                                .items_center()
+                                .border_l_1()
+                                .border_color(border)
+                                .child(
+                                    Button::new("mongo-format")
+                                        .ghost()
+                                        .small()
+                                        .icon(icons::wand_sparkles())
+                                        .tooltip("格式化 (⌘⇧F)")
+                                        .on_click(cx.listener(
+                                            |this, _: &ClickEvent, window, cx| {
+                                                if let Some(tab) =
+                                                    this.tabs.get(this.active).cloned()
+                                                {
+                                                    tab.update(cx, |t, cx| {
+                                                        t.format_json(window, cx)
+                                                    });
+                                                }
                                             },
                                         )),
                                 ),

@@ -62,4 +62,21 @@ mod tests {
         let v = json!([1, 2, 3]);
         assert!(json_to_document(v).is_err());
     }
+
+    #[test]
+    fn update_set_doc_preserved() {
+        // update 文档 {$set: {...}} 转 BSON 后 $set 必须保留为子文档（否则 update_one 无效）
+        let v = json!({"$set": {"name": "Bob", "age": 30}});
+        let doc = json_to_document(v).unwrap();
+        let set = doc.get_document("$set").expect("$set 应保留为子文档");
+        assert_eq!(set.get_str("name").unwrap(), "Bob");
+    }
+
+    #[test]
+    fn filter_id_oid_becomes_objectid() {
+        // filter {_id: {$oid}} 必须转成真正的 ObjectId，否则匹配不到文档
+        let v = json!({"_id": {"$oid": "507f1f77bcf86cd799439011"}});
+        let doc = json_to_document(v).unwrap();
+        assert!(matches!(doc.get("_id"), Some(Bson::ObjectId(_))));
+    }
 }

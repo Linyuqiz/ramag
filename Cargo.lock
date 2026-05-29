@@ -6280,11 +6280,17 @@ dependencies = [
 name = "ramag-tool-mongodb"
 version = "0.0.1"
 dependencies = [
+ "anyhow",
+ "futures",
  "gpui",
  "gpui-component",
+ "lsp-types",
+ "parking_lot",
  "ramag-app",
  "ramag-domain",
  "ramag-ui",
+ "rfd",
+ "ropey",
  "schemars",
  "serde",
  "serde_json",

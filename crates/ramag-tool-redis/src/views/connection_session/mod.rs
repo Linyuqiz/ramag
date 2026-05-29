@@ -26,8 +26,8 @@ use crate::views::zset_element_form::ZSetElementFormMode;
 
 use dialogs::truncate_for_dialog;
 
-const TREE_WIDTH_INITIAL: f32 = 320.0;
-const TREE_WIDTH_MIN: f32 = 200.0;
+const TREE_WIDTH_INITIAL: f32 = 280.0;
+const TREE_WIDTH_MIN: f32 = 180.0;
 const TREE_WIDTH_MAX: f32 = 600.0;
 
 pub struct RedisSessionPanel {

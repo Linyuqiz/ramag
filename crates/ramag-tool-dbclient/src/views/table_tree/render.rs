@@ -211,7 +211,7 @@ impl Render for TableTreePanel {
             .w_full()
             .items_center()
             .px(px(10.0))
-            .py(px(8.0))
+            .py(px(6.0))
             .border_b_1()
             .border_color(cx.theme().border)
             .gap(px(6.0))

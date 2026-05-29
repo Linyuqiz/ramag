@@ -144,6 +144,12 @@ pub async fn update_one(
         .update_one(filter_doc, update_doc)
         .await
         .map_err(map_mongo_error)?;
+    tracing::info!(
+        coll = coll,
+        matched = r.matched_count,
+        modified = r.modified_count,
+        "mongo update_one done"
+    );
     let elapsed_ms = start.elapsed().as_millis() as u64;
     Ok(MongoQueryResult::write(
         r.modified_count,

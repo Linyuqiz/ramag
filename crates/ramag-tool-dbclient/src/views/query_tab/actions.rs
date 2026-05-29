@@ -18,18 +18,6 @@ use crate::sql_completion::extract_tables_in_use_for_prefetch;
 use crate::views::result_panel::ResultState;
 
 impl QueryTab {
-    /// 切换自动 LIMIT 注入开关；返回切换后的状态用于日志
-    pub(crate) fn toggle_auto_limit(&mut self, cx: &mut Context<Self>) -> bool {
-        self.auto_limit_enabled = !self.auto_limit_enabled;
-        cx.notify();
-        self.auto_limit_enabled
-    }
-
-    /// 当前 auto_limit 是否开启（工具条按钮高亮态需要）
-    pub(crate) fn auto_limit_on(&self) -> bool {
-        self.auto_limit_enabled
-    }
-
     /// 取出当前编辑器中的 SQL
     pub(super) fn current_sql(&self, cx: &gpui::App) -> String {
         self.editor.read(cx).value().to_string()
