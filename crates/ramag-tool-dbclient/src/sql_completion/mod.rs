@@ -120,6 +120,21 @@ fn detect_context(before_cursor_upper: &str) -> SqlContext {
     SqlContext::Other
 }
 
+/// 多词关键字短语前缀：从 offset 回退到最近的 SQL 分隔符（; , ( ) 换行），去掉前导空格。
+/// 让 "DROP T" 这类"第一个词已敲完、正敲第二个词"的输入能补出 "DROP TABLE"
+fn phrase_prefix(text: &str, offset: usize) -> &str {
+    let bytes = text.as_bytes();
+    let off = offset.min(bytes.len());
+    let mut s = off;
+    while s > 0 {
+        if matches!(bytes[s - 1], b';' | b',' | b'(' | b')' | b'\n') {
+            break;
+        }
+        s -= 1;
+    }
+    text[s..off].trim_start()
+}
+
 /// 公开版本：让 QueryTab 编辑器变化时可以预拉这些表的列结构
 /// 返回 (schema_可选, table) 对，schema 来自 `db.table` 这种全限定形式
 pub fn extract_tables_in_use_for_prefetch(sql: &str) -> Vec<(Option<String>, String)> {
@@ -331,18 +346,39 @@ impl CompletionProvider for SqlCompletionProvider {
             SqlContext::Other => {}
         }
 
+        // 多词关键字短语前缀：从光标回退到最近的 SQL 分隔符，
+        // 让"已敲完第一个词、正敲第二个词"的输入（如 "DROP T"）也能补出 "DROP TABLE"
+        // —— 此时单词 prefix 只剩 "T"，匹配不到带空格的整短语
+        let phrase = phrase_prefix(&text, real_offset);
+        let phrase_upper = phrase.to_ascii_uppercase();
+        let phrase_replace_range =
+            lsp_types::Range::new(rope.offset_to_position(real_offset - phrase.len()), end_pos);
+
         // 关键字兜底，总数 ≤ 50
         for kw in SQL_KEYWORDS {
             if items.len() >= 50 {
                 break;
             }
             if kw.starts_with(&prefix_upper) {
+                // 单词前缀：替换当前词
                 items.push(make_item(
                     kw.to_string(),
                     CompletionItemKind::KEYWORD,
                     None,
                     None,
                     replace_range,
+                ));
+            } else if phrase_upper.contains(' ')
+                && kw.len() > phrase_upper.len()
+                && kw.starts_with(&phrase_upper)
+            {
+                // 多词关键字第二个词起：用整段短语匹配，替换整个短语
+                items.push(make_item(
+                    kw.to_string(),
+                    CompletionItemKind::KEYWORD,
+                    None,
+                    None,
+                    phrase_replace_range,
                 ));
             }
         }

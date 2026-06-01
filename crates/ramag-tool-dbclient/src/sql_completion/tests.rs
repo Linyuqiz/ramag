@@ -138,3 +138,19 @@ fn extract_tables_strip_quotes() {
     let v_mysql = extract_tables_with_schema("SELECT * FROM `db`.`tbl`");
     assert_eq!(v_mysql, vec![(Some("db".to_string()), "tbl".to_string())]);
 }
+
+#[test]
+fn phrase_prefix_multiword() {
+    // 第一个词已敲完、正敲第二个词：取整段短语（单词 prefix 只剩 "T"，匹配不到 DROP TABLE）
+    assert_eq!(phrase_prefix("DROP T", 6), "DROP T");
+    assert_eq!(
+        phrase_prefix("ALTER TABLE foo ADD CO", 22),
+        "ALTER TABLE foo ADD CO"
+    );
+    // 分号 / 逗号 / 括号 / 换行都断开短语，并 trim 前导空格
+    assert_eq!(phrase_prefix("SELECT 1; DROP TA", 17), "DROP TA");
+    assert_eq!(phrase_prefix("a,\n  CREATE D", 13), "CREATE D");
+    // 空输入 + offset 越界（自动收敛到末尾）
+    assert_eq!(phrase_prefix("", 0), "");
+    assert_eq!(phrase_prefix("USE", 99), "USE");
+}
