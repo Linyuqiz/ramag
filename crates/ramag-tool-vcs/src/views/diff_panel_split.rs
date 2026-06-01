@@ -1,5 +1,5 @@
-//! Split diff：每栏拆 gutter + content 共 4 个 uniform_list。
-//! 4 个 list 共享 `UniformListScrollHandle` 行级 Y 同步；content 各自独立 X 滚；gutter 在 overflow_x_scroll 之外保持可见。
+//! Split diff：左 gutter+content、中间列（回滚/blame）、右 gutter+content 共 5 个 uniform_list。
+//! 5 个 list 共享 `UniformListScrollHandle` 行级 Y 同步；content 各自独立 X 滚；gutter / 中间列在 overflow_x_scroll 之外保持可见。
 //! `h_flex` 默认 items_center，必须显式 `.items_stretch()` 否则子栏会被压成内容高
 
 use std::collections::HashSet;
@@ -7,25 +7,29 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, Context, InteractiveElement as _, IntoElement, ParentElement, ScrollHandle,
-    SharedString, Styled, UniformListScrollHandle, div, prelude::*, px, uniform_list,
+    AnyElement, ClickEvent, Context, InteractiveElement as _, IntoElement, ParentElement,
+    ScrollHandle, SharedString, Styled, UniformListScrollHandle, div, prelude::*, px, uniform_list,
 };
-use gpui_component::{ActiveTheme, h_flex};
+use gpui_component::{
+    ActiveTheme, Sizable as _,
+    button::{Button, ButtonVariants as _},
+    h_flex,
+};
 use ramag_domain::entities::{DiffLineKind, FileDiff};
 
 use super::diff_keys::{SplitKey, build_split_keys};
 use super::diff_panel::{
-    CHECKBOX_W, CONTENT_PAD, LINE_NO_W, MONO_CHAR_W, RestrictScrollExt as _, SPLIT_MARKER_W,
+    CONTENT_PAD, DIFF_ROW_H, LINE_NO_W, MONO_CHAR_W, RestrictScrollExt as _, SPLIT_MARKER_W,
     render_diff_empty, render_file_diff,
 };
 use super::diff_split_cells::{
-    BLAME_CHIP_W, render_content_cell, render_content_header, render_content_spacer,
-    render_gutter_cell, render_gutter_header, render_gutter_spacer,
+    render_content_cell, render_content_header, render_content_spacer, render_gutter_cell,
+    render_gutter_header, render_gutter_spacer,
 };
 use super::vcs_view::VcsView;
 
-/// gutter 固定宽：checkbox(18) + marker(10) + lineno(40) = 68px
-const SPLIT_GUTTER_W: f32 = CHECKBOX_W + SPLIT_MARKER_W + LINE_NO_W;
+/// gutter 固定宽：marker(10) + lineno(40) = 50px
+const SPLIT_GUTTER_W: f32 = SPLIT_MARKER_W + LINE_NO_W;
 
 /// 计算左右两栏各自最长行的字符数（旧 / 新分别算）
 fn split_max_chars(diff: &FileDiff) -> (usize, usize) {
@@ -71,20 +75,23 @@ fn is_one_sided(diff: &FileDiff) -> bool {
     !(has_old && has_new)
 }
 
-/// 渲染整个文件的 diff（Split 模式，IDEA 风格双栏独立横滚 + sticky gutter）
+/// 渲染整个文件的 diff（Split 模式，IDEA 风格双栏独立横滚 + sticky gutter + 中间列）
 #[allow(clippy::too_many_arguments)]
 pub fn render_file_diff_split(
     diff: &FileDiff,
-    _selected: &HashSet<(usize, usize)>,
-    enable_selection: bool,
+    enable_discard: bool,
     changes_only: bool,
+    // false=不折叠长 Context（FullFile 模式展示所有内容）
+    collapse: bool,
+    // 语法高亮语言（None=纯文本，由调用方按文件扩展名算）
+    lang: Option<SharedString>,
     mono: SharedString,
     _fg: gpui::Hsla,
     muted_fg: gpui::Hsla,
-    _muted_bg: gpui::Hsla,
+    muted_bg: gpui::Hsla,
     scroll: &UniformListScrollHandle,
-    h_scroll_left: &ScrollHandle,
-    h_scroll_right: &ScrollHandle,
+    // 左右两栏共享同一横滚 handle，两栏一起横滚（IDEA 风格，避免错位无法对比）
+    h_scroll: &ScrollHandle,
     has_blame: bool,
     expanded_spacers: &HashSet<(usize, usize)>,
     cx: &mut Context<VcsView>,
@@ -95,46 +102,43 @@ pub fn render_file_diff_split(
     if is_one_sided(diff) {
         return render_file_diff(
             diff,
-            _selected,
-            enable_selection,
             changes_only,
+            lang,
             mono,
             _fg,
             muted_fg,
-            _muted_bg,
+            muted_bg,
             scroll,
-            h_scroll_left,
+            h_scroll,
             cx,
         );
     }
 
     let diff_rc: Rc<FileDiff> = Rc::new(diff.clone());
-    let keys: Rc<Vec<SplitKey>> =
-        Rc::new(build_split_keys(&diff_rc, changes_only, expanded_spacers));
+    let keys: Rc<Vec<SplitKey>> = Rc::new(build_split_keys(
+        &diff_rc,
+        changes_only,
+        collapse,
+        expanded_spacers,
+    ));
     let total = keys.len();
 
     let scroll_v = scroll.clone();
-    let h_left = h_scroll_left.clone();
-    let h_right = h_scroll_right.clone();
+    let h_shared = h_scroll.clone();
 
     let (max_old, max_new) = split_max_chars(&diff_rc);
-    let left_content_w = (max_old as f32) * MONO_CHAR_W + CONTENT_PAD;
-    let right_content_w = (max_new as f32) * MONO_CHAR_W + CONTENT_PAD;
-    let right_gutter_w = if has_blame {
-        SPLIT_GUTTER_W + BLAME_CHIP_W
-    } else {
-        SPLIT_GUTTER_W
-    };
+    // 左右共用同一内容宽度（取较长侧）：共享横滚 handle 时两栏滚动范围才一致，都能滚到行尾
+    let content_w = (max_old.max(max_new) as f32) * MONO_CHAR_W + CONTENT_PAD;
+    // 中间列：仅回滚按钮时窄（28），需展示 blame author 时宽（96）
+    let middle_w = if has_blame { 140.0 } else { 28.0 };
 
     let left_gutter_list = build_gutter_list(
         "L",
         true,
-        false,
         total,
         diff_rc.clone(),
         keys.clone(),
         mono.clone(),
-        enable_selection,
         scroll_v.clone(),
         cx,
     );
@@ -144,35 +148,34 @@ pub fn render_file_diff_split(
         total,
         diff_rc.clone(),
         keys.clone(),
+        lang.clone(),
         mono.clone(),
-        enable_selection,
-        left_content_w,
+        content_w,
+        scroll_v.clone(),
+        cx,
+    );
+    let middle_list = build_middle_list(
+        total,
+        diff_rc.clone(),
+        keys.clone(),
+        enable_discard,
+        has_blame,
+        middle_w,
         scroll_v.clone(),
         cx,
     );
     let right_gutter_list = build_gutter_list(
         "R",
         false,
-        has_blame,
         total,
         diff_rc.clone(),
         keys.clone(),
         mono.clone(),
-        enable_selection,
         scroll_v.clone(),
         cx,
     );
     let right_content_list = build_content_list(
-        "R",
-        false,
-        total,
-        diff_rc,
-        keys,
-        mono,
-        enable_selection,
-        right_content_w,
-        scroll_v,
-        cx,
+        "R", false, total, diff_rc, keys, lang, mono, content_w, scroll_v, cx,
     );
 
     h_flex()
@@ -184,17 +187,25 @@ pub fn render_file_diff_split(
             left_gutter_list,
             left_content_list,
             SPLIT_GUTTER_W,
-            left_content_w,
-            &h_left,
+            content_w,
+            &h_shared,
             "L",
         ))
+        .child(div().flex_none().w(px(1.0)).h_full().bg(muted_fg))
+        .child(
+            div()
+                .flex_none()
+                .w(px(middle_w))
+                .h_full()
+                .child(middle_list),
+        )
         .child(div().flex_none().w(px(1.0)).h_full().bg(muted_fg))
         .child(make_pane(
             right_gutter_list,
             right_content_list,
-            right_gutter_w,
-            right_content_w,
-            &h_right,
+            SPLIT_GUTTER_W,
+            content_w,
+            &h_shared,
             "R",
         ))
         .into_any_element()
@@ -240,40 +251,23 @@ fn make_pane(
 fn build_gutter_list(
     side: &'static str,
     is_left: bool,
-    has_blame: bool,
     total: usize,
     diff_rc: Rc<FileDiff>,
     keys: Rc<Vec<SplitKey>>,
     mono: SharedString,
-    enable_selection: bool,
     scroll_v: UniformListScrollHandle,
     cx: &mut Context<VcsView>,
 ) -> gpui::UniformList {
     uniform_list(
         SharedString::from(format!("vcs-diff-{side}-gutter")),
         total,
-        cx.processor(move |this, range: Range<usize>, _w, cx| {
+        cx.processor(move |_this, range: Range<usize>, _w, cx| {
             let theme = cx.theme();
             let muted_fg = theme.muted_foreground;
             let muted_bg = theme.muted;
-            let accent = theme.accent;
-            let selected = this.selected_diff_lines.clone();
-            let blame_rc: Option<Rc<Vec<ramag_domain::entities::BlameLine>>> =
-                if has_blame && this.showing_blame && !this.blame_lines.is_empty() {
-                    Some(Rc::new(this.blame_lines.clone()))
-                } else {
-                    None
-                };
             range
                 .map(|i| match keys[i] {
-                    SplitKey::Header { hunk_idx } => render_gutter_header(
-                        side,
-                        hunk_idx,
-                        enable_selection,
-                        is_left,
-                        muted_bg,
-                        cx,
-                    ),
+                    SplitKey::Header { .. } => render_gutter_header(muted_bg),
                     SplitKey::Pair {
                         hunk_idx,
                         left,
@@ -285,13 +279,8 @@ fn build_gutter_list(
                             side,
                             line,
                             hunk_idx,
-                            &selected,
-                            enable_selection,
                             is_left,
-                            has_blame,
-                            blame_rc.as_ref(),
                             muted_fg,
-                            accent,
                             mono.clone(),
                             cx,
                         )
@@ -314,8 +303,8 @@ fn build_content_list(
     total: usize,
     diff_rc: Rc<FileDiff>,
     keys: Rc<Vec<SplitKey>>,
+    lang: Option<SharedString>,
     mono: SharedString,
-    enable_selection: bool,
     content_w: f32,
     scroll_v: UniformListScrollHandle,
     cx: &mut Context<VcsView>,
@@ -323,13 +312,12 @@ fn build_content_list(
     uniform_list(
         SharedString::from(format!("vcs-diff-{side}-content")),
         total,
-        cx.processor(move |this, range: Range<usize>, _w, cx| {
+        cx.processor(move |_this, range: Range<usize>, _w, cx| {
             let theme = cx.theme();
             let fg = theme.foreground;
             let muted_fg = theme.muted_foreground;
             let muted_bg = theme.muted;
-            let accent = theme.accent;
-            let selected = this.selected_diff_lines.clone();
+            let lang_ref = lang.as_deref();
             range
                 .map(|i| match keys[i] {
                     SplitKey::Header { hunk_idx } => render_content_header(
@@ -349,10 +337,8 @@ fn build_content_list(
                             side,
                             line,
                             hunk_idx,
-                            &selected,
-                            enable_selection,
+                            lang_ref,
                             fg,
-                            accent,
                             mono.clone(),
                             content_w,
                             cx,
@@ -373,4 +359,128 @@ fn build_content_list(
     .restrict_scroll_to_axis()
     .h_full()
     .min_h_0()
+}
+
+/// 构建中间列 uniform_list（与左右栏共享 scroll_v 做垂直同步）
+///
+/// Header 行承载「回滚此 hunk」按钮（enable_discard 时）；Pair 行展示该行 blame author（has_blame 时）
+#[allow(clippy::too_many_arguments)]
+fn build_middle_list(
+    total: usize,
+    diff_rc: Rc<FileDiff>,
+    keys: Rc<Vec<SplitKey>>,
+    enable_discard: bool,
+    has_blame: bool,
+    middle_w: f32,
+    scroll_v: UniformListScrollHandle,
+    cx: &mut Context<VcsView>,
+) -> gpui::UniformList {
+    uniform_list(
+        "vcs-diff-middle",
+        total,
+        cx.processor(move |this, range: Range<usize>, _w, cx| {
+            let theme = cx.theme();
+            let muted_fg = theme.muted_foreground;
+            let muted_bg = theme.muted;
+            // blame 仅在开启 blame 且已加载时取数据，按 new_lineno 匹配
+            let blame_rc: Option<Rc<Vec<ramag_domain::entities::BlameLine>>> =
+                if has_blame && this.showing_blame && !this.blame_lines.is_empty() {
+                    Some(Rc::new(this.blame_lines.clone()))
+                } else {
+                    None
+                };
+            range
+                .map(|i| match keys[i] {
+                    SplitKey::Header { hunk_idx } => {
+                        render_middle_header(hunk_idx, enable_discard, muted_bg, cx)
+                    }
+                    SplitKey::Pair {
+                        hunk_idx,
+                        left,
+                        right,
+                    } => {
+                        // 左列=旧侧行作者、右列=新侧行作者（都按 new_lineno 查当前文件 blame）
+                        let author_of = |li: Option<usize>| {
+                            li.and_then(|i| diff_rc.hunks[hunk_idx].lines[i].new_lineno)
+                                .and_then(|ln| {
+                                    blame_rc.as_ref().and_then(|bs| {
+                                        bs.iter()
+                                            .find(|b| b.line_no == ln)
+                                            .map(|b| b.author.chars().take(10).collect::<String>())
+                                    })
+                                })
+                        };
+                        render_middle_cell(author_of(left), author_of(right), muted_fg)
+                    }
+                    SplitKey::Spacer { .. } => div()
+                        .h(px(DIFF_ROW_H))
+                        .w_full()
+                        .bg(muted_bg)
+                        .into_any_element(),
+                })
+                .collect::<Vec<_>>()
+        }),
+    )
+    .track_scroll(&scroll_v)
+    .w(px(middle_w))
+    .h_full()
+    .min_h_0()
+}
+
+/// 中间列 hunk header：居中回滚按钮（enable_discard 时；否则仅占位）
+fn render_middle_header(
+    hunk_idx: usize,
+    enable_discard: bool,
+    muted_bg: gpui::Hsla,
+    cx: &mut Context<VcsView>,
+) -> AnyElement {
+    let mut row = h_flex()
+        .w_full()
+        .h(px(DIFF_ROW_H))
+        .bg(muted_bg)
+        .items_center()
+        .justify_center();
+    if enable_discard {
+        row = row.child(
+            Button::new(SharedString::from(format!("vcs-hunk-discard-{hunk_idx}")))
+                .ghost()
+                .xsmall()
+                .icon(gpui_component::IconName::Undo)
+                .tooltip("回滚此 hunk（Staged→unstage / Unstaged→discard）")
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.discard_hunk(hunk_idx, cx);
+                })),
+        );
+    }
+    row.into_any_element()
+}
+
+/// 中间列配对行：左列=旧侧作者、右列=新侧作者（删除行的旧作者需历史 blame，暂空）
+fn render_middle_cell(
+    left_author: Option<String>,
+    right_author: Option<String>,
+    muted_fg: gpui::Hsla,
+) -> AnyElement {
+    let col = |author: Option<String>| {
+        div()
+            .flex_1()
+            .min_w_0()
+            .px(px(3.0))
+            .text_xs()
+            .text_color(muted_fg)
+            .overflow_hidden()
+            .text_ellipsis()
+            .whitespace_nowrap()
+            .child(author.unwrap_or_default())
+    };
+    let mut sep = muted_fg;
+    sep.a = 0.25;
+    h_flex()
+        .w_full()
+        .h(px(DIFF_ROW_H))
+        .items_center()
+        .child(col(left_author))
+        .child(div().flex_none().w(px(1.0)).h(px(DIFF_ROW_H)).bg(sep))
+        .child(col(right_author))
+        .into_any_element()
 }

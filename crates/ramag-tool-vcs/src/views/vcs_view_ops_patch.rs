@@ -1,4 +1,4 @@
-//! hunk 级 patch：toggle_diff_line（行级选中）/ discard_hunk（按 source 分流）/ build_patch_for_hunk
+//! hunk 级 patch：discard_hunk（按 source 分流回滚）+ build_patch_for_hunk
 
 use gpui::Context;
 use ramag_domain::entities::{DiffLineKind, FileDiff};
@@ -8,20 +8,6 @@ use super::helpers::{FileTabSource, GroupKind};
 use super::vcs_view::VcsView;
 
 impl VcsView {
-    /// 切换某行的选中状态（hunk_idx + 行在 hunk 里的索引）
-    pub(super) fn toggle_diff_line(
-        &mut self,
-        hunk_idx: usize,
-        line_idx: usize,
-        cx: &mut Context<Self>,
-    ) {
-        let key = (hunk_idx, line_idx);
-        if !self.selected_diff_lines.insert(key) {
-            self.selected_diff_lines.remove(&key);
-        }
-        cx.notify();
-    }
-
     /// 回滚 hunk：Unstaged 走 discard_patch（reverse 到 index）/ Staged 走 unstage_patch（reverse 撤回工作区）。
     /// 失败常因 diff 拉取后工作区或 index 又改过，patch 上下文不匹配
     pub(super) fn discard_hunk(&mut self, hunk_idx: usize, cx: &mut Context<Self>) {
@@ -69,6 +55,10 @@ impl VcsView {
             let new_status = driver.status(&repo).await.ok();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 match result {
                     Ok(()) => {
                         info!(hunk_idx, ?kind, "vcs: hunk revert done");

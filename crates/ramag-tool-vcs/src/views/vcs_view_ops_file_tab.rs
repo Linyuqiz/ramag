@@ -13,8 +13,11 @@ impl VcsView {
         let Some(repo) = self.repo.as_ref().map(|r| r.id.clone()) else {
             return;
         };
-        // 切换文件 → 清掉 spacer 展开态（hunk_idx 随 diff 变化，跨文件保留无意义）
+        // 切换文件 → 清 spacer 展开态（hunk_idx 随 diff 变化，跨文件保留无意义）
         self.expanded_diff_spacers.clear();
+        // 横滚归位，否则新文件停在上个文件的横滚位置、看不到行首
+        self.diff_h_scroll
+            .set_offset(gpui::point(gpui::px(0.0), gpui::px(0.0)));
         // 点击 Changes 文件 → 关掉 commit detail，避免主区残留 commit diff
         if self.viewing_commit.is_some() {
             self.viewing_commit = None;
@@ -82,6 +85,10 @@ impl VcsView {
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.loading_diff = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 match result {
                     Ok(d) => {
                         this.current_diff = Some(d.clone());

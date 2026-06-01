@@ -19,9 +19,16 @@ impl VcsView {
             let result = driver.list_tags(&repo).await;
             let _ = this.update(cx, |this, cx| {
                 this.loading_tags = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 match result {
                     Ok(list) => this.tags = list,
-                    Err(e) => error!(error = %e, "vcs: list tags failed"),
+                    Err(e) => {
+                        error!(error = %e, "vcs: list tags failed");
+                        this.error = Some("加载 Tag 列表失败".into());
+                    }
                 }
                 cx.notify();
             });
@@ -53,6 +60,10 @@ impl VcsView {
             let new_tags = driver.list_tags(&repo).await.unwrap_or_default();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 this.tags = new_tags;
                 if let Err(e) = result {
                     error!(error = %e, ?op, "vcs: tag op failed");

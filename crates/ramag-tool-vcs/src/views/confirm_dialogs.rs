@@ -121,6 +121,21 @@ impl VcsView {
     }
 
     /// 分支操作；Delete / Merge / Rebase 弹确认（Checkout / Create 不弹）
+    /// reflog checkout 到 commit（detached HEAD）：脏工作区先走 stash/discard 引导（同分支 checkout），
+    /// 干净则直接 checkout_reflog_entry（保留切回 commit 历史的行为）
+    pub(super) fn confirm_checkout_reflog(
+        &mut self,
+        commit: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.is_working_tree_dirty() {
+            open_checkout_dirty_dialog(cx.entity(), commit, window, cx);
+        } else {
+            self.checkout_reflog_entry(commit, cx);
+        }
+    }
+
     pub(super) fn confirm_branch_op(
         &mut self,
         op: BranchOp,
@@ -164,17 +179,8 @@ impl VcsView {
                 false,
             ),
             BranchOp::Checkout(name) => {
-                // dirty 检测：staged 或 unstaged 非空（untracked 不阻止 checkout）
-                let dirty = self
-                    .status
-                    .as_ref()
-                    .map(|s| {
-                        s.files
-                            .iter()
-                            .any(|f| f.staged.is_some() || f.unstaged.is_some())
-                    })
-                    .unwrap_or(false);
-                if dirty {
+                // dirty（staged/unstaged 非空，untracked 不阻止 checkout）时引导 stash/discard
+                if self.is_working_tree_dirty() {
                     open_checkout_dirty_dialog(cx.entity(), name.clone(), window, cx);
                 } else {
                     self.run_branch_op(op, cx);

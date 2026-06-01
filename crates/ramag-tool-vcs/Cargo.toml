@@ -20,6 +20,9 @@ gpui-component = { workspace = true }
 # 异步
 futures = { workspace = true }
 
+# 语法高亮：SyntaxHighlighter 解析文本需要 Rope（diff / Project Files 代码着色）
+ropey = { workspace = true }
+
 # 时间显示（commit author / committer 时间）
 chrono = { workspace = true }
 
@@ -28,3 +31,9 @@ rfd = { workspace = true }
 
 # 日志
 tracing = { workspace = true }
+
+[dev-dependencies]
+# 渲染测试：gpui test-support 提供 #[gpui::test] / TestAppContext / add_window_view（headless 渲染）
+gpui = { workspace = true, features = ["test-support"] }
+# mock GitDriver / Storage（trait 用 #[async_trait]）
+async-trait = { workspace = true }

@@ -19,10 +19,15 @@ impl VcsView {
             let result = driver.list_stashes(&repo).await;
             let _ = this.update(cx, |this, cx| {
                 this.loading_stashes = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 match result {
                     Ok(list) => this.stashes = list,
                     Err(e) => {
                         error!(error = %e, "vcs: list stashes failed");
+                        this.error = Some("加载 Stash 列表失败".into());
                     }
                 }
                 cx.notify();
@@ -52,6 +57,10 @@ impl VcsView {
             let new_status = driver.status(&repo).await.ok();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 this.stashes = new_stashes;
                 if let Some(s) = new_status {
                     this.status = Some(s);

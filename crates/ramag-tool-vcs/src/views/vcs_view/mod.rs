@@ -2,6 +2,8 @@
 
 mod new;
 mod render;
+#[cfg(test)]
+mod render_test;
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -13,8 +15,8 @@ use gpui::{
 };
 use gpui_component::{input::InputState, resizable::ResizableState};
 use ramag_domain::entities::{
-    Branch, Commit, ConflictContent, FileDiff, FileStatus, RebaseTodo, Remote, RepoConfig, Stash,
-    Tag, WorkingTreeStatus,
+    Branch, Commit, ConflictContent, FileDiff, FileStatus, RebaseTodo, Remote, RepoConfig, RepoId,
+    Stash, Tag, WorkingTreeStatus,
 };
 use ramag_domain::traits::{GitDriver, Storage};
 
@@ -103,8 +105,6 @@ pub struct VcsView {
     pub(super) collapsed_remote: bool,
     /// sidebar 「Tag」段是否折叠（默认折叠，tag 通常较多）
     pub(super) collapsed_tag: bool,
-    /// 当前 diff 中被勾选准备 stage 的 (hunk_index, line_index_in_hunk)
-    pub(super) selected_diff_lines: std::collections::HashSet<(usize, usize)>,
     /// 用户已点击展开的 diff spacer：(hunk_idx, run_start_line_idx)；切换文件 / commit 时清空
     pub(super) expanded_diff_spacers: std::collections::HashSet<(usize, usize)>,
     /// 远程仓库列表（git remote -v 解析）
@@ -195,10 +195,8 @@ pub struct VcsView {
     pub(super) reflog_scroll: UniformListScrollHandle,
     /// pf_content / diff 横向滚动句柄：uniform_list 管 Y，外层 overflow_x_scroll 管 X
     pub(super) pf_content_h_scroll: ScrollHandle,
-    /// unified diff + split 模式左栏 横滚 handle
+    /// diff 横滚 handle（unified 单栏 + split 左右两栏共享，两栏一起横滚）
     pub(super) diff_h_scroll: ScrollHandle,
-    /// split 模式右栏独立横滚 handle（IDEA 风格：左右两栏长行各自横滚不互相牵连）
-    pub(super) diff_h_scroll_right: ScrollHandle,
     /// 下半区 history pane 是否显示（默认隐藏，工具栏 PanelBottom 图标 toggle）
     pub(super) history_pane_visible: bool,
 
@@ -237,6 +235,24 @@ impl Focusable for VcsView {
 }
 
 impl VcsView {
+    /// 异步回调归属校验：发起请求时捕获的 `repo_id` 与当前打开仓库不一致（用户已切仓）时返回 false。
+    /// 回调应在重置 loading/busy 标志后、写入派生数据前调用，不匹配则丢弃旧仓库结果，避免切仓串味。
+    pub(super) fn is_current_repo(&self, repo_id: &RepoId) -> bool {
+        self.repo.as_ref().map(|r| &r.id) == Some(repo_id)
+    }
+
+    /// 工作区是否有未提交改动（staged 或 unstaged，untracked 不计）：checkout 前的 dirty 判断
+    pub(super) fn is_working_tree_dirty(&self) -> bool {
+        self.status
+            .as_ref()
+            .map(|s| {
+                s.files
+                    .iter()
+                    .any(|f| f.staged.is_some() || f.unstaged.is_some())
+            })
+            .unwrap_or(false)
+    }
+
     /// 切换 IDE 左侧 Files panel 的视图模式（Changes / Project / Stash）
     ///
     /// 切到 Project 模式时若列表还没加载，触发一次异步拉取

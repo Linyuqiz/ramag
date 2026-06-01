@@ -82,7 +82,8 @@ pub fn execute(repo_path: &Path, onto: &str, todos: &[RebaseTodo]) -> Result<()>
     let _ = std::fs::remove_file(&tmp_script);
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    if output.status.success() || stderr.contains("CONFLICT") || stderr.contains("conflict") {
+    // 大写 CONFLICT 是 git 冲突标记，进入冲突解决态算正常推进；不匹配小写以免吞掉真实失败
+    if output.status.success() || stderr.contains("CONFLICT") {
         Ok(())
     } else {
         Err(DomainError::QueryFailed(crate::errors::friendly_git_error(

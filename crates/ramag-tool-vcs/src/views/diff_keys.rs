@@ -64,10 +64,11 @@ pub(super) fn build_unified_keys(diff: &FileDiff, changes_only: bool) -> Vec<Uni
 }
 
 /// 删除 / 新增按出现顺序左右配对。changes_only 跳过 Context；
-/// 长 Context（≥SPLIT_SPACER_THRESHOLD）压缩为 Spacer，`expanded_spacers` 内的展开
+/// collapse=true 时长 Context（≥THRESHOLD）压成 Spacer；collapse=false（FullFile）全铺开展示所有内容
 pub(super) fn build_split_keys(
     diff: &FileDiff,
     changes_only: bool,
+    collapse: bool,
     expanded_spacers: &HashSet<(usize, usize)>,
 ) -> Vec<SplitKey> {
     let mut out = Vec::new();
@@ -90,7 +91,7 @@ pub(super) fn build_split_keys(
             }
             let run_start = run[0];
             let user_expanded = expanded_spacers.contains(&(h_idx, run_start));
-            if !changes_only && run.len() >= SPLIT_SPACER_THRESHOLD && !user_expanded {
+            if collapse && !changes_only && run.len() >= SPLIT_SPACER_THRESHOLD && !user_expanded {
                 // 保留前 KEEP 行 + Spacer + 后 KEEP 行
                 let n = run.len();
                 for &i in run.iter().take(SPLIT_SPACER_KEEP) {
@@ -164,4 +165,107 @@ fn flush_pairs(
     }
     left.clear();
     right.clear();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ramag_domain::entities::{DiffLine, FileChangeKind, FileDiff, Hunk};
+
+    fn line(kind: DiffLineKind, text: &str) -> DiffLine {
+        DiffLine {
+            kind,
+            old_lineno: None,
+            new_lineno: None,
+            text: text.into(),
+        }
+    }
+
+    fn diff(lines: Vec<DiffLine>) -> FileDiff {
+        FileDiff {
+            path: "f".into(),
+            old_path: None,
+            change_kind: FileChangeKind::Modified,
+            binary: false,
+            old_mode: None,
+            new_mode: None,
+            hunks: vec![Hunk {
+                old_start: 1,
+                old_lines: 0,
+                new_start: 1,
+                new_lines: 0,
+                heading: None,
+                lines,
+            }],
+        }
+    }
+
+    fn pairs(keys: &[SplitKey]) -> Vec<(Option<usize>, Option<usize>)> {
+        keys.iter()
+            .filter_map(|k| match k {
+                SplitKey::Pair { left, right, .. } => Some((*left, *right)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn unified_header_then_each_line() {
+        let d = diff(vec![
+            line(DiffLineKind::Context, "a"),
+            line(DiffLineKind::Add, "b"),
+        ]);
+        let keys = build_unified_keys(&d, false);
+        assert_eq!(keys.len(), 3); // Header + 2 行
+        assert!(matches!(keys[0], UnifiedKey::Header { hunk_idx: 0 }));
+        assert!(matches!(
+            keys[2],
+            UnifiedKey::Line {
+                hunk_idx: 0,
+                line_idx: 1
+            }
+        ));
+    }
+
+    #[test]
+    fn unified_changes_only_skips_context() {
+        let d = diff(vec![
+            line(DiffLineKind::Context, "a"),
+            line(DiffLineKind::Add, "b"),
+        ]);
+        let keys = build_unified_keys(&d, true);
+        assert_eq!(keys.len(), 2, "Header + 仅 add 行（context 跳过）");
+        assert!(matches!(keys[1], UnifiedKey::Line { line_idx: 1, .. }));
+    }
+
+    #[test]
+    fn split_delete_left_add_right() {
+        // 删 d / 增 x → 配对：左删右增
+        let d = diff(vec![
+            line(DiffLineKind::Delete, "d"),
+            line(DiffLineKind::Add, "x"),
+        ]);
+        let keys = build_split_keys(&d, false, true, &HashSet::new());
+        assert_eq!(pairs(&keys), vec![(Some(0), Some(1))], "删除在左、新增在右");
+    }
+
+    #[test]
+    fn split_unequal_padded_with_none() {
+        // 2 删 1 增 → 第二行右侧补 None（对侧空白对齐，不跨栏）
+        let d = diff(vec![
+            line(DiffLineKind::Delete, "d0"),
+            line(DiffLineKind::Delete, "d1"),
+            line(DiffLineKind::Add, "a0"),
+        ]);
+        let keys = build_split_keys(&d, false, true, &HashSet::new());
+        assert_eq!(pairs(&keys), vec![(Some(0), Some(2)), (Some(1), None)]);
+    }
+
+    #[test]
+    fn split_context_pairs_both_sides() {
+        // context 行左右同 line_idx 配对
+        let d = diff(vec![line(DiffLineKind::Context, "ctx")]);
+        let keys = build_split_keys(&d, false, true, &HashSet::new());
+        assert_eq!(pairs(&keys), vec![(Some(0), Some(0))], "context 两侧同行");
+    }
 }

@@ -180,8 +180,8 @@ fn render_reflog_row(
                 .icon(gpui_component::IconName::ArrowRight)
                 .tooltip("Checkout 到此 commit（detached HEAD）")
                 .disabled(busy)
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.checkout_reflog_entry(commit_for_btn.clone(), cx);
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    this.confirm_checkout_reflog(commit_for_btn.clone(), window, cx);
                 })),
         )
         .into_any_element()

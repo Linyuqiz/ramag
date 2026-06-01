@@ -22,6 +22,10 @@ impl VcsView {
             let new_status = driver.status(&repo).await.ok();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 if let Some(s) = new_status {
                     this.status = Some(s);
                 }
@@ -57,6 +61,10 @@ impl VcsView {
                 .unwrap_or_default();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 if let Some(s) = new_status {
                     this.status = Some(s);
                 }
@@ -99,6 +107,10 @@ impl VcsView {
                 .unwrap_or_default();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 this.local_branches = new_local;
                 if let Some(s) = new_status {
                     this.status = Some(s);
@@ -157,6 +169,10 @@ impl VcsView {
                 .unwrap_or_default();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 this.local_branches = new_local;
                 if let Some(s) = new_status {
                     this.status = Some(s);

@@ -92,6 +92,10 @@ impl VcsView {
             let result = driver.list_files(&repo).await;
             let _ = this.update(cx, |this, cx| {
                 this.loading_project_files = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 match result {
                     Ok(mut paths) => {
                         // 字母序：让目录树渲染稳定（同一目录文件聚拢）
@@ -128,6 +132,7 @@ impl VcsView {
             self.loading_commit_files = false;
         }
         let repo_path = repo.path.clone();
+        let repo_id = repo.id.clone();
         let idx = if let Some(i) = self
             .file_tabs
             .iter()
@@ -161,6 +166,9 @@ impl VcsView {
             });
             let raw = rx.await.ok();
             let _ = this.update(cx, |this, cx| {
+                if !this.is_current_repo(&repo_id) {
+                    return;
+                }
                 let snapshot = raw.map(finalize_file_snapshot);
                 if let Some(tab) = this
                     .file_tabs
@@ -188,6 +196,9 @@ impl VcsView {
         cx.spawn(async move |this, cx| {
             let new_status = driver.status(&repo).await.ok();
             let _ = this.update(cx, |this, cx| {
+                if !this.is_current_repo(&repo) {
+                    return;
+                }
                 if let Some(s) = new_status {
                     this.status = Some(s);
                 }

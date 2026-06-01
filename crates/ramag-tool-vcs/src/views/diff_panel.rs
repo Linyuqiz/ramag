@@ -1,6 +1,5 @@
-//! Diff 面板：Unified（行号双列 + `+/-`）/ Split（左旧右新对齐）。`+/-` 行点击 = `toggle_diff_line`
+//! Diff 面板：Unified（行号双列 + `+/-`）/ Split（左旧右新对齐）。点行号 = inline blame
 
-use std::collections::HashSet;
 use std::ops::Range;
 use std::rc::Rc;
 
@@ -8,7 +7,7 @@ use gpui::{
     AnyElement, ClickEvent, Context, InteractiveElement as _, IntoElement, ParentElement,
     ScrollHandle, SharedString, Styled, UniformListScrollHandle, div, prelude::*, px, uniform_list,
 };
-use gpui_component::{ActiveTheme, Icon, IconName, Sizable as _, h_flex};
+use gpui_component::{ActiveTheme, h_flex};
 use ramag_domain::entities::{DiffLine, DiffLineKind, FileDiff};
 
 use super::vcs_view::VcsView;
@@ -19,8 +18,6 @@ pub(super) const DIFF_ROW_H: f32 = 20.0;
 pub(super) const MONO_CHAR_W: f32 = 7.5;
 /// 行号列固定宽度（含左右 padding）
 pub(super) const LINE_NO_W: f32 = 40.0;
-/// checkbox 单元格固定宽度
-pub(super) const CHECKBOX_W: f32 = 18.0;
 /// Unified marker 列宽（+/-）
 const UNIFIED_MARKER_W: f32 = 14.0;
 /// Split marker 列宽（+/-，比 unified 略窄）
@@ -57,9 +54,9 @@ pub(super) fn max_line_chars(diff: &FileDiff) -> usize {
 #[allow(clippy::too_many_arguments)]
 pub fn render_file_diff(
     diff: &FileDiff,
-    _selected: &HashSet<(usize, usize)>,
-    enable_selection: bool,
     changes_only: bool,
+    // 语法高亮语言（None=纯文本）
+    lang: Option<SharedString>,
     mono: SharedString,
     _fg: gpui::Hsla,
     muted_fg: gpui::Hsla,
@@ -79,7 +76,7 @@ pub fn render_file_diff(
 
     let max_chars = max_line_chars(&diff_rc);
     let content_w = (max_chars as f32) * MONO_CHAR_W + CONTENT_PAD;
-    let total_w = CHECKBOX_W + LINE_NO_W * 2.0 + UNIFIED_MARKER_W + content_w;
+    let total_w = LINE_NO_W * 2.0 + UNIFIED_MARKER_W + content_w;
 
     let body = uniform_list(
         "vcs-diff-unified",
@@ -88,19 +85,18 @@ pub fn render_file_diff(
             let diff_rc = diff_rc.clone();
             let keys = keys.clone();
             let mono = mono.clone();
-            move |this, range: Range<usize>, _w, cx| {
+            move |_this, range: Range<usize>, _w, cx| {
                 let theme = cx.theme();
                 let fg = theme.foreground;
                 let muted_fg = theme.muted_foreground;
                 let muted_bg = theme.muted;
-                let accent = theme.accent;
-                let selected = this.selected_diff_lines.clone();
+                let lang_ref = lang.as_deref();
                 range
                     .map(|i| match keys[i] {
                         UnifiedKey::Header { hunk_idx } => render_hunk_header_unified(
                             &diff_rc.hunks[hunk_idx],
                             hunk_idx,
-                            enable_selection,
+                            false,
                             mono.clone(),
                             muted_fg,
                             muted_bg,
@@ -109,17 +105,14 @@ pub fn render_file_diff(
                         .into_any_element(),
                         UnifiedKey::Line { hunk_idx, line_idx } => {
                             let line = &diff_rc.hunks[hunk_idx].lines[line_idx];
-                            let is_sel = selected.contains(&(hunk_idx, line_idx));
                             render_diff_line(
                                 line,
                                 hunk_idx,
                                 line_idx,
-                                is_sel,
-                                enable_selection,
+                                lang_ref,
                                 mono.clone(),
                                 fg,
                                 muted_fg,
-                                accent,
                                 content_w,
                                 cx,
                             )
@@ -240,38 +233,25 @@ pub(super) fn render_diff_empty(diff: &FileDiff, muted_fg: gpui::Hsla) -> Option
     None
 }
 
-/// Unified 单行 diff：[checkbox][old_no][new_no][marker][content (flex_1 + nowrap)]
+/// Unified 单行 diff：[old_no][new_no][marker][content (flex_1 + nowrap)]
 ///
-/// 整个 list 外层 overflow_x_scroll 包住 → 行不再有自己的横滚 cell
+/// 整个 list 外层 overflow_x_scroll 包住 → 行不再有自己的横滚 cell；点行号 = inline blame
 #[allow(clippy::too_many_arguments)]
 fn render_diff_line(
     line: &DiffLine,
     hunk_idx: usize,
     line_idx: usize,
-    selected: bool,
-    enable_selection: bool,
+    lang: Option<&str>,
     mono: SharedString,
     fg: gpui::Hsla,
     muted_fg: gpui::Hsla,
-    accent: gpui::Hsla,
     content_w: f32,
     cx: &mut Context<VcsView>,
 ) -> impl IntoElement {
     let (bg, marker, marker_color) = line_palette(line.kind);
-    let old_label = line.old_lineno.map(|n| n.to_string()).unwrap_or_default();
-    let new_label = line.new_lineno.map(|n| n.to_string()).unwrap_or_default();
-    let toggleable = enable_selection && line.kind != DiffLineKind::Context;
-
-    let mut row_bg = bg;
-    if selected {
-        let mut sel = accent;
-        sel.a = 0.22;
-        row_bg = Some(sel);
-    }
     let row_id = SharedString::from(format!("vcs-diff-line-{hunk_idx}-{line_idx}"));
     let old_id = SharedString::from(format!("vcs-diff-old-{hunk_idx}-{line_idx}"));
     let new_id = SharedString::from(format!("vcs-diff-new-{hunk_idx}-{line_idx}"));
-    let _ = (old_label, new_label);
     let mut row = h_flex()
         .id(row_id)
         .w_full()
@@ -280,7 +260,6 @@ fn render_diff_line(
         .gap(px(0.0))
         .font_family(mono.clone())
         .text_xs()
-        .child(checkbox_cell(toggleable, selected, accent, muted_fg))
         .child(line_no_cell_clickable(
             line.old_lineno,
             true,
@@ -302,68 +281,14 @@ fn render_diff_line(
                 .text_color(marker_color)
                 .child(marker),
         )
-        .child(
-            div()
-                .flex_1()
-                .min_w(px(content_w))
-                .px(px(4.0))
-                .text_color(fg)
-                .font_family(mono)
-                .whitespace_nowrap()
-                .child(line.text.clone()),
-        );
+        .child(div().flex_1().min_w(px(content_w)).px(px(4.0)).child(
+            super::syntax::render_code_line(&line.text, lang, fg, mono, cx),
+        ));
 
-    if toggleable {
-        row = row
-            .cursor_pointer()
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.toggle_diff_line(hunk_idx, line_idx, cx);
-            }));
-    }
-    if let Some(c) = row_bg {
+    if let Some(c) = bg {
         row = row.bg(c);
     }
     row
-}
-
-/// 行级选中复选框单元格（不可勾选时仅占位保持对齐）
-pub(super) fn checkbox_cell(
-    enabled: bool,
-    selected: bool,
-    accent: gpui::Hsla,
-    muted_fg: gpui::Hsla,
-) -> impl IntoElement {
-    let icon: Option<AnyElement> = if !enabled {
-        None
-    } else if selected {
-        Some(
-            Icon::new(IconName::Check)
-                .xsmall()
-                .text_color(accent)
-                .into_any_element(),
-        )
-    } else {
-        Some(
-            Icon::new(IconName::Plus)
-                .xsmall()
-                .text_color({
-                    let mut c = muted_fg;
-                    c.a = 0.5;
-                    c
-                })
-                .into_any_element(),
-        )
-    };
-    let mut cell = div()
-        .flex_none()
-        .w(px(18.0))
-        .flex()
-        .items_center()
-        .justify_center();
-    if let Some(i) = icon {
-        cell = cell.child(i);
-    }
-    cell
 }
 
 /// 公共行号单元格（40px 宽 / 右对齐风）

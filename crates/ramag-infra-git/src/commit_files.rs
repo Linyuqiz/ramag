@@ -10,7 +10,15 @@ use crate::git_cmd::run_git_text;
 pub fn list(repo_path: &Path, commit: &str) -> Result<Vec<FileStatus>> {
     let raw = run_git_text(
         repo_path,
-        &["diff-tree", "--no-commit-id", "--name-status", "-r", commit],
+        // --root：根 commit（无父）与空树对比，否则 diff-tree 对根 commit 返回空
+        &[
+            "diff-tree",
+            "--root",
+            "--no-commit-id",
+            "--name-status",
+            "-r",
+            commit,
+        ],
     )?;
     Ok(parse_diff_tree(&raw))
 }

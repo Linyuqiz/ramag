@@ -21,6 +21,7 @@ pub mod sidebar;
 pub mod sidebar_branches;
 pub mod sidebar_stash;
 pub mod sidebar_tags;
+pub mod syntax;
 pub mod vcs_tabs;
 pub mod vcs_toolbar;
 pub mod vcs_view;

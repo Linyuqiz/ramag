@@ -79,8 +79,18 @@ impl VcsView {
             border,
             cx,
         );
-        let body =
-            self.render_diff_body(kind_copy, mono.clone(), fg, muted_fg, muted_bg, accent, cx);
+        // 当前文件路径决定语法高亮语言（不支持的扩展名为 None → 纯文本）
+        let lang = super::syntax::lang_for_path(&path).map(SharedString::from);
+        let body = self.render_diff_body(
+            kind_copy,
+            lang,
+            mono.clone(),
+            fg,
+            muted_fg,
+            muted_bg,
+            accent,
+            cx,
+        );
         // blame 不再替换主区：开启 blame 后点行号 → 顶部 banner 展示该行作者
         // 行号 cell 的点击交互仍然有效，无论 showing_blame 与否
         let _ = border;
@@ -174,6 +184,8 @@ impl VcsView {
                         .xsmall()
                         .icon(IconName::Close)
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            // 阻止冒泡到 tab 的 select on_click（否则关了又被重新打开 = 关不掉）
+                            cx.stop_propagation();
                             this.close_file_tab(idx, cx);
                         })),
                 )
@@ -214,7 +226,6 @@ impl VcsView {
         border: gpui::Hsla,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let _ = kind;
         // Blame toggle：Changes 与 Commit tab 都支持（toggle_blame 内部按 selected_file/commit_file 取 path）
         let blame_supported = matches!(kind, GroupKind::Staged | GroupKind::Unstaged)
             || self.viewing_commit.is_some();
@@ -249,7 +260,6 @@ impl VcsView {
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.set_diff_view_mode(this.diff_view_mode.toggled(), cx);
             }));
-
         h_flex()
             .gap(px(6.0))
             .items_center()
@@ -290,9 +300,11 @@ impl VcsView {
 
     /// 中间 body：diff（loading / 占位 / unified or split）；blame 单独由 render_diff_block 摆放
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     fn render_diff_body(
         &self,
         kind: GroupKind,
+        lang: Option<SharedString>,
         mono: SharedString,
         fg: gpui::Hsla,
         muted_fg: gpui::Hsla,
@@ -312,24 +324,25 @@ impl VcsView {
         let Some(d) = &self.current_diff else {
             return placeholder("（无差异）", muted_fg);
         };
-        // Changes（Staged/Unstaged）开行级选择 + 中间撤销；commit 等只读源关闭
-        let enable_selection = matches!(kind, GroupKind::Unstaged | GroupKind::Staged);
-        let selected_clone = self.selected_diff_lines.clone();
+        // Changes（Staged/Unstaged）允许 hunk 回滚（中间列按钮）；commit 等只读源关闭
+        let enable_discard = matches!(kind, GroupKind::Unstaged | GroupKind::Staged);
         // render 期间 entity 已被 mut 借用，状态必须从 &self 读出后传给纯函数渲染器
         let has_blame = self.showing_blame && !self.blame_lines.is_empty();
         let expanded_spacers = self.expanded_diff_spacers.clone();
+        // Standard 折叠长 context（少量上下文）；FullFile 不折叠（展示所有内容）
+        let collapse = matches!(self.diff_view_mode, super::helpers::DiffViewMode::Standard);
         super::diff_panel_split::render_file_diff_split(
             d,
-            &selected_clone,
-            enable_selection,
+            enable_discard,
             false,
+            collapse,
+            lang,
             mono,
             fg,
             muted_fg,
             muted_bg,
             &self.diff_scroll, // 两栏共享垂直 handle 保证行级同步
             &self.diff_h_scroll,
-            &self.diff_h_scroll_right,
             has_blame,
             &expanded_spacers,
             cx,

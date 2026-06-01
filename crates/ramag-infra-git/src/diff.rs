@@ -41,6 +41,22 @@ pub fn run_diff_full_opts(
 }
 
 fn build_diff_args(path: &str, kind: &DiffKind, context_lines: u32) -> Vec<String> {
+    // CommitVsParent 走 diff-tree --root：根 commit（无父）与空树对比，
+    // 否则 `git diff <c>^ <c>` 对根 commit 因 `<c>^` 不存在而报错（点第一个 commit 看 diff 会失败）
+    if let DiffKind::CommitVsParent(CommitId(c)) = kind {
+        return vec![
+            "diff-tree".into(),
+            "--no-color".into(),
+            format!("-U{context_lines}"),
+            "--find-renames".into(),
+            "--root".into(),
+            "-p".into(),
+            "--no-commit-id".into(),
+            c.clone(),
+            "--".into(),
+            path.into(),
+        ];
+    }
     let mut args: Vec<String> = vec![
         "diff".into(),
         "--no-color".into(),
@@ -51,10 +67,7 @@ fn build_diff_args(path: &str, kind: &DiffKind, context_lines: u32) -> Vec<Strin
         DiffKind::WorkingTreeVsIndex => {}
         DiffKind::IndexVsHead => args.push("--cached".into()),
         DiffKind::WorkingTreeVsHead => args.push("HEAD".into()),
-        DiffKind::CommitVsParent(CommitId(c)) => {
-            args.push(format!("{c}^"));
-            args.push(c.clone());
-        }
+        DiffKind::CommitVsParent(_) => unreachable!("已在函数开头用 diff-tree 处理"),
         DiffKind::Range {
             from: CommitId(f),
             to: CommitId(t),

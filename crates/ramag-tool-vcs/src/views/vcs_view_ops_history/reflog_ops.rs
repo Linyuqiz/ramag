@@ -27,6 +27,10 @@ impl VcsView {
             let result = driver.list_reflog(&repo, None, Some(200)).await;
             let _ = this.update(cx, |this, cx| {
                 this.loading_reflog = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 match result {
                     Ok(entries) => this.reflog_entries = entries,
                     Err(e) => {
@@ -55,6 +59,10 @@ impl VcsView {
             let new_status = driver.status(&repo).await.ok();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 if let Some(s) = new_status {
                     this.status = Some(s);
                 }

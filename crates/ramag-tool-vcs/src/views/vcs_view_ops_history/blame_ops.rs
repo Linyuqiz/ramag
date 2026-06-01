@@ -34,6 +34,11 @@ impl VcsView {
         cx.spawn(async move |this, cx| {
             let result = driver.blame(&repo, &path).await;
             let _ = this.update(cx, |this, cx| {
+                if !this.is_current_repo(&repo) {
+                    this.inline_blame_text = None;
+                    cx.notify();
+                    return;
+                }
                 match result {
                     Ok(lines) => {
                         if let Some(b) = lines.iter().find(|l| l.line_no == line_no) {
@@ -102,6 +107,10 @@ impl VcsView {
             let result = driver.blame(&repo, &path).await;
             let _ = this.update(cx, |this, cx| {
                 this.loading_blame = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 match result {
                     Ok(lines) => this.blame_lines = lines,
                     Err(e) => {

@@ -21,6 +21,10 @@ impl VcsView {
             let result = driver.get_conflict_content(&repo, &path_clone).await;
             let _ = this.update(cx, |this, cx| {
                 this.loading_conflict = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 match result {
                     Ok(content) => this.conflict_content = Some(content),
                     Err(e) => {
@@ -54,6 +58,10 @@ impl VcsView {
             let new_status = driver.status(&repo).await.ok();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 if let Some(s) = new_status {
                     this.status = Some(s);
                 }
@@ -89,6 +97,10 @@ impl VcsView {
             let new_status = driver.status(&repo).await.ok();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 if let Some(s) = new_status {
                     this.status = Some(s);
                 }
@@ -149,6 +161,10 @@ impl VcsView {
                 .unwrap_or_default();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 if let Some(s) = new_status {
                     this.status = Some(s);
                 }
@@ -181,6 +197,10 @@ impl VcsView {
             let result = driver.interactive_rebase_plan(&repo, &onto_clone).await;
             let _ = this.update(cx, |this, cx| {
                 this.loading_rebase_plan = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 match result {
                     Ok(todos) => this.rebase_todos = todos,
                     Err(e) => {
@@ -217,6 +237,10 @@ impl VcsView {
                 .unwrap_or_default();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 this.show_rebase_plan = false;
                 this.rebase_todos.clear();
                 if let Some(s) = new_status {

@@ -46,6 +46,10 @@ impl VcsView {
                 .unwrap_or_default();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 this.local_branches = new_local;
                 if let Some(s) = new_status {
                     this.status = Some(s);
@@ -80,7 +84,6 @@ impl VcsView {
         self.current_file_content = None;
         self.commit_file_diff = None;
         self.blame_lines.clear();
-        self.selected_diff_lines.clear();
 
         self.refresh_current_files_view(cx);
 
@@ -127,7 +130,9 @@ impl VcsView {
         let Some(repo) = self.repo.as_ref().map(|r| r.id.clone()) else {
             return;
         };
-        if self.loading_history {
+        // skip>0 是 load-more：正在加载时跳过避免重复拉同一页；
+        // skip=0 是刷新/切仓/换搜索，即使有在途请求也要发起（否则切仓后新仓库 history 会因早退而不加载）
+        if skip > 0 && self.loading_history {
             return;
         }
         self.loading_history = true;
@@ -155,6 +160,10 @@ impl VcsView {
             let result = driver.log(&repo, opts).await;
             let _ = this.update(cx, |this, cx| {
                 this.loading_history = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 match result {
                     Ok(commits) => {
                         let got = commits.len();
@@ -202,6 +211,10 @@ impl VcsView {
             };
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 match result {
                     Ok(commit_id) => {
                         info!(commit = %commit_id, "vcs: commit done");
@@ -249,6 +262,10 @@ impl VcsView {
             };
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 match result {
                     Ok(_) => {
                         if let Some(s) = new_status {

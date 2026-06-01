@@ -24,7 +24,11 @@ impl VcsView {
             .as_ref()
             .map(|s| s.files.iter().filter(|f| f.staged.is_some()).count())
             .unwrap_or(0);
-        let can_commit = !self.busy && (staged_count > 0 || self.commit_amend);
+        // 非 amend 必须有 commit message；amend 可沿用上一次 message 故不强制
+        let has_message = !self.commit_input.read(cx).value().trim().is_empty();
+        let can_commit = !self.busy
+            && (staged_count > 0 || self.commit_amend)
+            && (has_message || self.commit_amend);
 
         let amend_btn = Button::new("vcs-amend-toggle")
             .ghost()

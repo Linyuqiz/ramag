@@ -70,6 +70,10 @@ impl VcsView {
             let local = driver.list_branches(&repo, BranchKind::Local).await.ok();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 if let Err(e) = result {
                     error!(error = %e, ?op, "vcs: remote op failed");
                     this.error = Some(format!("{op:?} 失败：{e}"));

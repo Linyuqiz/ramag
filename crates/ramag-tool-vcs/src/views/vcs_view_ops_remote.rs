@@ -18,6 +18,10 @@ impl VcsView {
             let result = driver.list_remotes(&repo).await;
             let _ = this.update(cx, |this, cx| {
                 this.loading_remotes = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 match result {
                     Ok(list) => this.remotes = list,
                     Err(e) => error!(error = %e, "vcs: list_remotes failed"),

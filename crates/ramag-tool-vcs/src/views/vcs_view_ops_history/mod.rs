@@ -58,6 +58,10 @@ impl VcsView {
             let result = driver.list_commit_files(&repo, &commit_id).await;
             let _ = this.update(cx, |this, cx| {
                 this.loading_commit_files = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 match result {
                     Ok(files) => {
                         // 默认不选中任何文件，等用户主动点击
@@ -113,6 +117,9 @@ impl VcsView {
         self.current_file_content = None;
         // 切换 commit 文件 → 清 spacer 展开态（hunk_idx 跨文件无复用价值）
         self.expanded_diff_spacers.clear();
+        // 横滚归位，否则新文件停在上个文件的横滚位置、看不到行首
+        self.diff_h_scroll
+            .set_offset(gpui::point(gpui::px(0.0), gpui::px(0.0)));
         if let Some(cached) = self.file_tabs[idx].cached_diff.clone() {
             self.current_diff = Some(cached.clone());
             self.commit_file_diff = Some(cached);
@@ -141,6 +148,10 @@ impl VcsView {
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.loading_diff = false;
+                if !this.is_current_repo(&repo) {
+                    cx.notify();
+                    return;
+                }
                 match result {
                     Ok(d) => {
                         this.current_diff = Some(d.clone());

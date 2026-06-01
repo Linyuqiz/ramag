@@ -50,6 +50,8 @@ impl VcsView {
         }
 
         let mono = theme.mono_font_family.clone();
+        // 文件扩展名决定语法高亮语言（None=纯文本）
+        let lang = super::syntax::lang_for_path(&snapshot.path).map(SharedString::from);
         // Rc clone 是引用计数 +1（O(1)），不再每帧拷贝整文件内容
         let lines_rc: Rc<Vec<String>> = snapshot.lines.clone();
         let total = lines_rc.len();
@@ -72,6 +74,7 @@ impl VcsView {
                 move |_this, range: Range<usize>, _w, cx| {
                     let muted_fg = cx.theme().muted_foreground;
                     let fg = cx.theme().foreground;
+                    let lang_ref = lang.as_deref();
                     range
                         .map(|i| {
                             render_content_row(
@@ -79,9 +82,11 @@ impl VcsView {
                                 &lines_rc[i],
                                 gutter_w,
                                 content_w,
+                                lang_ref,
                                 mono.clone(),
                                 fg,
                                 muted_fg,
+                                cx,
                             )
                         })
                         .collect::<Vec<_>>()
@@ -161,15 +166,18 @@ fn truncated_banner(muted_fg: gpui::Hsla, _fg: gpui::Hsla) -> AnyElement {
         .into_any_element()
 }
 
-/// 行号 + 内容。`content_w` 固定为最长行估算 + nowrap，外层 ScrollHandle 才能同步横滚
+/// 行号 + 内容（按 lang 语法高亮）。`content_w` 固定为最长行估算，外层 ScrollHandle 同步横滚
+#[allow(clippy::too_many_arguments)]
 fn render_content_row(
     idx: usize,
     text: &str,
     gutter_w: f32,
     content_w: f32,
+    lang: Option<&str>,
     mono: SharedString,
     fg: gpui::Hsla,
     muted_fg: gpui::Hsla,
+    cx: &mut Context<VcsView>,
 ) -> AnyElement {
     let line_no = idx + 1;
     h_flex()
@@ -190,11 +198,7 @@ fn render_content_row(
                 .flex_none()
                 .w(px(content_w))
                 .px(px(8.0))
-                .text_xs()
-                .font_family(mono)
-                .text_color(fg)
-                .whitespace_nowrap()
-                .child(text.to_string()),
+                .child(super::syntax::render_code_line(text, lang, fg, mono, cx)),
         )
         .into_any_element()
 }

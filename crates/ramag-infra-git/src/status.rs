@@ -24,7 +24,7 @@ pub fn collect_status(repo: &gix::Repository, repo_path: &Path) -> Result<Workin
         .map(|id| CommitId(id.to_string()).short().to_string());
 
     let operation = detect_operation(repo);
-    let files = parse_porcelain_v2(repo_path).unwrap_or_default();
+    let files = parse_porcelain_v2(repo_path)?;
     let (ahead, behind) = count_ahead_behind(repo_path);
 
     Ok(WorkingTreeStatus {
@@ -176,8 +176,9 @@ fn parse_porcelain_v2(repo_path: &Path) -> Result<Vec<FileStatus>> {
 }
 
 fn parse_ordinary(record: &[u8], out: &mut Vec<FileStatus>) {
-    // "1 XY sub mH mI mW hH hI path"
-    let s = std::str::from_utf8(record).unwrap_or_default();
+    // "1 XY sub mH mI mW hH hI path"；非 UTF-8 路径走 lossy 避免被静默丢弃（quotepath=false 会吐原始字节）
+    let cow = String::from_utf8_lossy(record);
+    let s = cow.as_ref();
     let mut parts = s.splitn(9, ' ');
     parts.next();
     let xy = parts.next().unwrap_or("  ");
@@ -199,7 +200,8 @@ fn parse_ordinary(record: &[u8], out: &mut Vec<FileStatus>) {
 
 fn parse_rename(record: &[u8], old_path: Option<String>, out: &mut Vec<FileStatus>) {
     // "2 XY sub mH mI mW hH hI Xscore newpath"
-    let s = std::str::from_utf8(record).unwrap_or_default();
+    let cow = String::from_utf8_lossy(record);
+    let s = cow.as_ref();
     let mut parts = s.splitn(10, ' ');
     parts.next();
     let xy = parts.next().unwrap_or("  ");
@@ -221,7 +223,8 @@ fn parse_rename(record: &[u8], old_path: Option<String>, out: &mut Vec<FileStatu
 
 fn parse_untracked(record: &[u8], out: &mut Vec<FileStatus>) {
     // "? path"
-    let s = std::str::from_utf8(record).unwrap_or_default();
+    let cow = String::from_utf8_lossy(record);
+    let s = cow.as_ref();
     let path = s.strip_prefix("? ").unwrap_or(s).to_string();
     if path.is_empty() {
         return;
@@ -236,7 +239,8 @@ fn parse_untracked(record: &[u8], out: &mut Vec<FileStatus>) {
 
 fn parse_unmerged(record: &[u8], out: &mut Vec<FileStatus>) {
     // "u XY sub m1 m2 m3 mW h1 h2 h3 path"
-    let s = std::str::from_utf8(record).unwrap_or_default();
+    let cow = String::from_utf8_lossy(record);
+    let s = cow.as_ref();
     let mut parts = s.splitn(11, ' ');
     parts.next();
     parts.next();
