@@ -1,4 +1,5 @@
-//! SQL 补全：实现 gpui-component CompletionProvider。当前覆盖关键字 + 默认 schema 表名
+//! SQL 补全：实现 gpui-component CompletionProvider。
+//! 覆盖关键字 / 表名 / 列名 / 点号限定（`表.列`、`库.表`）补全
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -25,7 +26,8 @@ pub struct SchemaCache {
     /// 由 TableTreePanel 在 list_tables 时按 Table::is_view 提取写入；
     /// result_panel 用它判断当前查询的目标表是否视图，从而禁用写操作按钮
     pub views: HashMap<String, std::collections::HashSet<String>>,
-    /// (schema, table) → 列名列表（Phase 3 用，当前未填）
+    /// (schema, table) → 列名列表
+    /// 由 QueryTab 编辑器变化时按 FROM/JOIN 用到的表预拉；列名补全 + 点号限定补全读取
     pub columns: HashMap<(String, String), Vec<String>>,
     /// 默认 schema（连接配置里的 database 字段）
     pub default_schema: Option<String>,
@@ -221,6 +223,82 @@ impl SqlCompletionProvider {
     pub fn new_rc(cache: Arc<RwLock<SchemaCache>>) -> Rc<dyn CompletionProvider> {
         Rc::new(Self { cache })
     }
+
+    /// 点号限定补全：qualifier 命中别名/表名 → 补该表的列；命中库名 → 补该库的表
+    fn qualified_completions(
+        &self,
+        text: &str,
+        qualifier: &str,
+        prefix_lower: &str,
+        replace_range: lsp_types::Range,
+    ) -> Vec<CompletionItem> {
+        let mut items = Vec::new();
+        let cache = self.cache.read();
+        let refs = alias::extract_table_refs(text);
+        // 1) qualifier 命中别名或表名 → 补该表的列
+        let target = refs
+            .iter()
+            .find(|r| {
+                r.alias
+                    .as_deref()
+                    .is_some_and(|a| a.eq_ignore_ascii_case(qualifier))
+            })
+            .or_else(|| {
+                refs.iter()
+                    .find(|r| r.table.eq_ignore_ascii_case(qualifier))
+            });
+        if let Some(tref) = target {
+            for ((schema, t), cols) in cache.columns.iter() {
+                if !t.eq_ignore_ascii_case(&tref.table) {
+                    continue;
+                }
+                // ref 带库名时要求库匹配，避免同名表跨库串列
+                if let Some(rs) = &tref.schema
+                    && !rs.eq_ignore_ascii_case(schema)
+                {
+                    continue;
+                }
+                for col in cols {
+                    if col.to_ascii_lowercase().starts_with(prefix_lower) {
+                        let doc = format!("**{col}**\n\nColumn · in **{schema}.{t}**");
+                        items.push(make_item(
+                            col.clone(),
+                            CompletionItemKind::FIELD,
+                            Some("column"),
+                            Some(doc),
+                            replace_range,
+                        ));
+                        if items.len() >= 50 {
+                            return items;
+                        }
+                    }
+                }
+            }
+            return items;
+        }
+        // 2) qualifier 是库名 → 补该库的表（`mydb.` → 表名）
+        for (s, ts) in cache.tables.iter() {
+            if !s.eq_ignore_ascii_case(qualifier) {
+                continue;
+            }
+            for t in ts {
+                if t.to_ascii_lowercase().starts_with(prefix_lower) {
+                    let doc = format!("**{t}**\n\nTable · schema **{s}**");
+                    items.push(make_item(
+                        t.clone(),
+                        CompletionItemKind::CLASS,
+                        Some("table"),
+                        Some(doc),
+                        replace_range,
+                    ));
+                    if items.len() >= 50 {
+                        return items;
+                    }
+                }
+            }
+        }
+        items
+    }
 }
 
 impl CompletionProvider for SqlCompletionProvider {
@@ -236,27 +314,43 @@ impl CompletionProvider for SqlCompletionProvider {
         let bytes = text.as_bytes();
         let real_offset = offset.min(bytes.len());
 
-        // 取光标前的"单词"作为补全前缀
+        // 取光标前的"单词"作为补全前缀（点号场景下即点号后的 partial）
         let mut start = real_offset;
         while start > 0 {
             let b = bytes[start - 1];
-            let is_word = b.is_ascii_alphanumeric() || b == b'_';
-            if !is_word {
+            if b.is_ascii_alphanumeric() || b == b'_' {
+                start -= 1;
+            } else {
                 break;
             }
-            start -= 1;
         }
         let prefix = &text[start..real_offset];
+
+        let end_pos = rope.offset_to_position(real_offset);
+        let replace_range = lsp_types::Range::new(rope.offset_to_position(start), end_pos);
+        let prefix_lower = prefix.to_ascii_lowercase();
+
+        // 点号限定：partial 前若紧跟 `限定符.`，取出限定符（别名 / 表名 / 库名）走专门补全
+        // 例：`u.na`→u；`users.`→users；`mydb.`→mydb。命中即返回，不掺关键字噪音
+        if start > 0 && bytes[start - 1] == b'.' {
+            let dot = start - 1;
+            let mut qs = dot;
+            while qs > 0 && (bytes[qs - 1].is_ascii_alphanumeric() || bytes[qs - 1] == b'_') {
+                qs -= 1;
+            }
+            if qs < dot {
+                let items =
+                    self.qualified_completions(&text, &text[qs..dot], &prefix_lower, replace_range);
+                return Task::ready(Ok(CompletionResponse::Array(items)));
+            }
+        }
+
+        // 非点号且前缀为空 → 没有可补的
         if prefix.is_empty() {
             return Task::ready(Ok(CompletionResponse::Array(vec![])));
         }
 
-        let start_pos = rope.offset_to_position(start);
-        let end_pos = rope.offset_to_position(real_offset);
-        let replace_range = lsp_types::Range::new(start_pos, end_pos);
-
         let prefix_upper = prefix.to_ascii_uppercase();
-        let prefix_lower = prefix.to_ascii_lowercase();
 
         // 上下文判定：取前缀单词之前的全部文本（不含当前正在敲的）
         let before = &text[..start];
@@ -392,7 +486,10 @@ impl CompletionProvider for SqlCompletionProvider {
         new_text: &str,
         _cx: &mut Context<InputState>,
     ) -> bool {
-        new_text.chars().all(|c| c.is_alphanumeric() || c == '_')
+        // 字母 / 数字 / 下划线 + 点号（点号触发 `表.列` 限定补全）
+        new_text
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
     }
 }
 
@@ -482,6 +579,7 @@ impl CompletionProvider for ColumnFilterCompletionProvider {
     }
 }
 
+mod alias;
 mod keywords;
 pub use keywords::{SQL_KEYWORDS, SYSTEM_SCHEMAS, is_system_schema};
 #[cfg(test)]
