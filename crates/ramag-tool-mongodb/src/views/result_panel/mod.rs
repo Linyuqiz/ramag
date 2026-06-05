@@ -59,6 +59,8 @@ pub struct ResultPanel {
     pub(crate) selected_rows: BTreeSet<usize>,
     /// 下钻栈：栈底=原始查询结果，双击嵌套 push 一层；栈深 > 1 即下钻态（只读 + 面包屑）
     pub(crate) drill_stack: Vec<drill::DrillLevel>,
+    /// 当前排序列 path + 方向；用 path 而非索引，钻取换表后失配自动失效
+    pub(crate) sort_by: Option<(String, SortDir)>,
     _subscriptions: Vec<gpui::Subscription>,
 }
 
@@ -66,6 +68,13 @@ pub struct ResultPanel {
 #[derive(Clone, Debug)]
 pub enum ResultEvent {
     Refresh,
+}
+
+/// 排序方向（单击列头切换 None→Asc→Desc→None）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SortDir {
+    Asc,
+    Desc,
 }
 
 impl EventEmitter<ResultEvent> for ResultPanel {}
@@ -110,6 +119,7 @@ impl ResultPanel {
             pending_notification: None,
             selected_rows: BTreeSet::new(),
             drill_stack: Vec::new(),
+            sort_by: None,
             _subscriptions: subs,
         }
     }
@@ -160,6 +170,16 @@ impl ResultPanel {
         self.selected_rows.contains(&idx)
     }
 
+    /// 单击列头切换排序：同列 None→Asc→Desc→None；换列直接 Asc
+    pub(crate) fn toggle_sort(&mut self, path: String, cx: &mut Context<Self>) {
+        self.sort_by = match self.sort_by.take() {
+            Some((p, SortDir::Asc)) if p == path => Some((path, SortDir::Desc)),
+            Some((p, SortDir::Desc)) if p == path => None,
+            _ => Some((path, SortDir::Asc)),
+        };
+        cx.notify();
+    }
+
     pub fn set_running(&mut self, cx: &mut Context<Self>) {
         self.running = true;
         self.error = None;
@@ -174,6 +194,7 @@ impl ResultPanel {
             .clone()
             .unwrap_or_else(|| "结果".to_string());
         self.reset_drill(label, r.documents.clone());
+        self.sort_by = None;
         self.result = Some(r);
         self.error = None;
         self.running = false;

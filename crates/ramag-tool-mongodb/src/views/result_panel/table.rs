@@ -10,8 +10,8 @@ use gpui::{
 };
 use gpui_component::{ActiveTheme, checkbox::Checkbox, h_flex, v_flex};
 
-use super::ResultPanel;
 use super::flatten::{Column, FlatTable};
+use super::{ResultPanel, SortDir};
 
 /// 禁用 GPUI 单轴 scroll 的"另一方向劫持"，wheel 严格按方向消费（与 dbclient::result_table 同款）
 trait RestrictScrollExt: Styled + Sized {
@@ -49,7 +49,22 @@ pub(super) fn render(
 
     let visible_cols: Vec<usize> =
         col_indices.unwrap_or_else(|| (0..table.columns.len()).collect());
-    let visible_rows: Vec<usize> = row_indices.unwrap_or_else(|| (0..table.rows.len()).collect());
+    let mut visible_rows: Vec<usize> =
+        row_indices.unwrap_or_else(|| (0..table.rows.len()).collect());
+    // 排序：按 sort 列 path 定位列后对可见行重排（普通 / 钻取视图共用此函数；path 失配则不排）
+    if let Some((sort_path, dir)) = panel.sort_by.clone()
+        && let Some(si) = table.columns.iter().position(|c| c.path == sort_path)
+    {
+        let numeric = matches!(table.columns[si].kind, "int" | "double" | "decimal");
+        visible_rows.sort_by(|&a, &b| {
+            let ord = compare_cells(&table.rows[a][si].text, &table.rows[b][si].text, numeric);
+            if matches!(dir, SortDir::Desc) {
+                ord.reverse()
+            } else {
+                ord
+            }
+        });
+    }
 
     // 行号列宽：按总行数位数动态算（与 dbclient::result_table 同算法，clamp 40-70）
     let row_num_width =
@@ -83,10 +98,12 @@ pub(super) fn render(
         row_num_width,
         &table.columns,
         &visible_cols,
+        panel.sort_by.clone(),
         fg,
         muted,
         border,
         secondary_bg,
+        cx,
     );
     // 总宽 = 复选框列 + 数据列总宽 + 行号列（动态）
     let total_width = px(CHECKBOX_WIDTH + CELL_WIDTH * visible_cols.len() as f32) + row_num_width;
@@ -196,10 +213,12 @@ fn render_header(
     row_num_width: gpui::Pixels,
     columns: &[Column],
     visible_cols: &[usize],
+    current_sort: Option<(String, SortDir)>,
     fg: Hsla,
     muted: Hsla,
     border: Hsla,
     bg: Hsla,
+    cx: &mut Context<ResultPanel>,
 ) -> gpui::Div {
     // 行号列占位（与数据行的「#」列对齐）
     let row_num_cell = div()
@@ -222,8 +241,16 @@ fn render_header(
         let col = &columns[ci];
         let path = col.path.clone();
         let kind = col.kind;
+        // 排序箭头：当前排序列显示 ▲（升）/▼（降）
+        let arrow: Option<&'static str> = match &current_sort {
+            Some((p, SortDir::Asc)) if *p == path => Some("▲"),
+            Some((p, SortDir::Desc)) if *p == path => Some("▼"),
+            _ => None,
+        };
+        let path_for_click = path.clone();
         row = row.child(
             h_flex()
+                .id(SharedString::from(format!("mongo-hdr-{ci}")))
                 .w(px(CELL_WIDTH))
                 .flex_none()
                 .h_full()
@@ -234,6 +261,11 @@ fn render_header(
                 .border_color(border)
                 .text_xs()
                 .overflow_hidden()
+                .cursor_pointer()
+                // 单击列头切换该列排序（按列 path，钻取视图同样生效）
+                .on_click(cx.listener(move |panel, _: &gpui::ClickEvent, _, cx| {
+                    panel.toggle_sort(path_for_click.clone(), cx)
+                }))
                 .child(
                     div()
                         .min_w_0()
@@ -251,10 +283,28 @@ fn render_header(
                         .text_color(muted)
                         .whitespace_nowrap()
                         .child(SharedString::from(kind)),
-                ),
+                )
+                .when_some(arrow, |this, a| {
+                    this.child(div().flex_none().text_color(muted).child(a))
+                }),
         );
     }
     row
+}
+
+/// 单元格排序比较：空值（null）排前；数字列按数值，否则按字符串（ISO 日期 / oid 字典序合理）
+fn compare_cells(a: &str, b: &str, numeric: bool) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    match (a.is_empty(), b.is_empty()) {
+        (true, true) => return Ordering::Equal,
+        (true, false) => return Ordering::Less,
+        (false, true) => return Ordering::Greater,
+        _ => {}
+    }
+    if numeric && let (Ok(x), Ok(y)) = (a.parse::<f64>(), b.parse::<f64>()) {
+        return x.partial_cmp(&y).unwrap_or(Ordering::Equal);
+    }
+    a.cmp(b)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -449,5 +499,14 @@ mod tests {
     #[test]
     fn sanitize_inline_keeps_plain_text() {
         assert_eq!(sanitize_inline("plain text"), "plain text");
+    }
+
+    #[test]
+    fn compare_cells_numeric_vs_text() {
+        use std::cmp::Ordering;
+        assert_eq!(compare_cells("9", "10", true), Ordering::Less); // 数值 9 < 10
+        assert_eq!(compare_cells("9", "10", false), Ordering::Greater); // 字典序 "9" > "10"
+        assert_eq!(compare_cells("", "x", false), Ordering::Less); // null 排前
+        assert_eq!(compare_cells("x", "", false), Ordering::Greater);
     }
 }
