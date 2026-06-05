@@ -242,7 +242,7 @@ fn render_header(
                         .overflow_hidden()
                         .text_ellipsis()
                         .whitespace_nowrap()
-                        .child(SharedString::from(path)),
+                        .child(SharedString::from(sanitize_inline(&path))),
                 )
                 .child(
                     div()
@@ -313,7 +313,8 @@ fn render_row(
     for &ci in visible_cols {
         let cell = &cells[ci];
         let column = &columns[ci];
-        let preview = truncate(&cell.text, CELL_PREVIEW_MAX);
+        // cell.text 原值保留（编辑/查看/导出用），仅清洗显示预览的换行，避免 GPUI 单行断言 panic
+        let preview = sanitize_inline(&truncate(&cell.text, CELL_PREVIEW_MAX));
         let is_null = cell.kind == "null" && preview.is_empty();
         // 数字类型列右对齐（与 dbclient is_right 同款）
         let is_right = matches!(column.kind, "int" | "double" | "decimal");
@@ -410,6 +411,17 @@ fn truncate(s: &str, max_len: usize) -> String {
     }
 }
 
+/// 单行预览清洗：换行符（\n / \r）替换为空格。
+/// GPUI 单行文本 shaping 断言不允许 \n（含 \n 直接 panic→abort）；仅用于表格显示文本，
+/// 不改 cell.text 原值。无换行时零拷贝走 to_string，避免多余分配
+fn sanitize_inline(s: &str) -> String {
+    if s.contains(['\n', '\r']) {
+        s.replace(['\n', '\r'], " ")
+    } else {
+        s.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -423,5 +435,19 @@ mod tests {
     fn truncate_adds_ellipsis_for_long() {
         let s = truncate("abcdefghijklmnop", 5);
         assert_eq!(s, "abcde…");
+    }
+
+    #[test]
+    fn sanitize_inline_strips_newlines() {
+        // \n / \r / \r\n 均替换为空格，结果不含任何换行（否则 GPUI 渲染 panic）
+        assert_eq!(sanitize_inline("a\nb"), "a b");
+        assert_eq!(sanitize_inline("a\rb"), "a b");
+        let s = sanitize_inline("x\ny\r\nz");
+        assert!(!s.contains('\n') && !s.contains('\r'));
+    }
+
+    #[test]
+    fn sanitize_inline_keeps_plain_text() {
+        assert_eq!(sanitize_inline("plain text"), "plain text");
     }
 }

@@ -337,7 +337,12 @@ impl ResultPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let input = cx.new(|c| InputState::new(window, c).default_value(current));
+        // multi_line：值可能含换行（GPUI 单行 shape_line 不接受 \n），且本对话框是 220px 多行编辑框
+        let input = cx.new(|c| {
+            InputState::new(window, c)
+                .multi_line(true)
+                .default_value(current)
+        });
         input.update(cx, |s, c| s.focus(window, c));
         let panel = cx.entity().clone();
         let title = SharedString::from(format!("编辑字段 {path}"));

@@ -65,7 +65,7 @@ impl RedisValue {
     pub fn display_preview(&self, max_len: usize) -> String {
         match self {
             RedisValue::Nil => "(nil)".to_string(),
-            RedisValue::Text(s) => truncate(s, max_len),
+            RedisValue::Text(s) => sanitize_inline(&truncate(s, max_len)),
             RedisValue::Bytes(b) => format!("[{} bytes]", b.len()),
             RedisValue::Int(i) => i.to_string(),
             RedisValue::Float(f) => f.to_string(),
@@ -86,6 +86,17 @@ fn truncate(s: &str, max_len: usize) -> String {
     } else {
         let truncated: String = s.chars().take(max_len).collect();
         format!("{truncated}…")
+    }
+}
+
+/// 单行预览清洗：换行符（\n / \r）替换为空格。
+/// GPUI 单行文本 shaping 断言不允许 \n（含 \n 直接 panic→abort）；仅用于显示预览。
+/// 无换行时零拷贝
+fn sanitize_inline(s: &str) -> String {
+    if s.contains(['\n', '\r']) {
+        s.replace(['\n', '\r'], " ")
+    } else {
+        s.to_string()
     }
 }
 
@@ -124,5 +135,13 @@ mod tests {
     fn preview_bytes_shows_size() {
         let v = RedisValue::Bytes(vec![0u8; 1024]);
         assert_eq!(v.display_preview(80), "[1024 bytes]");
+    }
+
+    #[test]
+    fn preview_text_strips_newlines() {
+        // 含换行的 String 值预览必须压成单行，否则 key 详情渲染 panic
+        let v = RedisValue::Text("line1\nline2\r\nline3".to_string());
+        let p = v.display_preview(80);
+        assert!(!p.contains('\n') && !p.contains('\r'));
     }
 }

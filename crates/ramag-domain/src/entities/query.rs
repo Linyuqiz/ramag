@@ -100,7 +100,7 @@ impl Value {
             Value::Bool(b) => b.to_string(),
             Value::Int(i) => i.to_string(),
             Value::Float(f) => f.to_string(),
-            Value::Text(s) => truncate(s, max_len),
+            Value::Text(s) => sanitize_inline(&truncate(s, max_len)),
             Value::Bytes(b) => format!("[{} bytes]", b.len()),
             Value::DateTime(dt) => dt.to_rfc3339(),
             Value::Json(v) => truncate(&v.to_string(), max_len),
@@ -187,6 +187,17 @@ fn truncate(s: &str, max_len: usize) -> String {
     }
 }
 
+/// 单行预览清洗：换行符（\n / \r）替换为空格。
+/// GPUI 单行文本 shaping 断言不允许 \n（含 \n 直接 panic→abort）；仅用于显示预览，
+/// 不影响 to_clipboard_string / display_for_edit 等完整取值。无换行时零拷贝
+fn sanitize_inline(s: &str) -> String {
+    if s.contains(['\n', '\r']) {
+        s.replace(['\n', '\r'], " ")
+    } else {
+        s.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,6 +270,14 @@ mod tests {
             Value::DateTime(dt).to_sql_literal(),
             "'2026-04-08 17:31:15'"
         );
+    }
+
+    #[test]
+    fn preview_text_strips_newlines() {
+        // 含换行的文本预览必须压成单行，否则结果表格渲染 panic
+        let v = Value::Text("line1\nline2\r\nline3".to_string());
+        let p = v.display_preview(80);
+        assert!(!p.contains('\n') && !p.contains('\r'));
     }
 
     #[test]
