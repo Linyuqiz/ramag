@@ -237,7 +237,7 @@ impl CompletionProvider for ColumnFilterCompletionProvider {
         let real_offset = offset.min(bytes.len());
         // token 起点：向前扫到最近逗号，再跳过前导空格
         let mut tok_start = real_offset;
-        while tok_start > 0 && bytes[tok_start - 1] != b',' {
+        while tok_start > 0 && bytes[tok_start - 1] != b',' && bytes[tok_start - 1] != b';' {
             tok_start -= 1;
         }
         while tok_start < real_offset && bytes[tok_start] == b' ' {
@@ -255,22 +255,92 @@ impl CompletionProvider for ColumnFilterCompletionProvider {
 
         // 已填入的其它列不再建议，避免重复
         let already: std::collections::HashSet<String> = text
-            .split(',')
+            .split([',', ';'])
             .map(|t| t.trim().to_ascii_lowercase())
             .filter(|s| !s.is_empty() && *s != prefix_lower)
             .collect();
 
         let cols = self.columns.read();
         let mut items: Vec<CompletionItem> = Vec::new();
-        for name in cols.iter() {
-            let lc = name.to_ascii_lowercase();
-            // 子串匹配（与表格列过滤逻辑一致：大小写不敏感 contains）
-            if !lc.contains(&prefix_lower) || already.contains(&lc) {
-                continue;
+        // 光标在分号后 → 投影：候选 = 钻取路径（分号前最后一个 token）下的子字段（裸名）
+        let drill = text[..real_offset]
+            .rsplit_once(';')
+            .map(|(head, _)| {
+                head.rsplit(',')
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .to_ascii_lowercase()
+            })
+            .filter(|d| !d.is_empty());
+        if let Some(drill) = drill {
+            let pfx = format!("{drill}.");
+            let mut seen = std::collections::HashSet::new();
+            for name in cols.iter() {
+                let lc = name.to_ascii_lowercase();
+                let Some(rest) = lc.strip_prefix(&pfx) else {
+                    continue;
+                };
+                let seg_lc = rest.split('.').next().unwrap_or(rest).to_string();
+                if seg_lc.is_empty()
+                    || !seg_lc.contains(&prefix_lower)
+                    || already.contains(&seg_lc)
+                    || !seen.insert(seg_lc.clone())
+                {
+                    continue;
+                }
+                // 原始大小写：从 name 去掉同长前缀取首段（ASCII 大小写不改字节长度）
+                let orig_seg = name[pfx.len()..].split('.').next().unwrap_or("");
+                items.push(make_item(
+                    orig_seg,
+                    CompletionItemKind::FIELD,
+                    "field",
+                    range,
+                ));
+                if items.len() >= 50 {
+                    break;
+                }
             }
-            items.push(make_item(name, CompletionItemKind::FIELD, "column", range));
-            if items.len() >= 50 {
-                break;
+        } else if prefix.contains('.') {
+            // 点号深入（分号前 = 展开条件）：只提示能再展开的对象/数组（有更深子路径），标量叶子不提示
+            let last_dot = prefix_lower.rfind('.').unwrap_or(0);
+            let child_prefix = prefix_lower[..=last_dot].to_string(); // "jobs."
+            let seg_prefix = &prefix_lower[last_dot + 1..]; // "" 或 "con"
+            let mut seen = std::collections::HashSet::new();
+            for name in cols.iter() {
+                let lc = name.to_ascii_lowercase();
+                let Some(rest) = lc.strip_prefix(&child_prefix) else {
+                    continue;
+                };
+                let seg = rest.split('.').next().unwrap_or(rest);
+                // 可展开 ⟺ 该子字段还有更深子路径（object / array-of-object）；标量叶子跳过
+                if rest.len() <= seg.len()
+                    || seg.is_empty()
+                    || !seg.contains(seg_prefix)
+                    || !seen.insert(seg.to_string())
+                {
+                    continue;
+                }
+                let full = &name[..child_prefix.len() + seg.len()];
+                items.push(make_item(full, CompletionItemKind::FIELD, "object", range));
+                if items.len() >= 50 {
+                    break;
+                }
+            }
+        } else {
+            // 无点：只提示顶层字段名（各路径第一段，去重），子串匹配；打点后才深入子字段
+            let mut seen = std::collections::HashSet::new();
+            for name in cols.iter() {
+                let top = name.split('.').next().unwrap_or(name);
+                let lc = top.to_ascii_lowercase();
+                if !lc.contains(&prefix_lower) || already.contains(&lc) || !seen.insert(lc.clone())
+                {
+                    continue;
+                }
+                items.push(make_item(top, CompletionItemKind::FIELD, "column", range));
+                if items.len() >= 50 {
+                    break;
+                }
             }
         }
         Task::ready(Ok(CompletionResponse::Array(items)))
@@ -282,8 +352,10 @@ impl CompletionProvider for ColumnFilterCompletionProvider {
         new_text: &str,
         _cx: &mut Context<InputState>,
     ) -> bool {
-        // 字母 / 数字 / 下划线触发；逗号不触发（逗号后用户还要输入下一个 token）
-        new_text.chars().all(|c| c.is_alphanumeric() || c == '_')
+        // 字母 / 数字 / 下划线 / 点号触发（点号用于深入嵌套 consume.子字段）；逗号不触发
+        new_text
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
     }
 }
 

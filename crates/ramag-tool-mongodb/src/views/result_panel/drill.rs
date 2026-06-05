@@ -1,6 +1,7 @@
 //! 嵌套数据原地下钻：双击嵌套单元格 → 把该值当新结果集，复用大列表渲染；面包屑导航返回。
 //! 下钻层只读（内嵌数据非独立 collection，编辑需回写父文档，暂不支持）。
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use gpui::{
@@ -9,11 +10,11 @@ use gpui::{
 };
 use gpui_component::{ActiveTheme, h_flex};
 use ramag_domain::entities::MongoQueryResult;
-use serde_json::{Map, Value, json};
+use serde_json::Value;
 
 use super::FlatTable;
 use super::ResultPanel;
-use super::flatten::build_flat_table;
+use super::flatten::build_flat_table_with;
 
 /// 下钻栈一层：label 用于面包屑显示，documents 为该层文档
 pub(crate) struct DrillLevel {
@@ -66,25 +67,14 @@ impl ResultPanel {
             .map(|l| l.documents.clone())
             .unwrap_or_default();
         self.selected_rows.clear();
-        let table = if docs.is_empty() {
-            None
-        } else {
-            Some(Arc::new(build_flat_table(&docs)))
-        };
-        match &table {
-            Some(t) => {
-                *self.column_completion_source.write() =
-                    t.columns.iter().map(|c| c.path.clone()).collect()
-            }
-            None => self.column_completion_source.write().clear(),
-        }
-        self.table = table;
-        self.result = Some(MongoQueryResult::read(docs, 0));
-        // 换层清空过滤（新层新列，旧过滤无意义）+ 滚动归位
+        // 换层清空过滤（新层新列，旧过滤无意义）→ 展开路径随之清空
         self.column_filter
             .update(cx, |s, cx| s.set_value("", window, cx));
         self.row_filter
             .update(cx, |s, cx| s.set_value("", window, cx));
+        self.result = Some(MongoQueryResult::read(docs, 0));
+        // 重建基础表 + 补全源（过滤已清空）
+        self.rebuild_table();
         self.h_scroll.set_offset(Point::new(px(0.0), px(0.0)));
         cx.notify();
     }
@@ -138,77 +128,63 @@ impl ResultPanel {
             .child(div().text_color(muted).child(SharedString::from("只读")))
     }
 
-    /// 列过滤后只剩 1 个数组/对象列 → 展平汇总：所有行该列元素合并成新结果，加「来源」列（原行号）。
-    /// 返回 (展平文档, 展平表, 列名)；不满足返回 None
-    pub(crate) fn try_flatten_single_column(
+    /// 输入对象/数组路径 → 钻进去（逐段穿透数组）：终值 object 一行 / array 元素逐行，裸字段。
+    /// 返回 (钻取文档, 钻取表, 路径)；非钻取路径返回 None
+    pub(crate) fn try_drill_path(
         &self,
         cx: &App,
     ) -> Option<(Arc<Vec<Value>>, Arc<FlatTable>, String)> {
-        let col_indices = self.filtered_column_indices(cx)?;
-        if col_indices.len() != 1 {
-            return None;
-        }
-        let table = self.table.as_ref()?;
-        let col = table.columns.get(col_indices[0])?;
-        if !matches!(col.kind, "array" | "object") {
-            return None;
-        }
-        let result = self.result.as_ref()?;
-        let path = col.path.clone();
-        // 上限保护：超大结果集 unwind 截断，避免一次铺开过多
+        let path = self.parse_column_filter(cx).drill_path?;
+        let docs = self.drill_stack.last().map(|l| &l.documents)?;
         const MAX_ELEMS: usize = 5000;
+        // 逐段穿透路径：object 进入字段，array 展开元素后继续（jobs.connectors）
+        let mut current: Vec<&Value> = docs.iter().collect();
+        for seg in path.split('.') {
+            let mut next: Vec<&Value> = Vec::new();
+            for v in &current {
+                match v {
+                    Value::Object(m) => {
+                        if let Some(c) = m.get(seg) {
+                            next.push(c);
+                        }
+                    }
+                    Value::Array(arr) => {
+                        for el in arr {
+                            if let Value::Object(m) = el
+                                && let Some(c) = m.get(seg)
+                            {
+                                next.push(c);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            current = next;
+        }
+        // 终值：array → 元素逐行；object → 一行；标量跳过。裸字段、不加来源
         let mut flat: Vec<Value> = Vec::new();
-        for (i, doc) in result.documents.iter().enumerate() {
+        for v in current {
             if flat.len() >= MAX_ELEMS {
                 break;
             }
-            match doc.get(&path) {
-                Some(Value::Array(arr)) => {
+            match v {
+                Value::Array(arr) => {
                     for el in arr {
-                        flat.push(with_source(el, i + 1));
+                        flat.push(el.clone());
                         if flat.len() >= MAX_ELEMS {
                             break;
                         }
                     }
                 }
-                Some(v @ Value::Object(_)) => flat.push(with_source(v, i + 1)),
+                Value::Object(_) => flat.push(v.clone()),
                 _ => {}
             }
         }
         if flat.is_empty() {
             return None;
         }
-        let mut ft = build_flat_table(&flat);
-        move_source_first(&mut ft);
+        let ft = build_flat_table_with(&flat, &BTreeSet::new());
         Some((Arc::new(flat), Arc::new(ft), path))
-    }
-}
-
-/// 来源列名（标元素来自原第几行）
-const SOURCE_COL: &str = "来源";
-
-/// 元素 → 对象 + 来源列；标量元素包成 {值, 来源}
-fn with_source(el: &Value, src: usize) -> Value {
-    let mut m = match el {
-        Value::Object(o) => o.clone(),
-        other => {
-            let mut map = Map::new();
-            map.insert("值".to_string(), other.clone());
-            map
-        }
-    };
-    m.insert(SOURCE_COL.to_string(), json!(src));
-    Value::Object(m)
-}
-
-/// 把「来源」列移到最前（build_flat_table 默认按字段名排，来源会沉到中间）
-fn move_source_first(ft: &mut FlatTable) {
-    if let Some(pos) = ft.columns.iter().position(|c| c.path == SOURCE_COL)
-        && pos != 0
-    {
-        ft.columns[..=pos].rotate_right(1);
-        for row in &mut ft.rows {
-            row[..=pos].rotate_right(1);
-        }
     }
 }

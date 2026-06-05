@@ -28,6 +28,9 @@ use serde_json::Value;
 
 pub use flatten::FlatTable;
 
+/// 过滤列补全收集的最大嵌套深度（支持 consume.detail.x 这类多层）
+const PATH_COMPLETION_DEPTH: usize = 5;
+
 pub struct ResultPanel {
     pub(crate) result: Option<MongoQueryResult>,
     pub(crate) error: Option<String>,
@@ -83,7 +86,10 @@ impl ResultPanel {
             cx.new(|cx| InputState::new(window, cx).placeholder("过滤行（任意单元格包含）"));
 
         let subs = vec![
-            cx.subscribe(&column_filter, |_this, _, _e: &InputEvent, cx| cx.notify()),
+            cx.subscribe(&column_filter, |_this, _, _e: &InputEvent, cx| {
+                // 钻取/投影在 render 时派生（基础表不变）；补全源在 rebuild 时已就绪，仅重渲染
+                cx.notify();
+            }),
             cx.subscribe(&row_filter, |_this, _, _e: &InputEvent, cx| cx.notify()),
         ];
 
@@ -162,20 +168,6 @@ impl ResultPanel {
 
     pub fn set_result(&mut self, r: MongoQueryResult, cx: &mut Context<Self>) {
         self.selected_rows.clear();
-        let table = if r.documents.is_empty() {
-            None
-        } else {
-            Some(Arc::new(flatten::build_flat_table(&r.documents)))
-        };
-        // 同步列过滤补全源（当前结果集所有列 path）
-        match &table {
-            Some(t) => {
-                *self.column_completion_source.write() =
-                    t.columns.iter().map(|c| c.path.clone()).collect()
-            }
-            None => self.column_completion_source.write().clear(),
-        }
-        self.table = table;
         // 新查询：重置下钻栈为顶层（label 用目标 collection）
         let label = self
             .target_collection
@@ -187,6 +179,8 @@ impl ResultPanel {
         self.running = false;
         // 切结果时把横滚归位最左（与 dbclient::result_table 同款），避免新表格沿用旧的横滚 X 位置
         self.h_scroll.set_offset(Point::new(px(0.0), px(0.0)));
+        // 建基础表 + 刷新补全源
+        self.rebuild_table();
         cx.notify();
     }
 
@@ -196,55 +190,45 @@ impl ResultPanel {
         cx.notify();
     }
 
-    /// 当前过滤后的列索引（None 表示全选）；空过滤串等价 None
-    pub(crate) fn filtered_column_indices(&self, cx: &gpui::App) -> Option<Vec<usize>> {
+    /// 解析过滤列框（结合当前层 docs 判字段类型）；规则见 classify_filter
+    pub(crate) fn parse_column_filter(&self, cx: &gpui::App) -> ParsedFilter {
         let raw = self.column_filter.read(cx).value().to_string();
-        let q = raw.trim();
-        if q.is_empty() {
-            return None;
-        }
-        let table = self.table.as_ref()?;
-        let wanted: Vec<String> = q
-            .split(',')
-            .map(|s| s.trim().to_ascii_lowercase())
-            .filter(|s| !s.is_empty())
-            .collect();
-        if wanted.is_empty() {
-            return None;
-        }
-        let indices: Vec<usize> = table
-            .columns
-            .iter()
-            .enumerate()
-            .filter(|(_, c)| {
-                let lower = c.path.to_ascii_lowercase();
-                wanted.iter().any(|w| lower.contains(w))
-            })
-            .map(|(i, _)| i)
-            .collect();
-        if indices.is_empty() {
+        let docs = self
+            .drill_stack
+            .last()
+            .map(|l| l.documents.as_slice())
+            .unwrap_or(&[]);
+        classify_filter(&raw, docs)
+    }
+
+    /// 重建基础表格（不钻取）与补全源；钻取/投影在 render 时按过滤框派生
+    pub(crate) fn rebuild_table(&mut self) {
+        let docs = self
+            .drill_stack
+            .last()
+            .map(|l| l.documents.clone())
+            .unwrap_or_default();
+        self.table = if docs.is_empty() {
             None
         } else {
-            Some(indices)
-        }
+            Some(Arc::new(flatten::build_flat_table_with(
+                &docs,
+                &BTreeSet::new(),
+            )))
+        };
+        *self.column_completion_source.write() =
+            flatten::collect_paths(&docs, PATH_COMPLETION_DEPTH);
+    }
+
+    /// 当前过滤后的列索引（None 表示全选）；用所有 token 子串匹配（unwind 锚不匹配子列、自然不影响）
+    pub(crate) fn filtered_column_indices(&self, cx: &gpui::App) -> Option<Vec<usize>> {
+        column_indices_for(self.table.as_ref()?, &self.parse_column_filter(cx).filters)
     }
 
     /// 当前过滤后的行索引；空过滤串等价 None
     pub(crate) fn filtered_row_indices(&self, cx: &gpui::App) -> Option<Vec<usize>> {
         let raw = self.row_filter.read(cx).value().to_string();
-        let q = raw.trim().to_ascii_lowercase();
-        if q.is_empty() {
-            return None;
-        }
-        let table = self.table.as_ref()?;
-        let indices: Vec<usize> = table
-            .rows
-            .iter()
-            .enumerate()
-            .filter(|(_, row)| row.iter().any(|c| c.text.to_ascii_lowercase().contains(&q)))
-            .map(|(i, _)| i)
-            .collect();
-        Some(indices)
+        row_indices_for(self.table.as_ref()?, &raw)
     }
 
     /// 双击单元格 → 弹该单元格内容详情（与 MySQL dbclient::cell_edit_dialog 同款交互）。
@@ -346,9 +330,13 @@ impl Render for ResultPanel {
             return root.child(empty_hint(hint, muted)).into_any_element();
         };
 
-        // 特殊：列过滤只剩 1 个数组/对象列 → 展平汇总视图（复用大列表渲染 + 来源列）
-        if let Some((flat_docs, flat_table, col_path)) = self.try_flatten_single_column(cx) {
+        // 钻取视图：输入对象/数组路径 → 钻进去只看其字段（裸名）
+        if let Some((flat_docs, flat_table, col_path)) = self.try_drill_path(cx) {
             let n = flat_docs.len();
+            // 展平汇总视图同样支持列/行过滤（分号后的过滤 token 作用在展平表上）
+            let row_q = self.row_filter.read(cx).value().to_string();
+            let fcol = column_indices_for(&flat_table, &self.parse_column_filter(cx).filters);
+            let frow = row_indices_for(&flat_table, &row_q);
             let mut root = v_flex()
                 .size_full()
                 .bg(bg)
@@ -362,13 +350,13 @@ impl Render for ResultPanel {
                 .child(div().flex_1().min_h_0().child(table::render(
                     self,
                     flat_table,
-                    None,
-                    None,
+                    fcol,
+                    frow,
                     Some(flat_docs),
                     cx,
                 )))
                 .child(render_status_bar(
-                    format!("展平「{col_path}」· {n} 个元素"),
+                    format!("钻取「{col_path}」· {n} 条"),
                     border,
                     muted,
                     bg,
@@ -457,7 +445,7 @@ fn flatten_hint(
         .text_xs()
         .text_color(muted)
         .child(SharedString::from(format!(
-            "已展平「{col}」· {n} 个元素（清空上方过滤列恢复）"
+            "已钻取「{col}」· {n} 条（清空上方过滤列恢复）"
         )))
 }
 
@@ -484,4 +472,187 @@ fn error_hint(text: String, color: gpui::Hsla) -> gpui::Stateful<gpui::Div> {
         .text_xs()
         .text_color(color)
         .child(SharedString::from(text))
+}
+
+/// 过滤列框解析结果
+pub(crate) struct ParsedFilter {
+    /// 钻取路径（object/array 字段或嵌套路径）→ 钻进去只看其内容（裸字段）
+    pub(crate) drill_path: Option<String>,
+    /// 列过滤（小写、子串匹配）：分号后投影字段，或标量列名
+    pub(crate) filters: Vec<String>,
+}
+
+/// 解析过滤列框：`钻取路径 ; 投影字段`，按字段类型自动分派。
+/// - 路径指向 object/array → 钻进去只看其字段（裸名、不保留其它列）；标量 → 当列过滤（保留其它列）
+/// - 分号后字段 = 钻取层只显示这些列；无分号 = 钻取层全部字段
+fn classify_filter(raw: &str, docs: &[Value]) -> ParsedFilter {
+    let (head, tail) = raw.split_once(';').unwrap_or((raw, ""));
+    let mut drill_path = None;
+    let mut filters = Vec::new();
+    for tok in head.split(',') {
+        let t = tok.trim();
+        if t.is_empty() {
+            continue;
+        }
+        if t.contains('.') {
+            // 嵌套路径钻取（project.items），保留原大小写供取值
+            drill_path = Some(t.to_string());
+        } else {
+            match field_kind(docs, &t.to_ascii_lowercase()) {
+                // object / array → 钻进去看里面
+                Some(("object" | "array", real)) => drill_path = Some(real),
+                // 标量 / 未知字段 → 当普通列过滤（保留"输入列名过滤"旧行为）
+                _ => filters.push(t.to_ascii_lowercase()),
+            }
+        }
+    }
+    for f in tail.split(',') {
+        let f = f.trim();
+        if !f.is_empty() {
+            filters.push(f.to_ascii_lowercase());
+        }
+    }
+    ParsedFilter {
+        drill_path,
+        filters,
+    }
+}
+
+/// 顶层字段类型（大小写不敏感，取首个有值的文档）；返回 (kind, 原字段名)
+fn field_kind(docs: &[Value], name_lower: &str) -> Option<(&'static str, String)> {
+    for doc in docs {
+        let Value::Object(map) = doc else {
+            continue;
+        };
+        for (k, v) in map {
+            if k.to_ascii_lowercase() != name_lower {
+                continue;
+            }
+            match v {
+                Value::Null => break, // 此文档该字段为空，看下一个文档
+                Value::Array(_) => return Some(("array", k.clone())),
+                Value::Object(o) if flatten::extjson_cell(o).is_none() => {
+                    return Some(("object", k.clone()));
+                }
+                _ => return Some(("scalar", k.clone())),
+            }
+        }
+    }
+    None
+}
+
+/// 按 filters 子串匹配列 path（大小写不敏感）→ 列索引；空 filters 或无命中返回 None（全显示）
+fn column_indices_for(table: &FlatTable, filters: &[String]) -> Option<Vec<usize>> {
+    if filters.is_empty() {
+        return None;
+    }
+    let indices: Vec<usize> = table
+        .columns
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| {
+            let lower = c.path.to_ascii_lowercase();
+            filters.iter().any(|f| lower.contains(f))
+        })
+        .map(|(i, _)| i)
+        .collect();
+    if indices.is_empty() {
+        None
+    } else {
+        Some(indices)
+    }
+}
+
+/// 行过滤：任意单元格子串包含 query（大小写不敏感）→ 行索引；空 query 返回 None（全显示）
+fn row_indices_for(table: &FlatTable, query: &str) -> Option<Vec<usize>> {
+    let q = query.trim().to_ascii_lowercase();
+    if q.is_empty() {
+        return None;
+    }
+    let indices: Vec<usize> = table
+        .rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| row.iter().any(|c| c.text.to_ascii_lowercase().contains(&q)))
+        .map(|(i, _)| i)
+        .collect();
+    Some(indices)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::flatten::Column;
+    use super::{FlatTable, classify_filter, column_indices_for};
+    use serde_json::json;
+
+    fn sample() -> Vec<serde_json::Value> {
+        vec![json!({
+            "_id": "x",
+            "appId": "a",
+            "geoms": [1, 2],
+            "project": {"id": "p", "name": "n", "items": {"id": "i"}}
+        })]
+    }
+
+    #[test]
+    fn object_name_drills() {
+        // project 是对象 → 钻取；无投影 → filters 空（看全部字段）
+        let p = classify_filter("project", &sample());
+        assert_eq!(p.drill_path.as_deref(), Some("project"));
+        assert!(p.filters.is_empty());
+    }
+
+    #[test]
+    fn array_name_drills() {
+        // geoms 是数组 → 钻取
+        let p = classify_filter("geoms", &sample());
+        assert_eq!(p.drill_path.as_deref(), Some("geoms"));
+    }
+
+    #[test]
+    fn scalar_name_filters() {
+        // appId 是标量 → 当列过滤（不钻取，保留旧行为）
+        let p = classify_filter("appId", &sample());
+        assert!(p.drill_path.is_none());
+        assert_eq!(p.filters, vec!["appid".to_string()]);
+    }
+
+    #[test]
+    fn drill_with_projection() {
+        // project ; id, name → 钻进 project，投影裸字段 id / name
+        let p = classify_filter("project ; id, name", &sample());
+        assert_eq!(p.drill_path.as_deref(), Some("project"));
+        assert_eq!(p.filters, vec!["id".to_string(), "name".to_string()]);
+    }
+
+    #[test]
+    fn nested_path_drills() {
+        // project.items ; id → 钻到 project.items，投影 id
+        let p = classify_filter("project.items ; id", &sample());
+        assert_eq!(p.drill_path.as_deref(), Some("project.items"));
+        assert_eq!(p.filters, vec!["id".to_string()]);
+    }
+
+    fn table_of(cols: &[&str]) -> FlatTable {
+        FlatTable {
+            columns: cols
+                .iter()
+                .map(|c| Column {
+                    path: c.to_string(),
+                    kind: "text",
+                })
+                .collect(),
+            rows: vec![],
+        }
+    }
+
+    #[test]
+    fn column_filter_substring_and_empty() {
+        let t = table_of(&["_id", "consume.cost", "id", "name"]);
+        // 空 filters → None（全显示）
+        assert!(column_indices_for(&t, &[]).is_none());
+        // "name" 命中 name 列
+        let idx = column_indices_for(&t, &["name".to_string()]).unwrap();
+        assert_eq!(idx, vec![3]);
+    }
 }

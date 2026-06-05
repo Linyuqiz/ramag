@@ -6,7 +6,7 @@
 //!   `{"tags":["x","y"]}` → `{"tags": "[2 项]"}`
 //!   `{"_id":{"$oid":"abc..."}}` → `{"_id": "abc..."}`
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use serde_json::Value;
 
@@ -41,10 +41,17 @@ impl FlatTable {
     }
 }
 
-/// 把文档列表扁平化成表格
-pub fn build_flat_table(docs: &[Value]) -> FlatTable {
+/// 测试便捷入口：不展开（等价 build_flat_table_with 传空集）
+#[cfg(test)]
+fn build_flat_table(docs: &[Value]) -> FlatTable {
+    build_flat_table_with(docs, &BTreeSet::new())
+}
+
+/// 带展开路径的扁平化：expanded 里的对象路径递归展开成 `父.子` 子列（array 不展开，仍走 unwind）
+pub fn build_flat_table_with(docs: &[Value], expanded: &BTreeSet<String>) -> FlatTable {
     // 1) 扁平化每条文档
-    let flat_rows: Vec<BTreeMap<String, Cell>> = docs.iter().map(flatten_doc).collect();
+    let flat_rows: Vec<BTreeMap<String, Cell>> =
+        docs.iter().map(|d| flatten_doc(d, expanded)).collect();
 
     // 2) 列发现 + 类型推断
     let mut col_seen: HashSet<String> = HashSet::new();
@@ -103,17 +110,41 @@ pub fn build_flat_table(docs: &[Value]) -> FlatTable {
     FlatTable { columns, rows }
 }
 
-/// 扁平化单文档：只解析第一层字段（列 = 顶层 key），嵌套不再递归成 dotted-path
-fn flatten_doc(v: &Value) -> BTreeMap<String, Cell> {
+/// 扁平化单文档：默认只解析第一层；expanded 含某对象路径则递归展开成 dotted-path 子列
+fn flatten_doc(v: &Value, expanded: &BTreeSet<String>) -> BTreeMap<String, Cell> {
     let mut out = BTreeMap::new();
-    if let Value::Object(map) = v {
-        for (k, vv) in map {
-            out.insert(k.clone(), cell_for_value(vv));
+    match v {
+        Value::Object(map) => flatten_into(map, "", expanded, &mut out),
+        _ => {
+            out.insert("_value".to_string(), cell_for_value(v));
         }
-    } else {
-        out.insert("_value".to_string(), cell_for_value(v));
     }
     out
+}
+
+/// 递归展开：path 在 expanded 且值为普通对象（排除 $oid 等 ExtJSON 包装）→ 展开成 path.child 子列；
+/// 否则该字段作为单列（嵌套对象仍出 `{N 字段}` 摘要）。prefix 空表示顶层
+fn flatten_into(
+    map: &serde_json::Map<String, Value>,
+    prefix: &str,
+    expanded: &BTreeSet<String>,
+    out: &mut BTreeMap<String, Cell>,
+) {
+    for (k, vv) in map {
+        let path = if prefix.is_empty() {
+            k.clone()
+        } else {
+            format!("{prefix}.{k}")
+        };
+        match vv {
+            Value::Object(child) if expanded.contains(&path) && extjson_cell(child).is_none() => {
+                flatten_into(child, &path, expanded, out);
+            }
+            _ => {
+                out.insert(path, cell_for_value(vv));
+            }
+        }
+    }
 }
 
 /// 顶层字段值 → 单元格（第一层，不递归）：
@@ -290,6 +321,49 @@ pub(super) fn scalar_to_cell(v: &Value) -> Option<Cell> {
     }
 }
 
+/// 收集过滤列补全候选：顶层字段 + 嵌套对象的 dotted 子字段路径（到 max_depth 层）。
+/// 让「consume.」能补全出 consume.cost；array 与 ExtJSON 包装不深入
+pub fn collect_paths(docs: &[Value], max_depth: usize) -> Vec<String> {
+    let mut set = BTreeSet::new();
+    for doc in docs {
+        if let Value::Object(map) = doc {
+            collect_into(map, "", max_depth, &mut set);
+        }
+    }
+    set.into_iter().collect()
+}
+
+fn collect_into(
+    map: &serde_json::Map<String, Value>,
+    prefix: &str,
+    depth: usize,
+    out: &mut BTreeSet<String>,
+) {
+    for (k, vv) in map {
+        let path = if prefix.is_empty() {
+            k.clone()
+        } else {
+            format!("{prefix}.{k}")
+        };
+        out.insert(path.clone());
+        if depth <= 1 {
+            continue;
+        }
+        match vv {
+            Value::Object(child) if extjson_cell(child).is_none() => {
+                collect_into(child, &path, depth - 1, out);
+            }
+            // 数组：采样首个对象元素，按同前缀收集（jobs → jobs.connectors）
+            Value::Array(arr) => {
+                if let Some(Value::Object(child)) = arr.iter().find(|e| e.is_object()) {
+                    collect_into(child, &path, depth - 1, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -442,5 +516,76 @@ mod tests {
         })]);
         assert_eq!(t.rows[0][0].kind, "binary");
         assert!(t.rows[0][0].text.contains("subType=00"));
+    }
+
+    #[test]
+    fn expand_object_path_into_subcolumns() {
+        let docs = vec![json!({"consume": {"cost": 12, "name": "x"}, "id": 1})];
+        let exp = BTreeSet::from(["consume".to_string()]);
+        let t = build_flat_table_with(&docs, &exp);
+        // consume 展开成 consume.cost / consume.name，不再是 {N 字段} 摘要
+        assert!(t.columns.iter().any(|c| c.path == "consume.cost"));
+        assert!(t.columns.iter().any(|c| c.path == "consume.name"));
+        assert!(!t.columns.iter().any(|c| c.path == "consume"));
+    }
+
+    #[test]
+    fn expand_nested_two_levels() {
+        let docs = vec![json!({"a": {"b": {"c": 1}}})];
+        let exp = BTreeSet::from(["a".to_string(), "a.b".to_string()]);
+        let t = build_flat_table_with(&docs, &exp);
+        assert!(t.columns.iter().any(|c| c.path == "a.b.c"));
+    }
+
+    #[test]
+    fn expand_skips_extjson_wrapper() {
+        // _id 是 $oid 包装，即使在 expanded 也按标量取值，不展开成 _id.$oid
+        let docs = vec![json!({"_id": {"$oid": "507f1f77bcf86cd799439011"}})];
+        let exp = BTreeSet::from(["_id".to_string()]);
+        let t = build_flat_table_with(&docs, &exp);
+        assert_eq!(t.rows[0][0].kind, "oid");
+        assert_eq!(t.rows[0][0].text, "507f1f77bcf86cd799439011");
+    }
+
+    #[test]
+    fn no_expand_keeps_summary() {
+        // 不传展开路径 → 维持现有「第一层摘要」行为
+        let t = build_flat_table(&[json!({"consume": {"cost": 12}})]);
+        assert_eq!(t.rows[0][0].kind, "object");
+        assert_eq!(t.rows[0][0].text, "{1 字段}");
+    }
+
+    #[test]
+    fn collect_paths_includes_nested() {
+        let docs = vec![json!({"consume": {"cost": 1, "detail": {"x": 2}}, "id": 1})];
+        let paths = collect_paths(&docs, 4);
+        for want in [
+            "consume",
+            "consume.cost",
+            "consume.detail",
+            "consume.detail.x",
+            "id",
+        ] {
+            assert!(paths.contains(&want.to_string()), "missing {want}");
+        }
+    }
+
+    #[test]
+    fn collect_paths_skips_extjson() {
+        // $oid 包装不深入成 _id.$oid
+        let docs = vec![json!({"_id": {"$oid": "abc"}})];
+        let paths = collect_paths(&docs, 4);
+        assert!(paths.contains(&"_id".to_string()));
+        assert!(!paths.iter().any(|p| p.contains("$oid")));
+    }
+
+    #[test]
+    fn collect_paths_through_array() {
+        // 数组采样首个对象元素穿透收集（jobs → jobs.connectors）
+        let docs = vec![json!({"jobs": [{"connectors": {"x": 1}, "cover": 2}]})];
+        let paths = collect_paths(&docs, 5);
+        for want in ["jobs", "jobs.connectors", "jobs.cover", "jobs.connectors.x"] {
+            assert!(paths.contains(&want.to_string()), "missing {want}");
+        }
     }
 }
