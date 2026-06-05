@@ -186,12 +186,70 @@ pub async fn run_command(
     command: MongoDocument,
 ) -> Result<MongoDocument> {
     let cmd_doc = json_to_document(command)?;
-    let raw: Document = client
+    let mut raw: Document = client
         .database(db)
         .run_command(cmd_doc)
         .await
         .map_err(map_mongo_error)?;
+    // cursor 类命令（find / aggregate / listCollections…）首次只返回 firstBatch（默认 101 条），
+    // 循环 getMore 补齐完整结果，否则数据不全（缺后续批次，含最新写入）
+    if raw.get_document("cursor").is_ok() {
+        drain_cursor(client, db, &mut raw).await?;
+    }
     Ok(document_to_json(raw))
+}
+
+/// 把 cursor 响应补齐为完整结果：getMore 循环收集所有批次，写回 firstBatch 并把 id 归 0；
+/// 下游按单批 firstBatch 解析即可拿到全部文档
+async fn drain_cursor(client: &Client, db: &str, raw: &mut Document) -> Result<()> {
+    // 上限保护：避免一次把超大集合全拉进内存（find 通常带 limit，远小于此）
+    const MAX_DOCS: usize = 50_000;
+    let (mut all, mut cursor_id, coll) = match raw.get_document("cursor") {
+        Ok(c) => {
+            let first = c.get_array("firstBatch").ok().cloned().unwrap_or_default();
+            let id = c.get_i64("id").unwrap_or(0);
+            // ns 形如 "db.collection"，取 collection 段做 getMore
+            let coll = c
+                .get_str("ns")
+                .ok()
+                .and_then(|ns| ns.split_once('.').map(|(_, coll)| coll.to_string()))
+                .unwrap_or_default();
+            (first, id, coll)
+        }
+        Err(_) => return Ok(()),
+    };
+    let database = client.database(db);
+    while cursor_id != 0 && !coll.is_empty() && all.len() < MAX_DOCS {
+        let more: Document = database
+            .run_command(doc! {
+                "getMore": cursor_id,
+                "collection": coll.clone(),
+                "batchSize": 4096i32,
+            })
+            .await
+            .map_err(map_mongo_error)?;
+        match more.get_document("cursor") {
+            Ok(c) => {
+                if let Ok(next) = c.get_array("nextBatch") {
+                    all.extend(next.iter().cloned());
+                }
+                cursor_id = c.get_i64("id").unwrap_or(0);
+            }
+            Err(_) => break,
+        }
+    }
+    if cursor_id != 0 {
+        tracing::warn!(
+            collected = all.len(),
+            "mongo cursor truncated at safety cap"
+        );
+    }
+    // 写回完整结果，id 归 0（下游按单批 firstBatch 解析即可拿到全部）
+    if let Ok(c) = raw.get_document_mut("cursor") {
+        c.insert("firstBatch", Bson::Array(all));
+        c.insert("id", 0i64);
+    }
+    Ok(())
 }
 
 /// insertedId 是 Bson，常见 ObjectId / String / Int64；统一转可读字符串
