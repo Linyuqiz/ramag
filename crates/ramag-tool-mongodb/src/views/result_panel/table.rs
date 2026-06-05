@@ -38,6 +38,7 @@ pub(super) fn render(
     table: Arc<FlatTable>,
     col_indices: Option<Vec<usize>>,
     row_indices: Option<Vec<usize>>,
+    docs_override: Option<Arc<Vec<serde_json::Value>>>,
     cx: &mut Context<ResultPanel>,
 ) -> impl IntoElement {
     let border = cx.theme().border;
@@ -94,11 +95,14 @@ pub(super) fn render(
     let table_for_list = table.clone();
     let cols_for_list = visible_cols.clone();
     let rows_for_list = visible_rows.clone();
-    let docs_for_list: Arc<Vec<serde_json::Value>> = panel
-        .result
-        .as_ref()
-        .map(|r| Arc::new(r.documents.clone()))
-        .unwrap_or_else(|| Arc::new(Vec::new()));
+    // 行文档来源：默认当前结果集；展平视图等传 docs_override 覆盖（双击下钻据此取原值）
+    let docs_for_list: Arc<Vec<serde_json::Value>> = docs_override.unwrap_or_else(|| {
+        panel
+            .result
+            .as_ref()
+            .map(|r| Arc::new(r.documents.clone()))
+            .unwrap_or_else(|| Arc::new(Vec::new()))
+    });
 
     let body = uniform_list(
         "mongo-result-rows",
@@ -314,10 +318,17 @@ fn render_row(
         // 数字类型列右对齐（与 dbclient is_right 同款）
         let is_right = matches!(column.kind, "int" | "double" | "decimal");
         let mf = mono_font.clone();
-        // 捕获列信息 + 单元格全值，双击 → 弹单元格 dialog（与 dbclient 单元格编辑器同款交互）
+        // 捕获列信息 + 单元格值，双击 → 弹单元格 dialog（与 dbclient 单元格编辑器同款交互）
         let path_for_click = column.path.clone();
         let kind_for_click = column.kind;
         let text_for_click = cell.text.clone();
+        // 嵌套对象/数组单元格显示的是摘要（{N 字段}/[N 项]），双击取该行该字段原值下钻
+        let is_nested = matches!(cell.kind, "object" | "array");
+        let nested_for_click = if is_nested {
+            doc.get(column.path.as_str()).cloned()
+        } else {
+            None
+        };
         row = row.child(
             div()
                 .id(SharedString::from(format!(
@@ -336,15 +347,23 @@ fn render_row(
                         if e.click_count() < 2 {
                             return;
                         }
-                        // 可写 + 行有 _id → 编辑（update_one）；否则只读查看
+                        // 嵌套对象/数组：取行文档该字段原值 → 详情弹窗（对象数组→子表格，其余→高亮 JSON）
+                        if is_nested {
+                            if let Some(v) = nested_for_click.clone() {
+                                panel.drill_into(path_for_click.clone(), v, window, cx);
+                            }
+                            return;
+                        }
+                        // 标量：可写 + 行有 _id → 编辑（update_one）；否则只读查看
                         match &id_for_click {
-                            Some(id) if panel.can_write() => panel.open_cell_edit_dialog(
-                                id.clone(),
-                                path_for_click.clone(),
-                                text_for_click.clone(),
-                                window,
-                                cx,
-                            ),
+                            Some(id) if panel.can_write() && !panel.is_drilled() => panel
+                                .open_cell_edit_dialog(
+                                    id.clone(),
+                                    path_for_click.clone(),
+                                    text_for_click.clone(),
+                                    window,
+                                    cx,
+                                ),
                             _ => panel.open_cell_dialog(
                                 path_for_click.clone(),
                                 kind_for_click,
@@ -371,6 +390,8 @@ fn render_row(
                         .whitespace_nowrap()
                         .child(SharedString::from(if is_null {
                             "NULL".to_string()
+                        } else if is_nested {
+                            format!("{preview} ›")
                         } else {
                             preview
                         })),

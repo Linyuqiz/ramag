@@ -86,11 +86,12 @@ pub(super) fn render(panel: &mut ResultPanel, cx: &mut Context<ResultPanel>) -> 
                 } else {
                     "新增文档（需当前命令指定 collection）"
                 })
-                .disabled(!can)
+                .disabled(!can || panel.is_drilled())
                 .on_click(cx.listener(|panel, _, window, cx| panel.open_insert_dialog(window, cx)))
         })
         .child({
-            let can_del = panel.can_write() && !panel.selected_rows.is_empty();
+            let can_del =
+                panel.can_write() && !panel.selected_rows.is_empty() && !panel.is_drilled();
             Button::new("mongo-delete")
                 .ghost()
                 .small()

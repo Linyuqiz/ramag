@@ -1,8 +1,9 @@
-//! 结果展示：仿 MySQL 表格风格
-//! - 顶部：过滤列 + 过滤行 + 行数 + 导出按钮
+//! 结果展示：表格视图（只解析第一层字段；嵌套对象/数组单元格摘要化，双击看完整）
+//! - 顶部 toolbar：过滤列 + 过滤行 + 增删 + 导出
 //! - 主体：uniform_list 行级虚拟化的表格（列头 + 行）
-//! - 单元格点击 → 弹文档详情 dialog
+//! - 单元格双击：标量编辑 / 嵌套看完整 JSON
 
+mod drill;
 mod flatten;
 mod ops;
 mod table;
@@ -53,6 +54,8 @@ pub struct ResultPanel {
     pub(crate) pending_notification: Option<gpui_component::notification::Notification>,
     /// 勾选的行（按 documents 索引）；删除文档用
     pub(crate) selected_rows: BTreeSet<usize>,
+    /// 下钻栈：栈底=原始查询结果，双击嵌套 push 一层；栈深 > 1 即下钻态（只读 + 面包屑）
+    pub(crate) drill_stack: Vec<drill::DrillLevel>,
     _subscriptions: Vec<gpui::Subscription>,
 }
 
@@ -100,6 +103,7 @@ impl ResultPanel {
             target_collection: None,
             pending_notification: None,
             selected_rows: BTreeSet::new(),
+            drill_stack: Vec::new(),
             _subscriptions: subs,
         }
     }
@@ -172,6 +176,12 @@ impl ResultPanel {
             None => self.column_completion_source.write().clear(),
         }
         self.table = table;
+        // 新查询：重置下钻栈为顶层（label 用目标 collection）
+        let label = self
+            .target_collection
+            .clone()
+            .unwrap_or_else(|| "结果".to_string());
+        self.reset_drill(label, r.documents.clone());
         self.result = Some(r);
         self.error = None;
         self.running = false;
@@ -235,38 +245,6 @@ impl ResultPanel {
             .map(|(i, _)| i)
             .collect();
         Some(indices)
-    }
-
-    /// 弹文档详情 dialog（保留 API，目前未使用；如需重新启用，把 table.rs cell on_click 改回行级别）
-    #[allow(dead_code)]
-    pub(crate) fn open_detail_dialog(
-        &self,
-        doc: Value,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let pretty = serde_json::to_string_pretty(&doc).unwrap_or_else(|_| doc.to_string());
-        let input: Entity<InputState> = cx.new(|cx_inner| {
-            InputState::new(window, cx_inner)
-                .multi_line(true)
-                .default_value(pretty)
-        });
-        window.open_dialog(cx, move |dialog, _w, _app| {
-            let input = input.clone();
-            dialog
-                .title("文档详情")
-                .close_button(true)
-                .w(px(820.0))
-                .p(px(20.0))
-                .content(move |content, _, _| {
-                    content.child(
-                        div()
-                            .w_full()
-                            .h(px(540.0))
-                            .child(Input::new(&input).small().h_full().disabled(true)),
-                    )
-                })
-        });
     }
 
     /// 双击单元格 → 弹该单元格内容详情（与 MySQL dbclient::cell_edit_dialog 同款交互）。
@@ -355,60 +333,86 @@ impl Render for ResultPanel {
         let Some(table_arc) = self.table.clone() else {
             let hint = if result.affected > 0 {
                 format!("已执行写操作，影响 {} 条", result.affected)
+            } else if self.is_drilled() {
+                "（空）".to_string()
             } else {
                 "（无文档返回）".to_string()
             };
-            return v_flex()
+            // 下钻到空数据也要保留面包屑（toolbar 下方），否则无法返回上层
+            let mut root = v_flex().size_full().bg(bg).child(toolbar::render(self, cx));
+            if self.is_drilled() {
+                root = root.child(self.render_breadcrumb(cx));
+            }
+            return root.child(empty_hint(hint, muted)).into_any_element();
+        };
+
+        // 特殊：列过滤只剩 1 个数组/对象列 → 展平汇总视图（复用大列表渲染 + 来源列）
+        if let Some((flat_docs, flat_table, col_path)) = self.try_flatten_single_column(cx) {
+            let n = flat_docs.len();
+            let mut root = v_flex()
                 .size_full()
                 .bg(bg)
                 .child(toolbar::render(self, cx))
-                .child(empty_hint(hint, muted))
+                .child(div().h(px(1.0)).bg(border))
+                .child(flatten_hint(&col_path, n, border, muted, bg));
+            if self.is_drilled() {
+                root = root.child(self.render_breadcrumb(cx));
+            }
+            return root
+                .child(div().flex_1().min_h_0().child(table::render(
+                    self,
+                    flat_table,
+                    None,
+                    None,
+                    Some(flat_docs),
+                    cx,
+                )))
+                .child(render_status_bar(
+                    format!("展平「{col_path}」· {n} 个元素"),
+                    border,
+                    muted,
+                    bg,
+                ))
                 .into_any_element();
-        };
+        }
 
-        let col_indices = self.filtered_column_indices(cx);
-        let row_indices = self.filtered_row_indices(cx);
-
-        // 底部 status bar：行数 + 耗时摘要（仿 dbclient::result_table）
         let total_docs = result.documents.len();
         let elapsed = result.elapsed_ms;
+        let col_indices = self.filtered_column_indices(cx);
+        let row_indices = self.filtered_row_indices(cx);
         let filtered_rows = row_indices.as_ref().map(|v| v.len()).unwrap_or(total_docs);
-        let visible_cols_count = col_indices
-            .as_ref()
-            .map(|v| v.len())
-            .unwrap_or_else(|| self.table.as_ref().map(|t| t.columns.len()).unwrap_or(0));
         let total_cols = self.table.as_ref().map(|t| t.columns.len()).unwrap_or(0);
-        let summary = match (
-            row_indices.is_some(),
-            col_indices.is_some(),
-            filtered_rows == total_docs,
-        ) {
-            (true, true, _) => format!(
+        let visible_cols_count = col_indices.as_ref().map(|v| v.len()).unwrap_or(total_cols);
+        let summary = match (row_indices.is_some(), col_indices.is_some()) {
+            (true, true) => format!(
                 "命中 {visible_cols_count} / {total_cols} 列 · {filtered_rows} / {total_docs} 行 · 耗时 {elapsed}ms"
             ),
-            (true, false, _) => {
-                format!("命中 {filtered_rows} / {total_docs} 行 · 耗时 {elapsed}ms")
-            }
-            (false, true, _) => format!(
+            (true, false) => format!("命中 {filtered_rows} / {total_docs} 行 · 耗时 {elapsed}ms"),
+            (false, true) => format!(
                 "命中 {visible_cols_count} / {total_cols} 列 · {total_docs} 行 · 耗时 {elapsed}ms"
             ),
-            (false, false, _) => format!("{total_docs} 行 · 耗时 {elapsed}ms"),
+            (false, false) => format!("{total_docs} 行 · 耗时 {elapsed}ms"),
         };
 
-        v_flex()
+        // toolbar（搜索栏）始终在顶、位置不变；下钻态时在其下方插入面包屑栏
+        let mut root = v_flex()
             .size_full()
             .bg(bg)
             .child(toolbar::render(self, cx))
-            .child(div().h(px(1.0)).bg(border))
-            .child(div().flex_1().min_h_0().child(table::render(
-                self,
-                table_arc,
-                col_indices,
-                row_indices,
-                cx,
-            )))
-            .child(render_status_bar(summary, border, muted, bg))
-            .into_any_element()
+            .child(div().h(px(1.0)).bg(border));
+        if self.is_drilled() {
+            root = root.child(self.render_breadcrumb(cx));
+        }
+        root.child(div().flex_1().min_h_0().child(table::render(
+            self,
+            table_arc,
+            col_indices,
+            row_indices,
+            None,
+            cx,
+        )))
+        .child(render_status_bar(summary, border, muted, bg))
+        .into_any_element()
     }
 }
 
@@ -431,6 +435,30 @@ fn render_status_bar(
         .text_xs()
         .text_color(muted)
         .child(SharedString::from(summary))
+}
+
+/// 展平视图顶部提示条：已展平某列 + 元素数 + 恢复方式
+fn flatten_hint(
+    col: &str,
+    n: usize,
+    border: gpui::Hsla,
+    muted: gpui::Hsla,
+    bg: gpui::Hsla,
+) -> impl IntoElement {
+    div()
+        .id("mongo-flatten-hint")
+        .w_full()
+        .flex_none()
+        .px(px(12.0))
+        .py(px(5.0))
+        .border_b_1()
+        .border_color(border)
+        .bg(bg)
+        .text_xs()
+        .text_color(muted)
+        .child(SharedString::from(format!(
+            "已展平「{col}」· {n} 个元素（清空上方过滤列恢复）"
+        )))
 }
 
 fn empty_hint(text: impl Into<SharedString>, color: gpui::Hsla) -> gpui::Stateful<gpui::Div> {

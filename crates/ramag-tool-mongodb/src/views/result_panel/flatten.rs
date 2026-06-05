@@ -1,9 +1,9 @@
-//! 文档扁平化：嵌套 object 展开为 dotted path；数组保留为 JSON 字符串；
+//! 文档扁平化：只解析第一层字段（列 = 顶层 key）。嵌套对象/数组出摘要，完整内容靠表格双击查看；
 //! Extended JSON 包装类型（$oid / $numberDecimal / $date / $binary）取内部值
 //!
 //! 例：
-//!   `{"a":{"b":1}}` → `{"a.b": 1}`
-//!   `{"tags":["x","y"]}` → `{"tags": "[\"x\",\"y\"]"}`
+//!   `{"specs":{"cpu":"i7"}}` → `{"specs": "{1 字段}"}`（不再展开成 specs.cpu）
+//!   `{"tags":["x","y"]}` → `{"tags": "[2 项]"}`
 //!   `{"_id":{"$oid":"abc..."}}` → `{"_id": "abc..."}`
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -103,59 +103,43 @@ pub fn build_flat_table(docs: &[Value]) -> FlatTable {
     FlatTable { columns, rows }
 }
 
-/// 扁平化单文档：根级开始递归
+/// 扁平化单文档：只解析第一层字段（列 = 顶层 key），嵌套不再递归成 dotted-path
 fn flatten_doc(v: &Value) -> BTreeMap<String, Cell> {
     let mut out = BTreeMap::new();
     if let Value::Object(map) = v {
         for (k, vv) in map {
-            flatten_inner(k, vv, &mut out);
+            out.insert(k.clone(), cell_for_value(vv));
         }
     } else {
-        out.insert(
-            "_value".to_string(),
-            scalar_to_cell(v).unwrap_or_else(|| Cell {
-                text: v.to_string(),
-                kind: "null",
-            }),
-        );
+        out.insert("_value".to_string(), cell_for_value(v));
     }
     out
 }
 
-fn flatten_inner(prefix: &str, v: &Value, out: &mut BTreeMap<String, Cell>) {
-    // 优先识别 Extended JSON 包装对象（如 $oid / $numberDecimal / $date / $binary）
-    if let Value::Object(map) = v {
-        if let Some(cell) = extjson_cell(map) {
-            out.insert(prefix.to_string(), cell);
-            return;
-        }
-        // 普通嵌套对象 → 递归
-        for (k, vv) in map {
-            let path = format!("{prefix}.{k}");
-            flatten_inner(&path, vv, out);
-        }
-        return;
-    }
-    // 数组 → 保留为 JSON 字符串（不展开元素，避免列爆炸）
-    if matches!(v, Value::Array(_)) {
-        out.insert(
-            prefix.to_string(),
-            Cell {
-                text: serde_json::to_string(v).unwrap_or_default(),
-                kind: "array",
-            },
-        );
-        return;
-    }
-    // 标量
-    if let Some(cell) = scalar_to_cell(v) {
-        out.insert(prefix.to_string(), cell);
+/// 顶层字段值 → 单元格（第一层，不递归）：
+/// 标量 / ExtJSON 包装 → 原值；嵌套对象 → "{N 字段}"；数组 → "[N 项]"。完整内容由下钻查看
+fn cell_for_value(v: &Value) -> Cell {
+    match v {
+        // ExtJSON 包装（$oid/$date…）取内部值；普通对象出字段数摘要
+        Value::Object(map) => extjson_cell(map).unwrap_or_else(|| Cell {
+            text: format!("{{{} 字段}}", map.len()),
+            kind: "object",
+        }),
+        Value::Array(arr) => Cell {
+            text: format!("[{} 项]", arr.len()),
+            kind: "array",
+        },
+        _ => scalar_to_cell(v).unwrap_or_else(|| Cell {
+            text: String::new(),
+            kind: "null",
+        }),
     }
 }
 
 /// 识别 Extended JSON 包装对象，返回内部值。
-/// 覆盖 MongoDB Extended JSON v2 全部 18 种 BSON 类型 + canonical/relaxed 两种形态
-fn extjson_cell(map: &serde_json::Map<String, Value>) -> Option<Cell> {
+/// 覆盖 MongoDB Extended JSON v2 全部 18 种 BSON 类型 + canonical/relaxed 两种形态。
+/// pub(super)：树视图（tree.rs）复用同一套类型识别，避免重写 18 种 BSON 分支
+pub(super) fn extjson_cell(map: &serde_json::Map<String, Value>) -> Option<Cell> {
     // ObjectId
     if let Some(v) = map.get("$oid").and_then(|x| x.as_str()) {
         return Some(Cell {
@@ -276,7 +260,8 @@ fn extjson_cell(map: &serde_json::Map<String, Value>) -> Option<Cell> {
     None
 }
 
-fn scalar_to_cell(v: &Value) -> Option<Cell> {
+/// 标量值 → Cell；pub(super) 供 tree.rs 复用
+pub(super) fn scalar_to_cell(v: &Value) -> Option<Cell> {
     match v {
         Value::Null => Some(Cell {
             text: String::new(),
@@ -319,11 +304,13 @@ mod tests {
     }
 
     #[test]
-    fn flatten_nested_dots() {
+    fn flatten_nested_object_is_summary() {
         let t = build_flat_table(&[json!({"specs": {"cpu": "i7", "ram": 16}})]);
-        let paths: Vec<&str> = t.columns.iter().map(|c| c.path.as_str()).collect();
-        assert!(paths.contains(&"specs.cpu"));
-        assert!(paths.contains(&"specs.ram"));
+        // 只解析第一层：specs 是一列摘要，不展开成 specs.cpu / specs.ram
+        assert_eq!(t.columns.len(), 1);
+        assert_eq!(t.columns[0].path, "specs");
+        assert_eq!(t.columns[0].kind, "object");
+        assert_eq!(t.rows[0][0].text, "{2 字段}");
     }
 
     #[test]
@@ -342,10 +329,10 @@ mod tests {
     }
 
     #[test]
-    fn flatten_array_kept_as_string() {
+    fn flatten_array_is_summary() {
         let t = build_flat_table(&[json!({"tags": ["a", "b"]})]);
         assert_eq!(t.rows[0][0].kind, "array");
-        assert!(t.rows[0][0].text.contains("a"));
+        assert_eq!(t.rows[0][0].text, "[2 项]");
     }
 
     #[test]
