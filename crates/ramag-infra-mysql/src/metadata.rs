@@ -41,13 +41,12 @@ pub async fn list_schemas(pool: &MySqlPool) -> Result<Vec<Schema>> {
 pub async fn list_tables(pool: &MySqlPool, schema: &str) -> Result<Vec<Table>> {
     debug!(?schema, "list_tables");
 
-    let rows: Vec<(String, String, Option<String>, Option<u64>)> = sqlx::query_as(
+    let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
         r#"
         SELECT
             CONVERT(TABLE_NAME USING utf8mb4),
             CONVERT(TABLE_TYPE USING utf8mb4),
-            CONVERT(TABLE_COMMENT USING utf8mb4),
-            TABLE_ROWS
+            CONVERT(TABLE_COMMENT USING utf8mb4)
         FROM information_schema.TABLES
         WHERE TABLE_SCHEMA = ? AND TABLE_TYPE IN ('BASE TABLE', 'VIEW', 'SYSTEM VIEW')
         ORDER BY TABLE_TYPE, TABLE_NAME
@@ -60,15 +59,12 @@ pub async fn list_tables(pool: &MySqlPool, schema: &str) -> Result<Vec<Table>> {
 
     Ok(rows
         .into_iter()
-        .map(|(name, table_type, comment, row_estimate)| {
+        .map(|(name, table_type, comment)| {
             let is_view = !table_type.eq_ignore_ascii_case("BASE TABLE");
-            // VIEW 多数 NULL，服务端没给数就当 0；精确行数让用户走 SELECT COUNT(*)
-            let row_estimate = Some(row_estimate.unwrap_or(0));
             Table {
                 name,
                 schema: schema.to_string(),
                 comment: comment.filter(|c| !c.is_empty()),
-                row_estimate,
                 is_view,
             }
         })

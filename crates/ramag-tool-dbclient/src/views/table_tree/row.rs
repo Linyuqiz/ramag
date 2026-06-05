@@ -13,7 +13,7 @@ use gpui_component::{
 use ramag_domain::entities::Column;
 
 use super::TableTreePanel;
-use crate::views::tree_helpers::{format_thousands, render_column_row, render_columns_placeholder};
+use crate::views::tree_helpers::{render_column_row, render_columns_placeholder};
 
 #[derive(Clone)]
 pub(super) enum TreeRow {
@@ -34,7 +34,6 @@ pub(super) enum TreeRow {
         is_view: bool,
         is_cols_expanded: bool,
         is_selected: bool,
-        row_estimate: Option<u64>,
     },
     /// 表的列结构占位行：loading / error
     TablePlaceholder { text: String, is_error: bool },
@@ -128,14 +127,12 @@ impl TableTreePanel {
                 is_view,
                 is_cols_expanded,
                 is_selected,
-                row_estimate,
             } => {
                 let schema = schema.clone();
                 let name = name.clone();
                 let is_view = *is_view;
                 let is_cols_expanded = *is_cols_expanded;
                 let is_selected = *is_selected;
-                let row_estimate = *row_estimate;
 
                 let row_id = SharedString::from(format!("table-{}-{}", schema, name));
                 let s_for_click = schema.clone();
@@ -209,15 +206,6 @@ impl TableTreePanel {
                     );
                 if is_selected {
                     row = row.bg(accent_bg);
-                }
-                if let Some(n) = row_estimate {
-                    row = row.child(
-                        div()
-                            .text_xs()
-                            .text_color(muted_fg)
-                            .flex_none()
-                            .child(format!("(~{})", format_thousands(n))),
-                    );
                 }
                 let menu_label = if is_view {
                     "查看视图定义"

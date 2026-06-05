@@ -18,8 +18,6 @@ pub struct MongoDatabase {
 pub struct MongoCollection {
     pub name: String,
     pub database: String,
-    /// collStats.count；view 为 None
-    pub doc_count_estimate: Option<u64>,
     /// 视图，无法写入
     pub is_view: bool,
 }

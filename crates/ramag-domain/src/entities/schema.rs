@@ -16,8 +16,6 @@ pub struct Table {
     pub name: String,
     pub schema: String,
     pub comment: Option<String>,
-    /// INFORMATION_SCHEMA 估算行数，不一定准；视图为 None
-    pub row_estimate: Option<u64>,
     /// 兼容老持久化记录，缺字段时 false
     #[serde(default)]
     pub is_view: bool,

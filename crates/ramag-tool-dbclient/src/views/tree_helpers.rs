@@ -4,20 +4,6 @@ use gpui::{AnyElement, IntoElement, ParentElement, SharedString, Styled, div, px
 use gpui_component::h_flex;
 use ramag_domain::entities::Column;
 
-/// 整数加千位分隔符："1234567" → "1,234,567"
-pub(super) fn format_thousands(n: u64) -> String {
-    let s = n.to_string();
-    let bytes = s.as_bytes();
-    let mut out = String::with_capacity(s.len() + s.len() / 3);
-    for (i, b) in bytes.iter().enumerate() {
-        if i > 0 && (bytes.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(*b as char);
-    }
-    out
-}
-
 /// 列子节点：主键 + 列名 + NOT NULL 标记 + raw_type。长名不截断，靠外层横滚；行高 28px 配 uniform_list
 pub(super) fn render_column_row(col: &Column, fg: gpui::Hsla, muted_fg: gpui::Hsla) -> AnyElement {
     let pk_label = if col.is_primary_key { "🔑 " } else { "" };
@@ -65,18 +51,4 @@ pub(super) fn render_columns_placeholder(
         .text_ellipsis()
         .child(text.into())
         .into_any_element()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::format_thousands;
-
-    #[test]
-    fn thousands() {
-        assert_eq!(format_thousands(0), "0");
-        assert_eq!(format_thousands(123), "123");
-        assert_eq!(format_thousands(1234), "1,234");
-        assert_eq!(format_thousands(1234567), "1,234,567");
-        assert_eq!(format_thousands(1_000_000_000), "1,000,000,000");
-    }
 }

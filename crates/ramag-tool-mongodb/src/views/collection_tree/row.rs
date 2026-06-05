@@ -23,8 +23,6 @@ pub(super) enum TreeRow {
         name: String,
         is_view: bool,
         is_selected: bool,
-        /// 文档数估算（collStats.count）；view 为 None
-        doc_count: Option<u64>,
     },
     /// 全局占位：加载 / 错误 / 空
     GlobalPlaceholder {
@@ -96,7 +94,6 @@ impl CollectionTreePanel {
                 name,
                 is_view,
                 is_selected,
-                doc_count,
             } => {
                 let db_for_click = db.clone();
                 let name_for_click = name.clone();
@@ -140,15 +137,6 @@ impl CollectionTreePanel {
                     );
                 if selected {
                     row = row.bg(accent);
-                }
-                if let Some(n) = doc_count {
-                    row = row.child(
-                        div()
-                            .text_xs()
-                            .text_color(muted_fg)
-                            .flex_none()
-                            .child(format!("(~{n})")),
-                    );
                 }
                 row.into_any_element()
             }
@@ -241,7 +229,6 @@ impl CollectionTreePanel {
                         name: c.name.clone(),
                         is_view: c.is_view,
                         is_selected: selected,
-                        doc_count: c.doc_count_estimate,
                     });
                 }
             }

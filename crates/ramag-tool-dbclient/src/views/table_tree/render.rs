@@ -316,7 +316,6 @@ impl Render for TableTreePanel {
                             is_view: t.is_view,
                             is_cols_expanded,
                             is_selected: is_sel,
-                            row_estimate: t.row_estimate,
                         });
 
                         if let Some(cs) = cols_state {

@@ -31,20 +31,9 @@ pub async fn list_collections(client: &Client, db: &str) -> Result<Vec<MongoColl
     let mut out = Vec::new();
     while let Some(spec) = cursor.try_next().await.map_err(map_mongo_error)? {
         let is_view = matches!(spec.collection_type, mongodb::results::CollectionType::View);
-        // 文档数估算：view 不可计数；普通集合用 estimatedDocumentCount（读元数据 O(1) 不扫描），失败容错 None
-        let doc_count_estimate = if is_view {
-            None
-        } else {
-            database
-                .collection::<Document>(&spec.name)
-                .estimated_document_count()
-                .await
-                .ok()
-        };
         out.push(MongoCollection {
             name: spec.name,
             database: db.to_string(),
-            doc_count_estimate,
             is_view,
         });
     }

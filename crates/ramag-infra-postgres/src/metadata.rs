@@ -38,13 +38,12 @@ pub async fn list_schemas(pool: &PgPool) -> Result<Vec<Schema>> {
 pub async fn list_tables(pool: &PgPool, schema: &str) -> Result<Vec<Table>> {
     debug!(?schema, "list_tables (postgres)");
 
-    let rows: Vec<(String, String, Option<String>, Option<i64>)> = sqlx::query_as(
+    let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
         r#"
         SELECT
             t.table_name::text,
             t.table_type::text,
-            obj_description(c.oid, 'pg_class') AS table_comment,
-            c.reltuples::bigint AS row_estimate
+            obj_description(c.oid, 'pg_class') AS table_comment
         FROM information_schema.tables t
         LEFT JOIN pg_namespace n ON n.nspname = t.table_schema
         LEFT JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = t.table_name
@@ -54,8 +53,7 @@ pub async fn list_tables(pool: &PgPool, schema: &str) -> Result<Vec<Table>> {
         SELECT
             mv.matviewname::text AS table_name,
             'MATERIALIZED VIEW'::text AS table_type,
-            obj_description(c.oid, 'pg_class') AS table_comment,
-            c.reltuples::bigint AS row_estimate
+            obj_description(c.oid, 'pg_class') AS table_comment
         FROM pg_matviews mv
         LEFT JOIN pg_namespace n ON n.nspname = mv.schemaname
         LEFT JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = mv.matviewname
@@ -70,15 +68,12 @@ pub async fn list_tables(pool: &PgPool, schema: &str) -> Result<Vec<Table>> {
 
     Ok(rows
         .into_iter()
-        .map(|(name, table_type, comment, row_estimate)| {
+        .map(|(name, table_type, comment)| {
             let is_view = !table_type.eq_ignore_ascii_case("BASE TABLE");
-            // reltuples 估算值，负数表示未分析，归零
-            let row_estimate = Some(row_estimate.map(|v| v.max(0) as u64).unwrap_or(0));
             Table {
                 name,
                 schema: schema.to_string(),
                 comment: comment.filter(|c| !c.is_empty()),
-                row_estimate,
                 is_view,
             }
         })
