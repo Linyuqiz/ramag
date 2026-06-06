@@ -141,6 +141,20 @@ impl ResultPanel {
         self.target_collection = coll;
     }
 
+    /// 同步当前 db：切库 / 切 collection 后写操作（update/delete/insert）要落到正确的库，
+    /// 否则沿用 tab 初始库、filter 匹配不到文档（matched 0）→ 表现为「更新不了」
+    pub fn set_database(&mut self, db: String) {
+        self.database = db;
+    }
+
+    /// 清空列 / 行过滤框：切换 collection（换数据源）时调，避免旧过滤词残留串到新结果
+    pub fn clear_filters(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.column_filter
+            .update(cx, |s, cx| s.set_value("", window, cx));
+        self.row_filter
+            .update(cx, |s, cx| s.set_value("", window, cx));
+    }
+
     /// 能否写（增删改）：上下文齐全 + 有目标 collection
     pub(crate) fn can_write(&self) -> bool {
         self.service.is_some() && self.config.is_some() && self.target_collection.is_some()
@@ -374,6 +388,7 @@ impl Render for ResultPanel {
                     fcol,
                     frow,
                     Some(flat_docs),
+                    false,
                     cx,
                 )))
                 .child(render_status_bar(
@@ -418,6 +433,7 @@ impl Render for ResultPanel {
             col_indices,
             row_indices,
             None,
+            true,
             cx,
         )))
         .child(render_status_bar(summary, border, muted, bg))

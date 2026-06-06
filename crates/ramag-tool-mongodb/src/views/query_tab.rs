@@ -121,6 +121,8 @@ impl MongoQueryTab {
         self.editor.update(cx, |s, cx| {
             s.set_value(cmd, window, cx);
         });
+        // 切 collection 是换数据源：清掉结果区残留的列 / 行过滤，避免旧过滤词串到新结果
+        self.result.update(cx, |p, cx| p.clear_filters(window, cx));
         cx.notify();
     }
 
@@ -161,11 +163,16 @@ impl MongoQueryTab {
             });
             return;
         }
-        // 提取命令目标 collection，注入结果区作为增删改目标
+        // 提取命令目标 collection + 同步当前 db，一并注入结果区作为增删改上下文。
+        // self.database 切库 / 切 collection 时已更新，必须同步给结果区；否则写操作沿用 tab
+        // 初始库，filter 匹配不到文档（matched 0）→ 更新 / 删除「不生效」
         let target = extract_collection(&cmd);
         self.collection = target.clone();
-        self.result
-            .update(cx, |p, _| p.set_target_collection(target));
+        let db_now = self.database.clone();
+        self.result.update(cx, |p, _| {
+            p.set_database(db_now);
+            p.set_target_collection(target);
+        });
 
         let svc = self.service.clone();
         let conf = self.config.clone();

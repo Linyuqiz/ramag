@@ -151,8 +151,10 @@ pub async fn update_one(
         "mongo update_one done"
     );
     let elapsed_ms = start.elapsed().as_millis() as u64;
+    // affected 取 matched_count（定位到的文档数）而非 modified_count：改成与原值相同时
+    // modified=0，用 matched 才能正确反映「已定位」，避免上层把「值未变」误报成「未匹配」
     Ok(MongoQueryResult::write(
-        r.modified_count,
+        r.matched_count,
         elapsed_ms,
         "updateOne",
     ))

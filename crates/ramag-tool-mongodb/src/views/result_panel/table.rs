@@ -39,6 +39,7 @@ pub(super) fn render(
     col_indices: Option<Vec<usize>>,
     row_indices: Option<Vec<usize>>,
     docs_override: Option<Arc<Vec<serde_json::Value>>>,
+    allow_edit: bool,
     cx: &mut Context<ResultPanel>,
 ) -> impl IntoElement {
     let border = cx.theme().border;
@@ -173,6 +174,7 @@ pub(super) fn render(
                         border,
                         muted_bg,
                         mono.clone(),
+                        allow_edit,
                         cx,
                     )
                 })
@@ -322,6 +324,7 @@ fn render_row(
     border: Hsla,
     muted_bg: Hsla,
     mono_font: SharedString,
+    allow_edit: bool,
     cx: &mut Context<ResultPanel>,
 ) -> gpui::AnyElement {
     // 斑马纹：偶数行透明，奇数行 muted_bg 35% 透明度（与 dbclient::result_table 一致）
@@ -398,31 +401,61 @@ fn render_row(
                         if e.click_count() < 2 {
                             return;
                         }
-                        // 嵌套对象/数组：取行文档该字段原值 → 详情弹窗（对象数组→子表格，其余→高亮 JSON）
+                        // 嵌套对象/数组：下钻查看（对象层进去可编辑，数组层只读），
+                        // 传当前行 _id 让下钻层记录回写定位上下文
                         if is_nested {
                             if let Some(v) = nested_for_click.clone() {
-                                panel.drill_into(path_for_click.clone(), v, window, cx);
+                                panel.drill_into(
+                                    path_for_click.clone(),
+                                    id_for_click.clone(),
+                                    v,
+                                    window,
+                                    cx,
+                                );
                             }
                             return;
                         }
-                        // 标量：可写 + 行有 _id → 编辑（update_one）；否则只读查看
-                        match &id_for_click {
-                            Some(id) if panel.can_write() && !panel.is_drilled() => panel
-                                .open_cell_edit_dialog(
-                                    id.clone(),
-                                    path_for_click.clone(),
-                                    text_for_click.clone(),
-                                    window,
-                                    cx,
-                                ),
-                            _ => panel.open_cell_dialog(
+                        // 标量编辑（仅 allow_edit 视图）：
+                        // - 顶层：行 _id + 列名
+                        // - 下钻对象层：顶层 _id + 完整 dotted 路径
+                        // - 其余（数组层 / 派生只读视图 / 无 _id）：只读查看
+                        if allow_edit
+                            && panel.can_write()
+                            && !panel.is_drilled()
+                            && let Some(id) = &id_for_click
+                        {
+                            panel.open_cell_edit_dialog(
+                                id.clone(),
                                 path_for_click.clone(),
                                 kind_for_click,
                                 text_for_click.clone(),
                                 window,
                                 cx,
-                            ),
+                            );
+                            return;
                         }
+                        if allow_edit
+                            && panel.can_write()
+                            && panel.drill_editable()
+                            && let Some(pid) = panel.drill_parent_id()
+                        {
+                            panel.open_cell_edit_dialog(
+                                pid,
+                                panel.drill_full_path(&path_for_click),
+                                kind_for_click,
+                                text_for_click.clone(),
+                                window,
+                                cx,
+                            );
+                            return;
+                        }
+                        panel.open_cell_dialog(
+                            path_for_click.clone(),
+                            kind_for_click,
+                            text_for_click.clone(),
+                            window,
+                            cx,
+                        );
                     })
                 })
                 .child(

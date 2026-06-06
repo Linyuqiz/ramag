@@ -20,33 +20,85 @@ use super::flatten::build_flat_table_with;
 pub(crate) struct DrillLevel {
     pub label: String,
     pub documents: Vec<Value>,
+    /// 顶层文档 _id（回写定位用，一路继承；顶层与无 _id 时为 None）
+    pub parent_id: Option<Value>,
+    /// 从根到本层的 dotted 路径前缀（如 "project" / "project.sub"；顶层为空）
+    pub path_prefix: String,
+    /// 本层能否回写编辑：对象下钻=true，数组下钻=false（丢了元素下标）
+    pub editable: bool,
 }
 
 impl ResultPanel {
-    /// 是否已下钻（栈深 > 1）→ 只读 + 显示面包屑
+    /// 是否已下钻（栈深 > 1）→ 显示面包屑（对象层可编辑，数组层只读）
     pub(crate) fn is_drilled(&self) -> bool {
         self.drill_stack.len() > 1
     }
 
-    /// 重置下钻栈为顶层（新查询时由 set_result 调）
-    pub(crate) fn reset_drill(&mut self, label: String, documents: Vec<Value>) {
-        self.drill_stack = vec![DrillLevel { label, documents }];
+    /// 当前下钻层可否回写编辑：对象下钻层 + 已知顶层 _id
+    pub(crate) fn drill_editable(&self) -> bool {
+        self.drill_stack
+            .last()
+            .map(|l| l.editable && l.parent_id.is_some())
+            .unwrap_or(false)
     }
 
-    /// 双击嵌套单元格 → 下钻：数组→元素逐行；对象→单行；标量不下钻
+    /// 当前下钻层对应的顶层文档 _id（回写 filter 用）
+    pub(crate) fn drill_parent_id(&self) -> Option<Value> {
+        self.drill_stack.last().and_then(|l| l.parent_id.clone())
+    }
+
+    /// 下钻层裸字段 → 完整 dotted 路径（path_prefix.field）
+    pub(crate) fn drill_full_path(&self, field: &str) -> String {
+        match self.drill_stack.last() {
+            Some(l) if !l.path_prefix.is_empty() => format!("{}.{}", l.path_prefix, field),
+            _ => field.to_string(),
+        }
+    }
+
+    /// 重置下钻栈为顶层（新查询时由 set_result 调）
+    pub(crate) fn reset_drill(&mut self, label: String, documents: Vec<Value>) {
+        self.drill_stack = vec![DrillLevel {
+            label,
+            documents,
+            parent_id: None,
+            path_prefix: String::new(),
+            editable: false,
+        }];
+    }
+
+    /// 双击嵌套单元格 → 下钻：数组→元素逐行；对象→单行；标量不下钻。
+    /// row_id 是被下钻那一行的 _id（首次下钻=顶层文档 _id），用于记录回写定位上下文
     pub(crate) fn drill_into(
         &mut self,
-        label: String,
+        field: String,
+        row_id: Option<Value>,
         value: Value,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // 对象下钻可回写（顶层 _id + dotted path 定位）；数组下钻丢了元素下标，保持只读
+        let editable = matches!(value, Value::Object(_));
         let documents = match value {
             Value::Array(arr) => arr,
             Value::Object(_) => vec![value],
             _ => return,
         };
-        self.drill_stack.push(DrillLevel { label, documents });
+        let top = self.drill_stack.last();
+        // 顶层 _id 一路继承；首次下钻栈顶是顶层文档，用其行 _id
+        let parent_id = top.and_then(|l| l.parent_id.clone()).or(row_id);
+        let prefix = top.map(|l| l.path_prefix.clone()).unwrap_or_default();
+        let path_prefix = if prefix.is_empty() {
+            field.clone()
+        } else {
+            format!("{prefix}.{field}")
+        };
+        self.drill_stack.push(DrillLevel {
+            label: field,
+            documents,
+            parent_id,
+            path_prefix,
+            editable,
+        });
         self.apply_top_level(window, cx);
     }
 
@@ -124,8 +176,13 @@ impl ResultPanel {
                 );
             }
         }
-        bar.child(div().flex_1())
-            .child(div().text_color(muted).child(SharedString::from("只读")))
+        let bar = bar.child(div().flex_1());
+        // 对象下钻层可改字段；数组层 / 无 _id 层仍只读，右侧提示用户当前层能力
+        if self.drill_editable() {
+            bar.child(div().text_color(muted).child(SharedString::from("可编辑")))
+        } else {
+            bar.child(div().text_color(muted).child(SharedString::from("只读")))
+        }
     }
 
     /// 输入对象/数组路径 → 钻进去（逐段穿透数组）：终值 object 一行 / array 元素逐行，裸字段。

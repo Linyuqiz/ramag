@@ -328,11 +328,13 @@ impl ResultPanel {
         .detach();
     }
 
-    /// 双击单元格编辑：输入新值（按 JSON 解析）→ update_one $set（dotted path）
+    /// 双击单元格编辑：输入新值 → update_one $set（dotted path）。
+    /// kind 是该列原始 BSON 类型，用于保存时按类型还原（oid/date/decimal 不降级成字符串）
     pub(crate) fn open_cell_edit_dialog(
         &self,
         id: Value,
         path: String,
+        kind: &'static str,
         current: String,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -365,7 +367,9 @@ impl ResultPanel {
                     let raw = input_apply.read(app).value().to_string();
                     let id = id_apply.clone();
                     let path = path_apply.clone();
-                    panel_apply.update(app, |this, cx| this.do_update_async(id, path, raw, cx));
+                    panel_apply.update(app, |this, cx| {
+                        this.do_update_async(id, path, kind, raw, cx)
+                    });
                     window.close_dialog(app);
                 });
             dialog
@@ -399,12 +403,16 @@ impl ResultPanel {
         });
     }
 
-    /// 异步 update_one：filter {_id} + $set {dotted path: 新值}
-    fn do_update_async(&mut self, id: Value, path: String, raw: String, cx: &mut Context<Self>) {
-        let new_val: Value = match serde_json::from_str::<Value>(&raw) {
-            Ok(v) => v,
-            Err(_) => Value::String(raw),
-        };
+    /// 异步 update_one：filter {_id} + $set {dotted path: 新值（按列 kind 还原 BSON 类型）}
+    fn do_update_async(
+        &mut self,
+        id: Value,
+        path: String,
+        kind: &'static str,
+        raw: String,
+        cx: &mut Context<Self>,
+    ) {
+        let new_val = value_for_kind(kind, raw);
         let (Some(svc), Some(conf), Some(coll)) = (
             self.service.clone(),
             self.config.clone(),
@@ -426,7 +434,7 @@ impl ResultPanel {
                     Ok(res) if res.affected == 0 => {
                         this.pending_notification = Some(
                             Notification::warning(
-                                "未匹配到文档（0 条更新）：结果集可能无 _id 或 _id 类型不符"
+                                "未匹配到文档：该行无 _id，或当前 collection 与所选库不一致"
                                     .to_string(),
                             )
                             .autohide(true),
@@ -478,5 +486,51 @@ fn csv_escape(s: &str) -> String {
         format!("\"{}\"", s.replace('"', "\"\""))
     } else {
         s.to_string()
+    }
+}
+
+/// 按列原始 BSON 类型把单元格编辑文本还原为写入值：
+/// 特殊类型（oid/date/decimal）包回 Extended JSON，避免 $set 把它降级成字符串 / 浮点；
+/// 其余按 JSON 解析（123→数字 / true→布尔 / 其它→字符串），保留「可改类型」的灵活性。
+/// 注：date 文本需为 ISO8601（结果集 relaxed Extended JSON 形态即 ISO），否则 driver 转换报错
+fn value_for_kind(kind: &str, raw: String) -> Value {
+    match kind {
+        "oid" => serde_json::json!({ "$oid": raw }),
+        "date" => serde_json::json!({ "$date": raw }),
+        "decimal" => serde_json::json!({ "$numberDecimal": raw }),
+        _ => match serde_json::from_str::<Value>(&raw) {
+            Ok(v) => v,
+            Err(_) => Value::String(raw),
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::value_for_kind;
+    use serde_json::json;
+
+    #[test]
+    fn special_kinds_wrap_extjson() {
+        // oid/date/decimal 必须包回 Extended JSON，否则会被写成普通字符串/浮点
+        assert_eq!(
+            value_for_kind("oid", "507f1f77bcf86cd799439011".into()),
+            json!({"$oid": "507f1f77bcf86cd799439011"})
+        );
+        assert_eq!(
+            value_for_kind("date", "2024-01-01T00:00:00Z".into()),
+            json!({"$date": "2024-01-01T00:00:00Z"})
+        );
+        assert_eq!(
+            value_for_kind("decimal", "100.50".into()),
+            json!({"$numberDecimal": "100.50"})
+        );
+    }
+
+    #[test]
+    fn scalar_kinds_parse_json_or_string() {
+        assert_eq!(value_for_kind("int", "42".into()), json!(42));
+        assert_eq!(value_for_kind("bool", "true".into()), json!(true));
+        assert_eq!(value_for_kind("text", "alice".into()), json!("alice"));
     }
 }

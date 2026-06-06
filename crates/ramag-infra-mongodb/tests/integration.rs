@@ -229,3 +229,193 @@ async fn test_demo_data_full_queries() {
     eprintln!("dbStats: {stats}");
     assert!(stats.get("collections").is_some());
 }
+
+/// 复现 UI 单元格编辑路径：insert → find 取回 Extended JSON 形式的 _id → 用它构造
+/// filter={_id} + update={$set} → update_one → 回查确认。验证 ObjectId _id 往返后能否匹配更新。
+#[tokio::test]
+async fn test_update_one_reproduce() {
+    let Some(cfg) = build_config_from_env() else {
+        eprintln!("skip: env not set");
+        return;
+    };
+    let Some(db) = cfg.database.clone() else {
+        return;
+    };
+    let driver = MongoDriver::new();
+    let coll = "ramag_update_probe";
+
+    // 清场（避免上次残留）
+    let _ = driver
+        .delete_one(&cfg, &db, coll, &json!({"name": "probe"}))
+        .await;
+
+    // 1) 插入文档（_id 由 mongo 生成 ObjectId）
+    let inserted = driver
+        .insert_one(&cfg, &db, coll, json!({"name": "probe", "age": 30}))
+        .await
+        .expect("insert failed");
+    eprintln!("inserted _id(raw) = {inserted}");
+
+    // 2) find 取回结果集，模拟 UI 拿到的文档（_id 为 Extended JSON 形式）
+    use ramag_domain::entities::MongoQuerySpec;
+    let spec = MongoQuerySpec {
+        filter: json!({"name": "probe"}),
+        limit: Some(1),
+        ..Default::default()
+    };
+    let r = driver
+        .find(&cfg, &db, coll, &spec)
+        .await
+        .expect("find failed");
+    let doc = r.documents.first().expect("no doc found");
+    let id = doc.get("_id").cloned().expect("doc has no _id");
+    eprintln!("find returned _id(extjson) = {id}");
+
+    // 3) 模拟单元格编辑：filter={_id}, update={$set:{age:31}}
+    let filter = json!({ "_id": id });
+    let update = json!({ "$set": { "age": 31 } });
+    let res = driver
+        .update_one(&cfg, &db, coll, &filter, &update)
+        .await
+        .expect("update_one failed");
+    eprintln!("update_one affected(modified_count) = {}", res.affected);
+
+    // 4) 回查确认 age 真的变成 31（绕过 affected 直接看数据）
+    let r2 = driver
+        .find(&cfg, &db, coll, &spec)
+        .await
+        .expect("re-find failed");
+    let after = r2.documents.first().expect("doc gone after update");
+    eprintln!("after update doc = {after}");
+    assert_eq!(
+        after.get("age").cloned(),
+        Some(json!(31)),
+        "age 应被更新为 31（若失败=filter 没匹配上 → 更新不生效）"
+    );
+
+    // 5) 改成相同值：affected 取 matched_count，应为 1（问题 A 回归：改相同值不再误判「未匹配」）
+    let same = driver
+        .update_one(&cfg, &db, coll, &filter, &json!({ "$set": { "age": 31 } }))
+        .await
+        .expect("update same failed");
+    eprintln!(
+        "update same-value affected(matched_count) = {}",
+        same.affected
+    );
+    assert_eq!(
+        same.affected, 1,
+        "改相同值应仍 matched=1（affected 取 matched_count），否则 UI 会误报「未匹配」"
+    );
+
+    // 清理
+    let _ = driver
+        .delete_one(&cfg, &db, coll, &json!({"name": "probe"}))
+        .await;
+}
+
+/// 探测某种 _id 类型能否走通 UI 更新路径：插入带该 _id 的文档 → find 取回 Extended JSON
+/// 形式的 _id → 用它构造 filter={_id} 做 update_one → 回查 marker 是否被改。
+/// 返回 true=filter 匹配成功（更新生效），false=matched 0（更新不了）。
+async fn probe_id_roundtrip(
+    driver: &MongoDriver,
+    cfg: &ConnectionConfig,
+    db: &str,
+    coll: &str,
+    doc: serde_json::Value,
+    probe_tag: &str,
+) -> bool {
+    use ramag_domain::entities::MongoQuerySpec;
+    driver
+        .insert_one(cfg, db, coll, doc)
+        .await
+        .expect("insert failed");
+    let spec = MongoQuerySpec {
+        filter: json!({ "probe": probe_tag }),
+        limit: Some(1),
+        ..Default::default()
+    };
+    let r = driver
+        .find(cfg, db, coll, &spec)
+        .await
+        .expect("find failed");
+    let found = r
+        .documents
+        .first()
+        .expect("inserted doc not found by probe");
+    let id = found.get("_id").cloned().expect("no _id");
+    eprintln!("[{probe_tag}] find 取回 _id = {id}");
+    // 模拟 UI 单元格编辑：filter={_id}, update={$set:{marker:"updated"}}
+    let filter = json!({ "_id": id });
+    let update = json!({ "$set": { "marker": "updated" } });
+    driver
+        .update_one(cfg, db, coll, &filter, &update)
+        .await
+        .expect("update failed");
+    // 用 probe 字段（不靠 _id）回查 marker 是否真被改
+    let r2 = driver
+        .find(cfg, db, coll, &spec)
+        .await
+        .expect("re-find failed");
+    let marker = r2.documents.first().and_then(|d| d.get("marker")).cloned();
+    let ok = marker == Some(json!("updated"));
+    eprintln!("[{probe_tag}] 匹配成功={ok}（marker={marker:?}）");
+    ok
+}
+
+/// _id 类型往返矩阵：逐类型走 UI 更新路径，列出哪些类型「更新不了」（matched 0）。
+#[tokio::test]
+async fn test_id_type_roundtrip_matrix() {
+    let Some(cfg) = build_config_from_env() else {
+        eprintln!("skip: env not set");
+        return;
+    };
+    let Some(db) = cfg.database.clone() else {
+        return;
+    };
+    let driver = MongoDriver::new();
+    let coll = "ramag_idtype_probe";
+    let _ = driver.run_command(&cfg, &db, json!({"drop": coll})).await;
+
+    // 各类型文档：带 probe（稳定定位，不依赖 _id）+ marker（被更新的目标字段）
+    let cases: Vec<(serde_json::Value, &str)> = vec![
+        // 不指定 _id → mongo 自动 ObjectId（基线，应成功）
+        (json!({"probe": "objectid", "marker": "orig"}), "objectid"),
+        (
+            json!({"_id": "str-id-1", "probe": "string", "marker": "orig"}),
+            "string",
+        ),
+        (
+            json!({"_id": 42, "probe": "int32", "marker": "orig"}),
+            "int32",
+        ),
+        (
+            json!({"_id": {"$numberLong": "1234567890123456789"}, "probe": "int64", "marker": "orig"}),
+            "int64",
+        ),
+        (
+            json!({"_id": {"region": "us", "seq": 7}, "probe": "compound", "marker": "orig"}),
+            "compound",
+        ),
+        (
+            json!({"_id": {"$numberDecimal": "100.50"}, "probe": "decimal", "marker": "orig"}),
+            "decimal",
+        ),
+        (
+            json!({"_id": {"$date": "2024-01-01T00:00:00Z"}, "probe": "date", "marker": "orig"}),
+            "date",
+        ),
+    ];
+
+    let mut failed = Vec::new();
+    for (doc, tag) in cases {
+        if !probe_id_roundtrip(&driver, &cfg, &db, coll, doc, tag).await {
+            failed.push(tag);
+        }
+    }
+    let _ = driver.run_command(&cfg, &db, json!({"drop": coll})).await;
+    eprintln!("=== _id 往返「更新不了」的类型: {failed:?} ===");
+    assert!(
+        failed.is_empty(),
+        "这些 _id 类型往返后 filter 匹配不上（更新不了）: {failed:?}"
+    );
+}
