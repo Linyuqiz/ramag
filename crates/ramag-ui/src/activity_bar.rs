@@ -129,45 +129,62 @@ impl Render for ActivityBar {
         // 底部设置按钮
         container = container.child(div().flex_1());
         let current_mode = crate::theme::current_mode(cx);
-        let is_dark = matches!(current_mode, crate::theme::Mode::Dark);
-        // 用文本前缀标记选中而非 PopupMenuItem.checked()，避免上游把整行染成 accent 蓝
-        let label_light = if is_dark { "  浅色" } else { "✓ 浅色" };
-        let label_dark = if is_dark { "✓ 暗色" } else { "  暗色" };
-        container = container.child(
-            h_flex()
-                .w(px(BAR_WIDTH))
-                .h(px(ITEM_HEIGHT))
-                .items_center()
-                .justify_center()
-                .child(div().w(px(2.0)).h(px(20.0)).bg(transparent))
-                .child(
-                    Button::new("settings")
-                        .ghost()
-                        .icon(IconName::Settings)
-                        // BottomLeft anchor 让菜单弹在按钮上方，避免子菜单遮住按钮
-                        .dropdown_menu_with_anchor(
-                            gpui::Anchor::BottomLeft,
-                            move |menu, window, cx| {
-                                menu.submenu("主题", window, cx, move |sub, _, _| {
-                                    sub.item(
-                                        PopupMenuItem::new(label_light)
+        container =
+            container.child(
+                h_flex()
+                    .w(px(BAR_WIDTH))
+                    .h(px(ITEM_HEIGHT))
+                    .items_center()
+                    .justify_center()
+                    .child(div().w(px(2.0)).h(px(20.0)).bg(transparent))
+                    .child(
+                        Button::new("settings")
+                            .ghost()
+                            .icon(IconName::Settings)
+                            // BottomLeft anchor 让菜单弹在按钮上方，避免子菜单遮住按钮
+                            .dropdown_menu_with_anchor(
+                                gpui::Anchor::BottomLeft,
+                                move |menu, window, cx| {
+                                    // 文本前缀「✓ 」标记当前项，避免 PopupMenuItem.checked() 把整行染蓝
+                                    let mark = move |m: crate::theme::Mode| {
+                                        if current_mode == m { "✓ " } else { "  " }
+                                    };
+                                    menu.submenu("主题", window, cx, move |sub, _, _| {
+                                        sub.item(
+                                            PopupMenuItem::new(format!(
+                                                "{}浅色",
+                                                mark(crate::theme::Mode::Light)
+                                            ))
                                             .icon(IconName::Sun)
                                             .on_click(|_, _, app| {
                                                 set_theme(crate::theme::Mode::Light, app)
                                             }),
-                                    )
-                                    .item(
-                                        PopupMenuItem::new(label_dark)
+                                        )
+                                        .item(
+                                            PopupMenuItem::new(format!(
+                                                "{}暗色",
+                                                mark(crate::theme::Mode::Dark)
+                                            ))
                                             .icon(IconName::Moon)
                                             .on_click(|_, _, app| {
                                                 set_theme(crate::theme::Mode::Dark, app)
                                             }),
-                                    )
-                                })
-                            },
-                        ),
-                ),
-        );
+                                        )
+                                        .item(
+                                            PopupMenuItem::new(format!(
+                                                "{}One Dark Modern",
+                                                mark(crate::theme::Mode::OneDarkModern)
+                                            ))
+                                            .icon(IconName::Moon)
+                                            .on_click(|_, _, app| {
+                                                set_theme(crate::theme::Mode::OneDarkModern, app)
+                                            }),
+                                        )
+                                    })
+                                },
+                            ),
+                    ),
+            );
 
         container
     }
@@ -185,6 +202,7 @@ fn set_theme(mode: crate::theme::Mode, app: &mut gpui::App) {
         let value = match mode {
             crate::theme::Mode::Dark => "dark".to_string(),
             crate::theme::Mode::Light => "light".to_string(),
+            crate::theme::Mode::OneDarkModern => "one-dark-modern".to_string(),
         };
         app.background_executor()
             .spawn(async move {

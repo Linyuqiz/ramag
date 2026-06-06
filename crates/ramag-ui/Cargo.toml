@@ -28,3 +28,5 @@ rust-embed = { version = "8", features = ["interpolate-folder-path"] }
 # Action 派生需要：CloseTab 等共享 action 用 schemars/serde 实现 GPUI Action trait
 schemars = { workspace = true }
 serde = { workspace = true }
+# 解析内嵌 One Dark Pro 主题 JSON（ThemeSet）
+serde_json = { workspace = true }
