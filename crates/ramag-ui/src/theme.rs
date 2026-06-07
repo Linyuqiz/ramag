@@ -299,6 +299,7 @@ mod tests {
     /// 内嵌的 One Dark Modern JSON 必须能解析为 ThemeConfig，且含暗色 + 语法高亮段，
     /// 否则切到该主题会静默退回暗色（防字段名拼错 / JSON 损坏）
     #[test]
+    #[allow(clippy::expect_used)]
     fn one_dark_modern_json_parses() {
         const ODP: &str = include_str!("one_dark_modern.json");
         let cfg = parse_first_theme(ODP).expect("one_dark_modern.json 应能解析为 ThemeConfig");
