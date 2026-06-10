@@ -21,7 +21,7 @@ use tracing::info;
 
 use crate::views::hash_field_form::HashFieldFormMode;
 use crate::views::key_detail::{KeyDetailEvent, KeyDetailPanel};
-use crate::views::key_tree::{KeyTreeEvent, KeyTreePanel};
+use crate::views::key_tree::{DeletedScope, KeyTreeEvent, KeyTreePanel};
 use crate::views::zset_element_form::ZSetElementFormMode;
 
 use dialogs::truncate_for_dialog;
@@ -86,6 +86,19 @@ impl RedisSessionPanel {
                 }
                 KeyTreeEvent::DbSelected(db) => {
                     this.handle_db_change(*db, cx);
+                }
+                // 树侧右键删除完成：若详情面板正在展示受影响的 key，清空之
+                KeyTreeEvent::KeysDeleted(scope) => {
+                    let current = this.detail.read(cx).current_key().map(str::to_string);
+                    let invalidated = match (scope, current.as_deref()) {
+                        (_, None) => false,
+                        (DeletedScope::Key(k), Some(c)) => k == c,
+                        (DeletedScope::Prefix(p), Some(c)) => c.starts_with(&format!("{p}:")),
+                        (DeletedScope::Db, Some(_)) => true,
+                    };
+                    if invalidated {
+                        this.detail.update(cx, |p, cx| p.clear_key(cx));
+                    }
                 }
             },
         ));

@@ -8,7 +8,7 @@ use gpui_component::{
     ActiveTheme, Icon, IconName, Sizable as _,
     button::{Button, ButtonVariants as _},
     h_flex,
-    menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem},
+    menu::{ContextMenuExt as _, PopupMenu},
 };
 use ramag_domain::entities::Column;
 
@@ -65,6 +65,9 @@ impl TableTreePanel {
                 let id_str = SharedString::from(format!("schema-{name}"));
                 let name_for_click = name.clone();
                 let name_color = if *is_system { muted_fg } else { fg };
+                let name_for_menu = name.clone();
+                let entity_for_menu = cx.entity().clone();
+                let driver = self.connection.as_ref().map(|c| c.driver);
 
                 h_flex()
                     .id(id_str)
@@ -94,6 +97,15 @@ impl TableTreePanel {
                             .whitespace_nowrap()
                             .child(name.clone()),
                     )
+                    .context_menu(move |menu: PopupMenu, _, _| match driver {
+                        Some(d) => super::ops::schema_context_menu(
+                            menu,
+                            entity_for_menu.clone(),
+                            name_for_menu.clone(),
+                            d,
+                        ),
+                        None => menu,
+                    })
                     .into_any_element()
             }
             TreeRow::SchemaPlaceholder { text, is_error } => div()
@@ -207,22 +219,14 @@ impl TableTreePanel {
                 if is_selected {
                     row = row.bg(accent_bg);
                 }
-                let menu_label = if is_view {
-                    "查看视图定义"
-                } else {
-                    "查看建表 SQL"
-                };
                 let row = row.context_menu(move |menu: PopupMenu, _, _| {
-                    let s = s_for_menu.clone();
-                    let t = t_for_menu.clone();
-                    let ent = entity_for_menu.clone();
-                    menu.item(PopupMenuItem::new(menu_label).on_click(move |_e, _w, app| {
-                        let s = s.clone();
-                        let t = t.clone();
-                        ent.update(app, |this, cx| {
-                            this.handle_show_ddl(s, t, is_view, cx);
-                        });
-                    }))
+                    super::ops::table_context_menu(
+                        menu,
+                        entity_for_menu.clone(),
+                        s_for_menu.clone(),
+                        t_for_menu.clone(),
+                        is_view,
+                    )
                 });
                 row.into_any_element()
             }

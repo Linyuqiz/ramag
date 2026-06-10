@@ -1,5 +1,6 @@
 //! Database → Collection 双层树。点 collection 触发查询 Tab 自动 find({})
 
+mod ops;
 mod row;
 
 use std::collections::HashMap;
@@ -49,6 +50,8 @@ pub struct CollectionTreePanel {
     uniform_scroll: UniformListScrollHandle,
     /// 切连接后是否待自动展开默认库（仅首次加载消费一次，refresh 不重复展开）
     auto_expand_pending: bool,
+    /// 右键操作（清空/删除）完成后的 toast，下次 render 推送
+    pending_notification: Option<gpui_component::notification::Notification>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -118,6 +121,7 @@ impl CollectionTreePanel {
             editor_visible: false,
             uniform_scroll: UniformListScrollHandle::new(),
             auto_expand_pending: false,
+            pending_notification: None,
             _subscriptions: subs,
         }
     }
@@ -280,7 +284,12 @@ impl CollectionTreePanel {
 }
 
 impl Render for CollectionTreePanel {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // 右键操作（清空/删除）异步完成的 toast 在这里推送
+        if let Some(n) = self.pending_notification.take() {
+            use gpui_component::WindowExt as _;
+            window.push_notification(n, cx);
+        }
         let theme = cx.theme();
         let fg = theme.foreground;
         let muted_fg = theme.muted_foreground;

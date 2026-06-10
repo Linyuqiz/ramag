@@ -3,7 +3,10 @@
 use gpui::{
     ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div, prelude::*, px,
 };
-use gpui_component::h_flex;
+use gpui_component::{
+    h_flex,
+    menu::{ContextMenuExt as _, PopupMenu},
+};
 use ramag_domain::entities::RedisType;
 
 use super::tree::VisibleRow;
@@ -25,7 +28,8 @@ impl KeyTreePanel {
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
         let is_namespace = row.is_namespace;
-        let is_leaf = row.leaf_type.is_some();
+        // SCAN 装载的 key 不带类型（leaf_type=None），叶子判定必须用 is_key
+        let is_leaf = row.is_key;
         let is_selected = is_leaf && selected.as_deref() == Some(row.full_path.as_str());
 
         let row_id = SharedString::from(format!("redis-tree-{}-{}", row.depth, row.full_path));
@@ -114,7 +118,21 @@ impl KeyTreePanel {
         } else {
             row_el = row_el.hover(move |this| this.bg(row_hover));
         }
-        row_el
+
+        // 右键菜单：删除 key / 删除前缀 / 清空当前 DB（按节点身份组合菜单项）
+        let entity_for_menu = cx.entity().clone();
+        let path_for_menu = row.full_path.clone();
+        let db = self.db;
+        row_el.context_menu(move |menu: PopupMenu, _, _| {
+            super::ops::node_context_menu(
+                menu,
+                entity_for_menu.clone(),
+                path_for_menu.clone(),
+                is_leaf,
+                is_namespace,
+                db,
+            )
+        })
     }
 }
 

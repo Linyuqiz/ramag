@@ -15,7 +15,10 @@ pub(super) struct TreeNode {
     pub(super) full_path: String,
     /// 子节点（按 label 排序：命名空间在前，叶子在后；同类按字母升序）
     pub(super) children: Vec<TreeNode>,
-    /// 该节点本身是否对应实际 key（叶子状态；可同时有 children）
+    /// 该节点本身是否对应实际 key（SCAN 不查类型，bare key 的 leaf_type 为 None，
+    /// 不能用 leaf_type.is_some() 判定叶子）
+    pub(super) is_key: bool,
+    /// key 的类型（None=未查询；仅用于类型徽标显示）
     pub(super) leaf_type: Option<RedisType>,
 }
 
@@ -31,6 +34,7 @@ pub(super) struct VisibleRow {
     pub(super) depth: usize,
     pub(super) label: String,
     pub(super) full_path: String,
+    pub(super) is_key: bool,
     pub(super) leaf_type: Option<RedisType>,
     pub(super) is_namespace: bool,
     pub(super) is_expanded: bool,
@@ -63,6 +67,7 @@ fn insert_path(
 
     if let Some(p) = nodes.iter().position(|n| n.label == part) {
         if is_last {
+            nodes[p].is_key = true;
             nodes[p].leaf_type = kind;
             nodes[p].full_path = full_key;
         } else {
@@ -73,10 +78,12 @@ fn insert_path(
             label: part.to_string(),
             full_path: path_so_far,
             children: Vec::new(),
+            is_key: false,
             leaf_type: None,
         };
         if is_last {
             new_node.full_path = full_key;
+            new_node.is_key = true;
             new_node.leaf_type = kind;
         } else {
             insert_path(&mut new_node.children, parts, idx + 1, full_key, kind);
@@ -104,7 +111,7 @@ pub(super) fn has_match_descendant(node: &TreeNode, query: &str) -> bool {
     if query.is_empty() {
         return true;
     }
-    if node.leaf_type.is_some() && node.full_path.to_lowercase().contains(query) {
+    if node.is_key && node.full_path.to_lowercase().contains(query) {
         return true;
     }
     for c in &node.children {
@@ -182,6 +189,32 @@ mod tests {
         assert!(has_match_descendant(&tree[0], "profile"));
         assert!(has_match_descendant(&tree[0], "1"));
         assert!(!has_match_descendant(&tree[0], "session"));
+    }
+
+    /// SCAN 装载的 bare key（key_type=None）必须仍被识别为叶子：
+    /// 右键删除菜单与搜索匹配都依赖 is_key，而非 leaf_type
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn bare_key_is_still_leaf() {
+        let keys = vec![KeyMeta::bare("111"), KeyMeta::bare("user:1")];
+        let tree = build_tree(&keys);
+        let root_111 = tree.iter().find(|n| n.label == "111").expect("有 111 节点");
+        assert!(root_111.is_key, "bare key 应被标记为叶子");
+        assert!(
+            root_111.leaf_type.is_none(),
+            "未查询类型时 leaf_type 保持 None"
+        );
+        assert!(
+            has_match_descendant(root_111, "111"),
+            "搜索应能命中 bare key"
+        );
+
+        let user = tree
+            .iter()
+            .find(|n| n.label == "user")
+            .expect("有 user 节点");
+        assert!(!user.is_key, "纯命名空间不是叶子");
+        assert!(user.children[0].is_key);
     }
 
     #[test]

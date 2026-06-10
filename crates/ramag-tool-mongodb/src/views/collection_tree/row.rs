@@ -3,7 +3,10 @@
 use gpui::{
     AnyElement, Context, IntoElement, ParentElement, SharedString, Styled, div, prelude::*, px,
 };
-use gpui_component::{ActiveTheme, Icon, IconName, Sizable as _, h_flex};
+use gpui_component::{
+    ActiveTheme, Icon, IconName, Sizable as _, h_flex,
+    menu::{ContextMenuExt as _, PopupMenu},
+};
 
 use super::{CollectionTreePanel, is_system_db};
 
@@ -46,6 +49,8 @@ impl CollectionTreePanel {
             TreeRow::Database { name, is_expanded } => {
                 let arrow = if *is_expanded { "▾" } else { "▸" };
                 let name_for_click = name.clone();
+                let name_for_menu = name.clone();
+                let entity_for_menu = cx.entity().clone();
                 h_flex()
                     .id(SharedString::from(format!("mongo-db-row-{name}")))
                     .h(px(28.0))
@@ -77,6 +82,13 @@ impl CollectionTreePanel {
                             this.toggle_database(&name_for_click, cx)
                         }),
                     )
+                    .context_menu(move |menu: PopupMenu, _, _| {
+                        super::ops::database_context_menu(
+                            menu,
+                            entity_for_menu.clone(),
+                            name_for_menu.clone(),
+                        )
+                    })
                     .into_any_element()
             }
             TreeRow::DbPlaceholder { text, is_error } => div()
@@ -97,6 +109,10 @@ impl CollectionTreePanel {
             } => {
                 let db_for_click = db.clone();
                 let name_for_click = name.clone();
+                let db_for_menu = db.clone();
+                let name_for_menu = name.clone();
+                let is_view_for_menu = *is_view;
+                let entity_for_menu = cx.entity().clone();
                 let selected = *is_selected;
                 let mut row = h_flex()
                     .id(SharedString::from(format!("mongo-coll-row-{db}-{name}")))
@@ -138,7 +154,16 @@ impl CollectionTreePanel {
                 if selected {
                     row = row.bg(accent);
                 }
-                row.into_any_element()
+                row.context_menu(move |menu: PopupMenu, _, _| {
+                    super::ops::collection_context_menu(
+                        menu,
+                        entity_for_menu.clone(),
+                        db_for_menu.clone(),
+                        name_for_menu.clone(),
+                        is_view_for_menu,
+                    )
+                })
+                .into_any_element()
             }
             TreeRow::GlobalPlaceholder { text, is_error } => div()
                 .h(px(28.0))

@@ -8,7 +8,7 @@ use gpui::{
     ClickEvent, Context, IntoElement, ParentElement, Render, Styled, Window, div, px, uniform_list,
 };
 use gpui_component::{
-    ActiveTheme, Icon, IconName, Selectable as _, Sizable as _,
+    ActiveTheme, Icon, IconName, Selectable as _, Sizable as _, WindowExt as _,
     button::{Button, ButtonVariants as _},
     h_flex,
     input::Input,
@@ -22,7 +22,11 @@ use super::{TableTreePanel, TreeEvent};
 use crate::sql_completion::is_system_schema;
 
 impl Render for TableTreePanel {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // 右键操作（清空/删除）异步完成的 toast 在这里推送
+        if let Some(n) = self.pending_notification.take() {
+            window.push_notification(n, cx);
+        }
         let muted_fg = cx.theme().muted_foreground;
         let red = gpui::red();
 

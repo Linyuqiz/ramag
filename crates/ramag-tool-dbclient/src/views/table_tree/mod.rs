@@ -1,5 +1,6 @@
 //! 表树面板：连接下的 schema → tables
 
+mod ops;
 mod render;
 mod row;
 
@@ -37,6 +38,8 @@ pub struct TableTreePanel {
     pub(super) active_schema: Option<String>,
     /// 树体虚拟列表滚动句柄
     pub(super) uniform_scroll: UniformListScrollHandle,
+    /// 右键操作（清空/删除）完成后的 toast，下次 render 推送
+    pub(super) pending_notification: Option<gpui_component::notification::Notification>,
     pub(super) _subscriptions: Vec<gpui::Subscription>,
 }
 
@@ -105,6 +108,7 @@ impl TableTreePanel {
             editor_visible: false,
             active_schema: None,
             uniform_scroll: UniformListScrollHandle::new(),
+            pending_notification: None,
             _subscriptions: subs,
         }
     }
@@ -206,13 +210,14 @@ impl TableTreePanel {
             cx.notify();
             return;
         }
-        self.expanded.insert(
-            schema_name.clone(),
-            SchemaTables {
-                loading: true,
-                ..Default::default()
-            },
-        );
+        self.load_tables_for(schema_name, cx);
+    }
+
+    /// （重新）拉取某 schema 的表列表；entry 不存在则插入（展开态保持不变）
+    pub(super) fn load_tables_for(&mut self, schema_name: String, cx: &mut Context<Self>) {
+        let entry = self.expanded.entry(schema_name.clone()).or_default();
+        entry.loading = true;
+        entry.error = None;
         cx.notify();
 
         let Some(conn) = self.connection.clone() else {

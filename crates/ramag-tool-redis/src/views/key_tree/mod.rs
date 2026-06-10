@@ -1,6 +1,7 @@
 //! Key 树：SCAN 0→0 累计到 MAX_KEYS 后客户端过滤；按 `:` 折叠命名空间。
 //! 同时是叶子+命名空间的节点（`user` 与 `user:1` 共存）单击仅展开，类型 badge 才加载值
 
+mod ops;
 mod render;
 mod tree;
 
@@ -44,6 +45,19 @@ pub enum KeyTreeEvent {
     RequestCreate,
     /// 用户切换 DB（0-15）；由 Session 处理（同步详情/CLI/监控等子组件 + 重新加载树）
     DbSelected(u8),
+    /// 树侧右键删除完成（key / 前缀 / 整库）；Session 据此清理详情面板
+    KeysDeleted(DeletedScope),
+}
+
+/// 树侧删除操作的影响范围
+#[derive(Debug, Clone)]
+pub enum DeletedScope {
+    /// 单个 key
+    Key(String),
+    /// 前缀路径（如 "user"，实际删除 user:* 全部）
+    Prefix(String),
+    /// 当前 DB 整库（FLUSHDB）
+    Db,
 }
 
 pub struct KeyTreePanel {
@@ -68,6 +82,8 @@ pub struct KeyTreePanel {
     /// 虚拟列表滚动句柄：树扁平化后用 uniform_list 行级虚拟化，
     /// 支持 5w+ key 仍流畅
     uniform_scroll: UniformListScrollHandle,
+    /// 右键删除操作完成后的 toast，下次 render 推送
+    pending_notification: Option<gpui_component::notification::Notification>,
     _subscriptions: Vec<gpui::Subscription>,
 }
 
@@ -103,6 +119,7 @@ impl KeyTreePanel {
             selected: None,
             truncated: false,
             uniform_scroll: UniformListScrollHandle::new(),
+            pending_notification: None,
             _subscriptions: subs,
         }
     }
@@ -227,7 +244,7 @@ impl KeyTreePanel {
         in_search: bool,
         out: &mut Vec<VisibleRow>,
     ) {
-        let leaf_match = node.leaf_type.is_some() && self.matches_query(&node.full_path);
+        let leaf_match = node.is_key && self.matches_query(&node.full_path);
         let descendant_match = node.is_namespace() && has_match_descendant(node, &self.query);
 
         if in_search && !leaf_match && !descendant_match {
@@ -245,6 +262,7 @@ impl KeyTreePanel {
             depth,
             label: node.label.clone(),
             full_path: node.full_path.clone(),
+            is_key: node.is_key,
             leaf_type: node.leaf_type,
             is_namespace,
             is_expanded,
@@ -272,7 +290,12 @@ impl KeyTreePanel {
 }
 
 impl Render for KeyTreePanel {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // 右键删除操作异步完成的 toast 在这里推送
+        if let Some(n) = self.pending_notification.take() {
+            use gpui_component::WindowExt as _;
+            window.push_notification(n, cx);
+        }
         let theme = cx.theme();
         let muted_fg = theme.muted_foreground;
         let fg = theme.foreground;
@@ -284,7 +307,7 @@ impl Render for KeyTreePanel {
         let total = self.keys.len();
         let in_search = !self.query.is_empty();
         let visible = self.flatten_visible();
-        let visible_leaf_count = visible.iter().filter(|r| r.leaf_type.is_some()).count();
+        let visible_leaf_count = visible.iter().filter(|r| r.is_key).count();
         let selected = self.selected.clone();
 
         let count_label = if self.config.is_none() {
