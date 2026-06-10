@@ -18,5 +18,4 @@ pub use home_view::{HomeEvent, HomeView};
 pub use shell::Shell;
 pub use theme::{
     Mode, StorageGlobal, apply_theme, current_mode, init_theme, on_system_appearance_changed,
-    toggle_theme,
 };

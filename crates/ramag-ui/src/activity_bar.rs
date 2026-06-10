@@ -9,9 +9,7 @@ use gpui::{
 use gpui_component::{
     ActiveTheme, Icon, IconName,
     button::{Button, ButtonVariants as _},
-    h_flex,
-    menu::{DropdownMenu as _, PopupMenuItem},
-    v_flex,
+    h_flex, v_flex,
 };
 use ramag_app::ToolRegistry;
 
@@ -126,65 +124,32 @@ impl Render for ActivityBar {
             ));
         }
 
-        // 底部设置按钮
+        // 底部：太阳/月亮主题切换（暗色显太阳 → 点击切浅色，反之亦然）+ 设置占位
         container = container.child(div().flex_1());
-        let current_mode = crate::theme::current_mode(cx);
-        container =
-            container.child(
-                h_flex()
-                    .w(px(BAR_WIDTH))
-                    .h(px(ITEM_HEIGHT))
-                    .items_center()
-                    .justify_center()
-                    .child(div().w(px(2.0)).h(px(20.0)).bg(transparent))
-                    .child(
-                        Button::new("settings")
-                            .ghost()
-                            .icon(IconName::Settings)
-                            // BottomLeft anchor 让菜单弹在按钮上方，避免子菜单遮住按钮
-                            .dropdown_menu_with_anchor(
-                                gpui::Anchor::BottomLeft,
-                                move |menu, window, cx| {
-                                    // 文本前缀「✓ 」标记当前项，避免 PopupMenuItem.checked() 把整行染蓝
-                                    let mark = move |m: crate::theme::Mode| {
-                                        if current_mode == m { "✓ " } else { "  " }
-                                    };
-                                    menu.submenu("主题", window, cx, move |sub, _, _| {
-                                        sub.item(
-                                            PopupMenuItem::new(format!(
-                                                "{}浅色",
-                                                mark(crate::theme::Mode::Light)
-                                            ))
-                                            .icon(IconName::Sun)
-                                            .on_click(|_, _, app| {
-                                                set_theme(crate::theme::Mode::Light, app)
-                                            }),
-                                        )
-                                        .item(
-                                            PopupMenuItem::new(format!(
-                                                "{}暗色",
-                                                mark(crate::theme::Mode::Dark)
-                                            ))
-                                            .icon(IconName::Moon)
-                                            .on_click(|_, _, app| {
-                                                set_theme(crate::theme::Mode::Dark, app)
-                                            }),
-                                        )
-                                        .item(
-                                            PopupMenuItem::new(format!(
-                                                "{}One Dark Modern",
-                                                mark(crate::theme::Mode::OneDarkModern)
-                                            ))
-                                            .icon(IconName::Moon)
-                                            .on_click(|_, _, app| {
-                                                set_theme(crate::theme::Mode::OneDarkModern, app)
-                                            }),
-                                        )
-                                    })
-                                },
-                            ),
-                    ),
-            );
+        let toggle_icon = match crate::theme::current_mode(cx) {
+            crate::theme::Mode::Dark => IconName::Sun,
+            crate::theme::Mode::Light => IconName::Moon,
+        };
+        container = container.child(activity_item(
+            "theme-toggle",
+            Icon::new(toggle_icon),
+            false,
+            accent,
+            transparent,
+            |_: &ClickEvent, _, app| {
+                // 点击时现取当前模式，避免渲染后主题被系统外观联动改过导致切错方向
+                let next = crate::theme::current_mode(app).toggled();
+                set_theme(next, app);
+            },
+        ));
+        container = container.child(activity_item(
+            "settings",
+            Icon::new(IconName::Settings),
+            false,
+            accent,
+            transparent,
+            |_: &ClickEvent, _, _| {},
+        ));
 
         container
     }
@@ -202,7 +167,6 @@ fn set_theme(mode: crate::theme::Mode, app: &mut gpui::App) {
         let value = match mode {
             crate::theme::Mode::Dark => "dark".to_string(),
             crate::theme::Mode::Light => "light".to_string(),
-            crate::theme::Mode::OneDarkModern => "one-dark-modern".to_string(),
         };
         app.background_executor()
             .spawn(async move {

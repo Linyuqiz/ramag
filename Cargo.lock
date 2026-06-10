@@ -6404,7 +6404,6 @@ dependencies = [
  "rust-embed",
  "schemars",
  "serde",
- "serde_json",
  "tracing",
 ]
 

@@ -1,10 +1,9 @@
-//! VSCode 风格暗 / 亮主题。`init_theme` 启动时初始化，`toggle_theme` 切换
+//! VSCode 风格暗 / 亮主题。`init_theme` 启动时初始化，ActivityBar 太阳/月亮按钮切换
 
-use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{App, Global, Hsla, WindowAppearance, hsla};
-use gpui_component::{Theme, ThemeConfig, ThemeMode, ThemeSet};
+use gpui_component::{Theme, ThemeMode};
 use ramag_domain::traits::Storage;
 
 /// 让 UI 层切主题时访问 Storage 做持久化
@@ -30,17 +29,10 @@ pub fn set_following_system(cx: &mut App, follow: bool) {
     cx.set_global(FollowSystem(follow));
 }
 
-/// 当前主题选择。OneDarkModern 与 Dark 的底层 `ThemeMode` 都是 Dark，
-/// 仅靠 `Theme::mode` 区分不了，用本全局记录用户实际选的是哪个
-pub struct ThemeChoice(pub Mode);
-impl Global for ThemeChoice {}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Dark,
     Light,
-    /// One Dark Modern（暗色系，独立配色 + 语法高亮，从内嵌 JSON 加载）
-    OneDarkModern,
 }
 
 impl Mode {
@@ -48,7 +40,6 @@ impl Mode {
         match self {
             Mode::Dark => Mode::Light,
             Mode::Light => Mode::Dark,
-            Mode::OneDarkModern => Mode::Light,
         }
     }
 }
@@ -65,7 +56,6 @@ pub fn init_theme(preference: Option<&str>, appearance: WindowAppearance, cx: &m
     let (mode, follow) = match preference {
         Some("dark") => (Mode::Dark, false),
         Some("light") => (Mode::Light, false),
-        Some("one-dark-modern") => (Mode::OneDarkModern, false),
         _ => (mode_from_appearance(appearance), true),
     };
     apply_theme(mode, cx);
@@ -94,10 +84,7 @@ pub fn apply_theme(mode: Mode, cx: &mut App) {
             Theme::change(ThemeMode::Light, None, cx);
             apply_light_palette(Theme::global_mut(cx));
         }
-        Mode::OneDarkModern => apply_one_dark_modern(cx),
     }
-    // 记录当前选择，供 current_mode 区分 Dark / OneDarkModern（两者底层 ThemeMode 都是 Dark）
-    cx.set_global(ThemeChoice(mode));
     // 命令编辑器背景对齐主背景：gpui 默认 editor.background 是纯黑，浮在主背景上显突兀
     unify_editor_background(cx);
 }
@@ -115,48 +102,8 @@ fn unify_editor_background(cx: &mut App) {
     theme.highlight_theme = Arc::new(hl);
 }
 
-/// One Dark Modern：从内嵌 JSON 解析配色 + 语法高亮，apply_config 一步应用
-/// （colors 落到 UI 字段，highlight 落到 highlight_theme；代码编辑器与 diff 共用同一份）
-fn apply_one_dark_modern(cx: &mut App) {
-    const ODP_JSON: &str = include_str!("one_dark_modern.json");
-    match parse_first_theme(ODP_JSON) {
-        Some(cfg) => {
-            // 先切到内置暗色建立基线，再用 ODP config 覆盖：未被 JSON 覆盖的字段落到
-            // 协调的暗色默认值，而非残留上一个主题（如切换时 ActivityBar 侧栏色串味）
-            Theme::change(ThemeMode::Dark, None, cx);
-            Theme::global_mut(cx).apply_config(&Rc::new(cfg));
-        }
-        None => {
-            // JSON 损坏兜底：退回内置暗色，不让主题整体崩
-            tracing::error!("parse one_dark_modern.json failed, fallback to dark");
-            Theme::change(ThemeMode::Dark, None, cx);
-            apply_dark_palette(Theme::global_mut(cx));
-        }
-    }
-}
-
-/// 解析 ThemeSet 取首个主题配置
-fn parse_first_theme(json: &str) -> Option<ThemeConfig> {
-    serde_json::from_str::<ThemeSet>(json)
-        .ok()
-        .and_then(|set| set.themes.into_iter().next())
-}
-
-pub fn toggle_theme(cx: &mut App) -> Mode {
-    let current = current_mode(cx);
-    let next = current.toggled();
-    apply_theme(next, cx);
-    cx.refresh_windows();
-    next
-}
-
 pub fn current_mode(cx: &App) -> Mode {
-    // 优先用记录的选择（区分 Dark / OneDarkModern）；未设时回退到底层 ThemeMode
-    if let Some(choice) = cx.try_global::<ThemeChoice>() {
-        return choice.0;
-    }
-    let theme = Theme::global(cx);
-    if matches!(theme.mode, ThemeMode::Light) {
+    if matches!(Theme::global(cx).mode, ThemeMode::Light) {
         Mode::Light
     } else {
         Mode::Dark
@@ -296,26 +243,10 @@ impl Opacity for Hsla {
 mod tests {
     use super::*;
 
-    /// 内嵌的 One Dark Modern JSON 必须能解析为 ThemeConfig，且含暗色 + 语法高亮段，
-    /// 否则切到该主题会静默退回暗色（防字段名拼错 / JSON 损坏）
+    /// ActivityBar 太阳/月亮按钮靠 toggled 在暗 / 亮间互切
     #[test]
-    #[allow(clippy::expect_used)]
-    fn one_dark_modern_json_parses() {
-        const ODP: &str = include_str!("one_dark_modern.json");
-        let cfg = parse_first_theme(ODP).expect("one_dark_modern.json 应能解析为 ThemeConfig");
-        assert_eq!(cfg.name.as_ref(), "One Dark Modern");
-        assert!(cfg.mode.is_dark(), "One Dark Modern 应为暗色模式");
-        assert!(
-            cfg.highlight.is_some(),
-            "应含语法高亮段（One Dark Modern 招牌）"
-        );
-    }
-
-    #[test]
-    fn mode_toggle_covers_one_dark_modern() {
-        // 三态 toggled 不 panic、各有去向（toggle_theme 死代码但仍需编译正确）
+    fn mode_toggle_roundtrip() {
         assert_eq!(Mode::Dark.toggled(), Mode::Light);
         assert_eq!(Mode::Light.toggled(), Mode::Dark);
-        assert_eq!(Mode::OneDarkModern.toggled(), Mode::Light);
     }
 }
