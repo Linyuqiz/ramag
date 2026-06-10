@@ -9,9 +9,11 @@ use gpui::{
 
 use crate::actions::{NewQueryTab, ToggleHistory};
 use gpui_component::{
-    ActiveTheme, IconName, Sizable as _, WindowExt as _,
+    ActiveTheme, Disableable as _, IconName, Sizable as _, WindowExt as _,
     button::{Button, ButtonVariants as _},
-    h_flex, v_flex,
+    h_flex,
+    menu::{DropdownMenu as _, PopupMenuItem},
+    v_flex,
 };
 use parking_lot::RwLock;
 use ramag_app::ConnectionService;
@@ -283,6 +285,18 @@ impl QueryPanel {
         self.add_tab(window, cx);
         self.prefill_active_sql_and_run(sql, window, cx);
     }
+
+    /// 把示例 SQL 插入当前激活 Tab 的编辑器（Tab 栏「示例」下拉用）
+    fn insert_example_into_active(
+        &mut self,
+        sql: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(tab) = self.tabs.get(self.active).cloned() {
+            tab.update(cx, |t, cx| t.insert_example(sql, window, cx));
+        }
+    }
 }
 
 impl Render for QueryPanel {
@@ -417,13 +431,55 @@ impl Render for QueryPanel {
                                         )),
                                 ),
                         )
-                        // 右：格式化 / EXPLAIN（历史改弹框，不放这里）
+                        // 右：示例 / 格式化 / EXPLAIN（历史改弹框，不放这里）
                         .child(
                             h_flex()
                                 .flex_none()
                                 .items_center()
                                 .border_l_1()
                                 .border_color(border)
+                                .child({
+                                    let entity = cx.entity();
+                                    let driver = self.connection.as_ref().map(|c| c.driver);
+                                    // 模板个性化：用当前 Tab 最近点开的表名，没有则占位
+                                    let table = self
+                                        .tabs
+                                        .get(self.active)
+                                        .and_then(|t| {
+                                            t.read(cx)
+                                                .pinned_target
+                                                .as_ref()
+                                                .map(|(_, table)| table.clone())
+                                        })
+                                        .unwrap_or_default();
+                                    Button::new("sql-examples")
+                                        .ghost()
+                                        .small()
+                                        .icon(ramag_ui::icons::scroll_text())
+                                        .tooltip("常用 SQL 示例（插入编辑器）")
+                                        .disabled(driver.is_none())
+                                        .dropdown_menu(move |menu, _, _| {
+                                            let Some(driver) = driver else {
+                                                return menu;
+                                            };
+                                            let mut m = menu;
+                                            for (label, sql) in
+                                                super::query_tab::sql_examples(driver, &table)
+                                            {
+                                                let e = entity.clone();
+                                                m = m.item(PopupMenuItem::new(label).on_click(
+                                                    move |_, window, app| {
+                                                        e.update(app, |panel, cx| {
+                                                            panel.insert_example_into_active(
+                                                                &sql, window, cx,
+                                                            );
+                                                        });
+                                                    },
+                                                ));
+                                            }
+                                            m
+                                        })
+                                })
                                 .child(
                                     Button::new("format-sql")
                                         .ghost()

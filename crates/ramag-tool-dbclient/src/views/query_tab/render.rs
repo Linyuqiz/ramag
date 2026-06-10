@@ -15,7 +15,7 @@ use gpui_component::{
 };
 
 use super::QueryTab;
-use super::sql_utils::format_elapsed;
+use super::sql_utils::{AUTO_LIMIT, format_elapsed};
 use crate::actions::{
     ExplainQuery, ExportCsv, ExportJson, ExportMarkdown, FormatSql, RunQuery, RunStatementAtCursor,
     SaveSqlFile,
@@ -57,6 +57,22 @@ impl Render for QueryTab {
         let has_selected = has_multi_selected || panel_for_btn.selected_cell().is_some();
         let target_is_view = panel_for_btn.target_is_view();
         let _ = panel_for_btn;
+
+        // 分页控件：只在"翻过页或还有下一页"时显示，单页结果不打扰
+        let pager_ui: Option<(usize, bool, String)> = self.pager.as_ref().and_then(|p| {
+            if p.page == 0 && !p.has_more {
+                return None;
+            }
+            let label = match self.result.read(cx).state() {
+                ResultState::Ok(qr) if !qr.rows.is_empty() => {
+                    let start = p.page * AUTO_LIMIT + 1;
+                    let end = p.page * AUTO_LIMIT + qr.rows.len();
+                    format!("{start}–{end} 行")
+                }
+                _ => format!("第 {} 页", p.page + 1),
+            };
+            Some((p.page, p.has_more, label))
+        });
 
         v_flex()
             .size_full()
@@ -172,6 +188,40 @@ impl Render for QueryTab {
                     })
                     .when_some(result_summary, |this, summary| {
                         this.child(div().text_xs().text_color(muted_fg).child(summary))
+                    })
+                    .when_some(pager_ui, |this, (page, has_more, label)| {
+                        this.child(
+                            h_flex()
+                                .items_center()
+                                .gap_1()
+                                .child(
+                                    Button::new("pager-prev")
+                                        .ghost()
+                                        .small()
+                                        .icon(IconName::ChevronLeft)
+                                        .tooltip("上一页")
+                                        .disabled(page == 0 || running)
+                                        .on_click(cx.listener(
+                                            move |this, _: &ClickEvent, _, cx| {
+                                                this.handle_page(page.saturating_sub(1), cx);
+                                            },
+                                        )),
+                                )
+                                .child(div().text_xs().text_color(muted_fg).child(label))
+                                .child(
+                                    Button::new("pager-next")
+                                        .ghost()
+                                        .small()
+                                        .icon(IconName::ChevronRight)
+                                        .tooltip("下一页")
+                                        .disabled(!has_more || running)
+                                        .on_click(cx.listener(
+                                            move |this, _: &ClickEvent, _, cx| {
+                                                this.handle_page(page + 1, cx);
+                                            },
+                                        )),
+                                ),
+                        )
                     })
                     .child({
                         let can_insert = self.connection.is_some()

@@ -126,6 +126,14 @@ impl MongoQueryTab {
         cx.notify();
     }
 
+    /// 编辑器内容整体替换为给定命令（示例插入用，与点树 prefill 的覆盖语义一致）
+    pub fn set_command(&mut self, cmd: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.editor.update(cx, |s, cx| {
+            s.set_value(cmd.to_string(), window, cx);
+        });
+        cx.notify();
+    }
+
     /// 设置当前 db（点击树上 db 行时调）
     pub fn set_database(&mut self, db: String, cx: &mut Context<Self>) {
         if self.database != db {

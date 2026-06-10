@@ -13,7 +13,9 @@ use gpui::{
 use gpui_component::{
     ActiveTheme, IconName, Sizable as _,
     button::{Button, ButtonVariants as _},
-    h_flex, v_flex,
+    h_flex,
+    menu::{DropdownMenu as _, PopupMenuItem},
+    v_flex,
 };
 use ramag_app::MongoService;
 use ramag_domain::entities::ConnectionConfig;
@@ -192,6 +194,19 @@ impl MongoQueryPanel {
     pub fn tab_count(&self) -> usize {
         self.tabs.len()
     }
+
+    /// 把示例命令写入当前激活 Tab 的编辑器（整体替换）；没 Tab 时先建一个
+    fn apply_example(&mut self, cmd: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if self.tabs.is_empty() {
+            self.add_tab(window, cx);
+        }
+        let Some(tab) = self.tabs.get(self.active).cloned() else {
+            return;
+        };
+        tab.update(cx, |t, cx| t.set_command(cmd, window, cx));
+        self.focus_active_editor(window, cx);
+        cx.notify();
+    }
 }
 
 impl Render for MongoQueryPanel {
@@ -322,13 +337,42 @@ impl Render for MongoQueryPanel {
                                         )),
                                 ),
                         )
-                        // 右：格式化（运行已移到结果区工具栏，与 dbclient 同位）
+                        // 右：示例 + 格式化（运行已移到结果区工具栏，与 dbclient 同位）
                         .child(
                             h_flex()
                                 .flex_none()
                                 .items_center()
                                 .border_l_1()
                                 .border_color(border)
+                                .child({
+                                    let entity = cx.entity();
+                                    let coll = self
+                                        .tabs
+                                        .get(self.active)
+                                        .and_then(|t| t.read(cx).collection.clone())
+                                        .unwrap_or_default();
+                                    Button::new("mongo-examples")
+                                        .ghost()
+                                        .small()
+                                        .icon(icons::scroll_text())
+                                        .tooltip("常用命令示例（替换编辑器内容）")
+                                        .dropdown_menu(move |menu, _, _| {
+                                            let mut m = menu;
+                                            for (label, cmd) in
+                                                crate::views::examples::mongo_examples(&coll)
+                                            {
+                                                let e = entity.clone();
+                                                m = m.item(PopupMenuItem::new(label).on_click(
+                                                    move |_, window, app| {
+                                                        e.update(app, |panel, cx| {
+                                                            panel.apply_example(&cmd, window, cx);
+                                                        });
+                                                    },
+                                                ));
+                                            }
+                                            m
+                                        })
+                                })
                                 .child(
                                     Button::new("mongo-format")
                                         .ghost()

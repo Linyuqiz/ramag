@@ -10,6 +10,7 @@ use ramag_domain::entities::Query;
 use tracing::{error, info};
 
 use super::QueryTab;
+use super::paging::{Pager, page_sql, paging_base_sql};
 use super::sql_utils::{
     AUTO_LIMIT, extract_statement_at_cursor, inject_limits, make_short_title,
     parse_mysql_error_line,
@@ -91,12 +92,51 @@ impl QueryTab {
         // 自动 LIMIT 注入：仅普通 run 走，且用户没在工具条关掉
         // EXPLAIN 不注入；driver 端的 Query.auto_limit 作为兜底（防止其他路径漏掉）
         let auto_limit_active = is_run && self.auto_limit_enabled;
+        // 分页资格：注入 LIMIT 的单条裸 SELECT 记下原始语句，工具条翻页时以它重写 OFFSET
+        self.pager = if auto_limit_active {
+            paging_base_sql(&sql_to_run, conn.driver).map(|base_sql| Pager {
+                base_sql,
+                page: 0,
+                has_more: false,
+            })
+        } else {
+            None
+        };
         let sql_to_run = if auto_limit_active {
             inject_limits(&sql_to_run, AUTO_LIMIT, conn.driver)
         } else {
             sql_to_run
         };
+        self.execute_query(conn, sql_to_run, title_sql, is_run, auto_limit_active, cx);
+    }
 
+    /// 工具条翻页：用 pager.base_sql 重写 LIMIT/OFFSET 重跑，不重置分页状态
+    pub(super) fn handle_page(&mut self, next_page: usize, cx: &mut Context<Self>) {
+        if self.running {
+            return;
+        }
+        let Some(conn) = self.connection.clone() else {
+            return;
+        };
+        let Some(pager) = self.pager.as_mut() else {
+            return;
+        };
+        pager.page = next_page;
+        let sql = page_sql(&pager.base_sql, AUTO_LIMIT, next_page);
+        let title = pager.base_sql.clone();
+        self.execute_query(conn, sql, title, true, true, cx);
+    }
+
+    /// submit_sql / handle_page 共用的执行核心：状态置忙 + 后台执行 + 回调落结果
+    fn execute_query(
+        &mut self,
+        conn: ramag_domain::entities::ConnectionConfig,
+        sql_to_run: String,
+        title_sql: String,
+        is_run: bool,
+        auto_limit_active: bool,
+        cx: &mut Context<Self>,
+    ) {
         self.running = true;
         self.query_start = Some(Instant::now());
         self.result.update(cx, |r, cx| {
@@ -154,6 +194,10 @@ impl QueryTab {
                 match outcome {
                     Ok(qr) => {
                         info!(rows = qr.rows.len(), elapsed_ms = qr.elapsed_ms, "query ok");
+                        // 本页打满页大小 ⇒ 可能还有下一页（不跑 COUNT，按行数推断）
+                        if let Some(p) = &mut this.pager {
+                            p.has_more = qr.rows.len() >= AUTO_LIMIT;
+                        }
                         this.clear_sql_diagnostics(cx);
                         this.short_title = Some(make_short_title(&title_sql));
                         if is_run {

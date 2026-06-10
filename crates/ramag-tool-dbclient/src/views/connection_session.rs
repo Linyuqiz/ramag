@@ -86,13 +86,11 @@ impl ConnectionSession {
                     queries_clone.update(cx, |q, cx| {
                         q.set_active_schema(Some(schema.clone()), cx);
                     });
-                    // 按 driver 方言加引号（mysql 反引号 / pg 双引号）
+                    // 按 driver 方言加引号（mysql 反引号 / pg 双引号）。
+                    // 不显式写 LIMIT：交给自动注入（同样上限），裸 SELECT 才有分页资格
                     let qschema = driver_kind.quote_identifier(schema);
                     let qtable = driver_kind.quote_identifier(table);
-                    let sql = format!(
-                        "SELECT * FROM {qschema}.{qtable} LIMIT {};",
-                        super::query_tab::AUTO_LIMIT,
-                    );
+                    let sql = format!("SELECT * FROM {qschema}.{qtable};");
                     let target = Some((schema.clone(), table.clone()));
                     queries_clone.update(cx, |q, cx| {
                         q.prefill_active_sql_and_run_with_target(sql, target, window, cx)

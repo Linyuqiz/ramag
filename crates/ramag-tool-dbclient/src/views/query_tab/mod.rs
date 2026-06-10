@@ -1,11 +1,13 @@
 //! 单个查询标签：编辑器 + 工具条 + 结果面板
 
 mod actions;
+mod examples;
+mod paging;
 mod render;
 mod sql_utils;
 
-// 为同 crate 其它模块（如 connection_session）保留旧路径：让 `super::query_tab::AUTO_LIMIT` 仍可用
-pub(crate) use sql_utils::AUTO_LIMIT;
+// QueryPanel 的 Tab 栏「示例」下拉用
+pub(crate) use examples::sql_examples;
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -54,6 +56,8 @@ pub struct QueryTab {
     pub(super) show_editor: bool,
     /// 自动 LIMIT 注入开关
     pub(super) auto_limit_enabled: bool,
+    /// 分页状态：本次 run 命中"未手写 LIMIT 的单条 SELECT"时为 Some
+    pub(super) pager: Option<paging::Pager>,
     /// 编辑器变化订阅 keep-alive
     pub(super) _editor_sub: gpui::Subscription,
 }
@@ -120,6 +124,7 @@ impl QueryTab {
             show_editor: true,
             // 默认开启 LIMIT 自动注入；用户可在工具条切换
             auto_limit_enabled: true,
+            pager: None,
             _editor_sub: editor_sub,
         }
     }
@@ -158,6 +163,8 @@ impl QueryTab {
             .and_then(|c| c.database.clone())
             .filter(|s| !s.is_empty());
         self.connection = conn.clone();
+        // 旧连接的分页状态不能带到新连接（base_sql 已不可信）
+        self.pager = None;
         // 同步给 ResultPanel：单元格编辑弹框需要最新的连接来发 UPDATE
         let svc = self.service.clone();
         self.result.update(cx, |r, _| {
@@ -191,6 +198,8 @@ impl QueryTab {
             .update(cx, |state, cx| state.set_value(sql, window, cx));
         // 用户改了 SQL 就清掉之前的 pinned_target：行内编辑不应再用旧目标表
         self.pinned_target = None;
+        // 编辑器被整体替换后旧分页状态作废（避免"下一页"重跑已被换掉的 SQL）
+        self.pager = None;
         // set_value 不发 InputEvent::Change（emit_events=false），手动触发预拉
         self.prefetch_columns_for_used_tables(cx);
         cx.notify();
@@ -199,6 +208,37 @@ impl QueryTab {
     /// 对外暴露：让其他视图（如点表树后）触发执行
     pub fn run(&mut self, cx: &mut Context<Self>) {
         self.handle_run(cx);
+    }
+
+    /// 把示例 SQL 写入编辑器：空编辑器整体替换，非空在光标处插入并按前后文补换行，
+    /// 避免文首插入产生空行、或与既有语句粘在同一行
+    pub(super) fn insert_example(
+        &mut self,
+        sql: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (value, cursor) = {
+            let state = self.editor.read(cx);
+            (state.value().to_string(), state.cursor())
+        };
+        self.editor.update(cx, |state, cx| {
+            if value.trim().is_empty() {
+                state.set_value(sql.to_string(), window, cx);
+            } else {
+                // cursor 是 byte offset，防御性对齐到 char 边界
+                let mut at = cursor.min(value.len());
+                while at > 0 && !value.is_char_boundary(at) {
+                    at -= 1;
+                }
+                let text = examples::wrap_for_insert(&value[..at], &value[at..], sql);
+                state.insert(text, window, cx);
+            }
+            state.focus(window, cx);
+        });
+        // set_value / insert 不发 Change 事件，手动触发列结构预拉（与 set_sql 一致）
+        self.prefetch_columns_for_used_tables(cx);
+        cx.notify();
     }
 
     /// 聚焦编辑器（关闭 / 切换 Tab 后由 QueryPanel 调用，避免用户再点一下）

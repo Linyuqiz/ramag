@@ -68,7 +68,7 @@ fn inject_limit_one(stmt: &str, max_rows: usize) -> String {
 
 /// 检测 SQL 中是否有顶层（不在括号子查询里）的关键字（如 LIMIT）
 /// 简化处理：跳过字符串/反引号/注释，扫描 keyword 边界
-fn has_top_level_keyword(sql_upper: &str, keyword: &str) -> bool {
+pub(super) fn has_top_level_keyword(sql_upper: &str, keyword: &str) -> bool {
     let bytes = sql_upper.as_bytes();
     let kw = keyword.as_bytes();
     let mut depth: i32 = 0;
