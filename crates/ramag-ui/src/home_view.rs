@@ -50,13 +50,19 @@ impl Render for HomeView {
         let bg = theme.background;
 
         v_flex().size_full().bg(bg).overflow_y_scrollbar().child(
-            v_flex().size_full().items_center().pt(px(96.0)).child(
-                v_flex()
-                    .w_full()
-                    .max_w(px(840.0))
-                    .px(px(40.0))
-                    .child(render_logo(mono, accent, muted_fg)),
-            ),
+            v_flex()
+                .size_full()
+                .items_center()
+                .justify_center()
+                // 光学居中：底部留白把重心抬到几何中心上方约 120px，避免视觉偏低
+                .pb(px(240.0))
+                .child(
+                    v_flex()
+                        .w_full()
+                        .max_w(px(840.0))
+                        .px(px(40.0))
+                        .child(render_logo(mono, accent, muted_fg)),
+                ),
         )
     }
 }
