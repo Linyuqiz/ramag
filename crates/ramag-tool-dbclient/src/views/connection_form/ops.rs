@@ -8,11 +8,12 @@ use ramag_domain::entities::{ConnectionConfig, ConnectionId, DriverKind};
 use tracing::{error, info};
 
 use super::{
-    ConnectionFormPanel, DRIVERS, FormEvent, FormMode, TestState, id_to_driver_kind, section_title,
+    ConnectionFormPanel, DRIVERS, FormEvent, FormMode, TestState, defaults, id_to_driver_kind,
+    section_title,
 };
 
 impl ConnectionFormPanel {
-    /// 端口仍是某 driver 默认值（mysql=3306 / postgres=5432 / redis=6379）时才自动切换
+    /// 切换 driver：端口未被用户修改（空或仍是旧 driver 默认）时清空，让新 driver 虚影默认值显示
     pub(super) fn set_driver(
         &mut self,
         id: &'static str,
@@ -23,65 +24,58 @@ impl ConnectionFormPanel {
             return;
         }
         let cur_port = self.port.read(cx).value().to_string();
-        let is_default_for = |port: &str, driver: &str| -> bool {
-            matches!(
-                (driver, port),
-                ("mysql", "3306") | ("postgres", "5432") | ("redis", "6379") | ("mongodb", "27017")
-            )
-        };
-        // 用户没改过端口（保持当前 driver 默认）才自动切换到新 driver 默认
-        let new_port: Option<&'static str> =
-            if cur_port.is_empty() || is_default_for(&cur_port, self.driver_id) {
-                match id {
-                    "mysql" => Some("3306"),
-                    "postgres" => Some("5432"),
-                    "redis" => Some("6379"),
-                    "mongodb" => Some("27017"),
-                    _ => None,
-                }
-            } else {
-                None
-            };
-        if let Some(np) = new_port {
+        if !cur_port.is_empty() && cur_port == defaults::default_port(self.driver_id).to_string() {
             self.port
-                .update(cx, |state, cx| state.set_value(np, window, cx));
+                .update(cx, |state, cx| state.set_value("", window, cx));
         }
         self.driver_id = id;
+        self.port.update(cx, |state, cx| {
+            state.set_placeholder(defaults::default_port(id).to_string(), window, cx);
+        });
+        self.username.update(cx, |state, cx| {
+            state.set_placeholder(defaults::username_placeholder(id), window, cx);
+        });
+        self.database.update(cx, |state, cx| {
+            state.set_placeholder(defaults::database_placeholder(id), window, cx);
+        });
         cx.notify();
     }
 
-    /// 校验表单并返回 ConnectionConfig；任意必填项缺失返回中文错误描述
+    /// 校验表单并返回 ConnectionConfig；留空字段回退到 placeholder 虚影显示的默认值
     pub(super) fn validate(&self, cx: &gpui::App) -> Result<ConnectionConfig, String> {
-        let name = self.name.read(cx).value().trim().to_string();
-        let host = self.host.read(cx).value().trim().to_string();
+        let driver =
+            id_to_driver_kind(self.driver_id).ok_or_else(|| "请选择数据库类型".to_string())?;
+
+        let mut host = self.host.read(cx).value().trim().to_string();
+        if host.is_empty() {
+            host = defaults::DEFAULT_HOST.to_string();
+        }
+        // 名称默认跟随 Host（与名称输入框虚影一致）
+        let mut name = self.name.read(cx).value().trim().to_string();
+        if name.is_empty() {
+            name = host.clone();
+        }
         let port_str = self.port.read(cx).value().trim().to_string();
-        let username = self.username.read(cx).value().trim().to_string();
+        let port: u16 = if port_str.is_empty() {
+            defaults::default_port(self.driver_id)
+        } else {
+            port_str
+                .parse()
+                .map_err(|_| "Port 必须是 1 - 65535 的数字".to_string())?
+        };
+        if port == 0 {
+            return Err("Port 必须是 1 - 65535".into());
+        }
+        // 用户名留空：MySQL/Postgres 回退默认账号；Redis/MongoDB 保持空（无 ACL / 无认证）
+        let mut username = self.username.read(cx).value().trim().to_string();
+        if username.is_empty() {
+            username = defaults::default_username(self.driver_id).to_string();
+        }
         let password = self.password.read(cx).value().to_string();
         let database = {
             let v = self.database.read(cx).value().trim().to_string();
             if v.is_empty() { None } else { Some(v) }
         };
-
-        if name.is_empty() {
-            return Err("请填写连接名称".into());
-        }
-        if host.is_empty() {
-            return Err("请填写 Host".into());
-        }
-        let port: u16 = port_str
-            .parse()
-            .map_err(|_| "Port 必须是 1 - 65535 的数字".to_string())?;
-        if port == 0 {
-            return Err("Port 必须是 1 - 65535".into());
-        }
-
-        let driver =
-            id_to_driver_kind(self.driver_id).ok_or_else(|| "请选择数据库类型".to_string())?;
-
-        // 用户名：MySQL/Postgres 必填；Redis 可空（老版无 ACL 时用空用户名）
-        if matches!(driver, DriverKind::Mysql | DriverKind::Postgres) && username.is_empty() {
-            return Err("请填写用户名".into());
-        }
         // Redis 的 DB 字段限制 0-255 数字
         if matches!(driver, DriverKind::Redis)
             && let Some(ref s) = database

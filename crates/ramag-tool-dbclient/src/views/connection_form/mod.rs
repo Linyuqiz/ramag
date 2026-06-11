@@ -120,37 +120,52 @@ impl ConnectionFormPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        // 新建：输入框留空，默认值以 placeholder 虚影呈现（保存留空回退，见 ops::validate）
+        // 编辑：回填已有连接的真实值
+        let is_create = prefill.is_none();
         let p = prefill.unwrap_or_else(|| ConnectionConfig {
             id: ConnectionId::new(),
             name: String::new(),
             driver: DriverKind::Mysql,
-            host: "127.0.0.1".to_string(),
-            port: 3306,
-            username: "root".to_string(),
+            host: String::new(),
+            port: 0,
+            username: String::new(),
             password: String::new(),
             database: None,
             remark: None,
             color: Default::default(),
         });
+        let driver_id = driver_kind_to_id(p.driver);
+        let port_text = if is_create {
+            String::new()
+        } else {
+            p.port.to_string()
+        };
+        // 名称留空时保存即用 Host 作为连接名，虚影同步显示这一默认
+        let name_placeholder = if p.host.is_empty() {
+            defaults::DEFAULT_HOST.to_string()
+        } else {
+            p.host.clone()
+        };
 
         let name = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("如 prod-mysql")
+                .placeholder(name_placeholder)
                 .default_value(p.name)
         });
         let host = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("127.0.0.1")
+                .placeholder(defaults::DEFAULT_HOST)
                 .default_value(p.host)
         });
         let port = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("3306")
-                .default_value(p.port.to_string())
+                .placeholder(defaults::default_port(driver_id).to_string())
+                .default_value(port_text)
         });
         let username = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("root")
+                .placeholder(defaults::username_placeholder(driver_id))
                 .default_value(p.username)
         });
         let password = cx.new(|cx| {
@@ -160,32 +175,29 @@ impl ConnectionFormPanel {
         });
         let database = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("如：postgres / mydb")
+                .placeholder(defaults::database_placeholder(driver_id))
                 .default_value(p.database.unwrap_or_default())
         });
 
-        // host 变化 + name 当前为空 → 自动同步 name = host
-        // 一旦 name 非空（用户开始输入），不再覆盖；用户清空 name 后又会重新跟随
+        // host 变化 → 名称虚影跟随（名称始终留给用户输入，不写入真实值）
         let mut subscriptions = Vec::new();
         subscriptions.push(cx.subscribe_in(
             &host,
             window,
             |this: &mut Self, _, _e: &InputEvent, window, cx| {
-                if !this.name.read(cx).value().is_empty() {
-                    return;
-                }
-                let host_val = this.host.read(cx).value().to_string();
-                if host_val.is_empty() {
-                    return;
-                }
+                let host_val = this.host.read(cx).value().trim().to_string();
+                let preview = if host_val.is_empty() {
+                    defaults::DEFAULT_HOST.to_string()
+                } else {
+                    host_val
+                };
                 this.name.update(cx, |state, cx| {
-                    state.set_value(host_val, window, cx);
+                    state.set_placeholder(preview, window, cx);
                 });
             },
         ));
 
         let initial_color = p.color;
-        let driver_id = driver_kind_to_id(p.driver);
 
         Self {
             service,
@@ -286,5 +298,6 @@ pub fn color_to_hsla(color: ConnectionColor, theme: &gpui_component::Theme) -> g
 // 而 cx.new 的闭包只能拿到 Context。调用方必须在持有 Window 的上下文里直接调用：
 //   `cx.new(|cx| ConnectionFormPanel::new_create(svc, window, cx))`
 
+mod defaults;
 mod ops;
 mod render;
