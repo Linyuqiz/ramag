@@ -11,7 +11,78 @@ use gpui_component::{
     v_flex,
 };
 
-use super::{ConnectionFormPanel, FormMode, TestState, field_row, section_title};
+use ramag_domain::entities::ConnectionColor;
+
+use super::{ConnectionFormPanel, FormMode, TestState, color_to_hsla, field_row, section_title};
+
+impl ConnectionFormPanel {
+    /// 颜色标签选择器：一排色点单选，选中项右侧显示环境说明
+    fn render_color_picker(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let muted_fg = theme.muted_foreground;
+        let accent = theme.accent;
+        let swatches: Vec<(ConnectionColor, gpui::Hsla)> = ConnectionColor::all()
+            .iter()
+            .map(|&c| (c, color_to_hsla(c, theme)))
+            .collect();
+        let mut hover_border = accent;
+        hover_border.a = 0.45;
+
+        let mut row = h_flex().items_center().gap(px(8.0));
+        for (ix, (color, dot_color)) in swatches.into_iter().enumerate() {
+            let selected = self.color == color;
+            // 「无」画空心圈，其余画实心点
+            let dot = if color == ConnectionColor::None {
+                div()
+                    .size(px(14.0))
+                    .rounded_full()
+                    .border_1()
+                    .border_color(muted_fg)
+            } else {
+                div().size(px(14.0)).rounded_full().bg(dot_color)
+            };
+            let mut swatch = div()
+                .id(("conn-color", ix))
+                .size(px(22.0))
+                .rounded_full()
+                .border_2()
+                .border_color(if selected {
+                    accent
+                } else {
+                    gpui::transparent_black()
+                })
+                .flex()
+                .items_center()
+                .justify_center()
+                .cursor_pointer()
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.color = color;
+                    cx.notify();
+                }))
+                .child(dot);
+            if !selected {
+                swatch = swatch.hover(move |s| s.border_color(hover_border));
+            }
+            row = row.child(swatch);
+        }
+        row = row.child(
+            div()
+                .text_xs()
+                .text_color(muted_fg)
+                .child(self.color.label()),
+        );
+
+        v_flex()
+            .gap(px(6.0))
+            .child(
+                div()
+                    .text_xs()
+                    .font_weight(gpui::FontWeight::MEDIUM)
+                    .child("颜色标签（环境提示）"),
+            )
+            .child(row)
+    }
+}
 
 impl Render for ConnectionFormPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -77,7 +148,8 @@ impl Render for ConnectionFormPanel {
                                     .child(field_row("Port", Input::new(&self.port))),
                             ),
                     )
-                    .child(field_row(database_label, Input::new(&self.database))),
+                    .child(field_row(database_label, Input::new(&self.database)))
+                    .child(self.render_color_picker(cx)),
             )
             // —— 认证 ——
             .child(

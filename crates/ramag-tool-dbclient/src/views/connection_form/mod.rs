@@ -64,8 +64,10 @@ pub struct ConnectionFormPanel {
     pub(super) password: Entity<InputState>,
     pub(super) database: Entity<InputState>,
     /// 颜色标签（环境提示）
-    color: ConnectionColor,
+    pub(super) color: ConnectionColor,
     pub(super) test_state: TestState,
+    /// 测试结果代次：连接参数变更即递增，在途测试结果代次不符则丢弃
+    pub(super) test_epoch: u64,
     pub(super) saving: bool,
     _subscriptions: Vec<Subscription>,
 }
@@ -197,6 +199,19 @@ impl ConnectionFormPanel {
             },
         ));
 
+        // 连接参数变化 → 重置已显示的测试结论（旧结论对新参数不成立）；名称/颜色不影响连通性
+        for input in [&host, &port, &username, &password, &database] {
+            subscriptions.push(cx.subscribe_in(
+                input,
+                window,
+                |this: &mut Self, _, e: &InputEvent, _, cx| {
+                    if matches!(e, InputEvent::Change) {
+                        this.invalidate_test(cx);
+                    }
+                },
+            ));
+        }
+
         let initial_color = p.color;
 
         Self {
@@ -213,6 +228,7 @@ impl ConnectionFormPanel {
             database,
             color: initial_color,
             test_state: TestState::Idle,
+            test_epoch: 0,
             saving: false,
             _subscriptions: subscriptions,
         }

@@ -13,6 +13,15 @@ use super::{
 };
 
 impl ConnectionFormPanel {
+    /// 连接参数变更后调用：丢弃在途测试的结果，并清掉已显示的测试结论
+    pub(super) fn invalidate_test(&mut self, cx: &mut Context<Self>) {
+        self.test_epoch = self.test_epoch.wrapping_add(1);
+        if !matches!(self.test_state, TestState::Idle) {
+            self.test_state = TestState::Idle;
+            cx.notify();
+        }
+    }
+
     /// 切换 driver：端口未被用户修改（空或仍是旧 driver 默认）时清空，让新 driver 虚影默认值显示
     pub(super) fn set_driver(
         &mut self,
@@ -38,6 +47,7 @@ impl ConnectionFormPanel {
         self.database.update(cx, |state, cx| {
             state.set_placeholder(defaults::database_placeholder(id), window, cx);
         });
+        self.invalidate_test(cx);
         cx.notify();
     }
 
@@ -185,6 +195,7 @@ impl ConnectionFormPanel {
             }
         };
         self.test_state = TestState::Testing;
+        let epoch = self.test_epoch;
         cx.notify();
 
         // 按 driver 走对应的 service.test：SQL 类（MySQL/Postgres）→ ConnectionService；Redis → RedisService；MongoDB → MongoService
@@ -198,6 +209,10 @@ impl ConnectionFormPanel {
                 DriverKind::Mongodb => mongo_svc.test(&config).await,
             };
             let _ = this.update(cx, |this, cx| {
+                // 测试期间参数已变更：结果作废，保持重置后的 Idle
+                if this.test_epoch != epoch {
+                    return;
+                }
                 this.test_state = match result {
                     Ok(_) => {
                         info!("test_connection ok");
