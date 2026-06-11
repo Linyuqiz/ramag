@@ -76,3 +76,33 @@ pub fn columns_2() -> Icon {
 pub fn list_filter() -> Icon {
     Icon::default().path("icons/list-filter.svg")
 }
+
+#[inline]
+pub fn clipboard() -> Icon {
+    Icon::default().path("icons/clipboard.svg")
+}
+
+#[inline]
+pub fn pin() -> Icon {
+    Icon::default().path("icons/pin.svg")
+}
+
+#[inline]
+pub fn pin_off() -> Icon {
+    Icon::default().path("icons/pin-off.svg")
+}
+
+#[inline]
+pub fn settings() -> Icon {
+    Icon::default().path("icons/settings.svg")
+}
+
+#[inline]
+pub fn copy() -> Icon {
+    Icon::default().path("icons/copy.svg")
+}
+
+#[inline]
+pub fn checker() -> Icon {
+    Icon::default().path("icons/checker.svg")
+}

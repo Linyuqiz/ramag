@@ -21,3 +21,13 @@ parking_lot = { workspace = true }
 # 导出工具用
 serde_json = { workspace = true }
 hex = { workspace = true }
+
+# 剪贴条目时间戳（workspace 既有依赖）
+chrono = { workspace = true }
+
+# 剪贴图片缩略图生成
+image = { workspace = true }
+
+[dev-dependencies]
+# decide_capture 等纯逻辑测试无需额外 mock；保留位以备扩展
+async-trait = { workspace = true }

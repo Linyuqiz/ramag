@@ -1,5 +1,6 @@
 //! 领域实体：纯 Rust 数据结构 + serde。
 
+pub mod clipboard;
 pub mod connection;
 pub mod git;
 pub mod history;
@@ -9,6 +10,10 @@ pub mod redis_keyspace;
 pub mod redis_value;
 pub mod schema;
 
+pub use clipboard::{
+    CapturedClip, ClipId, ClipItem, ClipKind, ClipSource, ClipboardSettings, classify_text,
+    fnv1a_hash, make_preview, parse_hex_color,
+};
 pub use connection::{ConnectionColor, ConnectionConfig, ConnectionId, DriverKind};
 pub use git::{
     BlameLine, Branch, BranchKind, Commit, CommitId, ConflictContent, DiffKind, DiffLine,

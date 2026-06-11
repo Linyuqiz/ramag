@@ -5,18 +5,23 @@
 use std::sync::Arc;
 
 use gpui::{
-    Action, App, Bounds, KeyBinding, Menu, MenuItem, Subscription, TitlebarOptions, WindowBounds,
-    WindowOptions, prelude::*, px, size,
+    Action, App, Bounds, KeyBinding, Menu, MenuItem, Size, Subscription, TitlebarOptions,
+    WindowBounds, WindowKind, WindowOptions, point, prelude::*, px, size,
 };
 use gpui_component::Root;
-use ramag_app::{ConnectionService, MongoService, RedisService, ToolRegistry};
-use ramag_domain::traits::{DocDriver, Driver, GitDriver, KvDriver, Storage};
+use ramag_app::{ClipboardService, ConnectionService, MongoService, RedisService, ToolRegistry};
+use ramag_domain::traits::{ClipboardDriver, DocDriver, Driver, GitDriver, KvDriver, Storage};
+use ramag_infra_clipboard::{HotkeyListener, MacClipboardDriver};
 use ramag_infra_git::GitDriverImpl;
 use ramag_infra_mongodb::MongoDriver;
 use ramag_infra_mysql::MysqlDriver;
 use ramag_infra_postgres::PostgresDriver;
 use ramag_infra_redis::RedisDriver;
 use ramag_infra_storage::RedbStorage;
+use ramag_tool_clipboard::{
+    ClipboardTool, CopySelectedClip, DeleteSelectedClip, FocusClipSearch, SelectNextClip,
+    SelectPrevClip, create_clipboard_drawer, create_clipboard_view,
+};
 use ramag_tool_dbclient::{
     DbClientTool, ExplainQuery, FindInResults, FormatSql, NewQueryTab, RunQuery,
     RunStatementAtCursor, SaveSqlFile, ToggleHistory, ToggleSqlEditor, create_dbclient_view,
@@ -58,6 +63,8 @@ fn main() {
     let redis_service: Arc<RedisService> = build_redis_service(storage.clone());
     // MongoDB 共用同一 storage
     let mongo_service: Arc<MongoService> = build_mongo_service(storage.clone());
+    // 剪贴板共用同一 storage（历史与设置走同一份加密 redb）
+    let clipboard_service: Arc<ClipboardService> = build_clipboard_service(storage.clone());
 
     // 主题偏好。None / "system" 跟随系统，"dark"/"light" 用户固定
     let initial_pref = read_theme_preference(&storage);
@@ -72,6 +79,7 @@ fn main() {
     let conn_service_for_reopen = conn_service.clone();
     let redis_service_for_reopen = redis_service.clone();
     let mongo_service_for_reopen = mongo_service.clone();
+    let clipboard_service_for_reopen = clipboard_service.clone();
     let storage_for_reopen = storage.clone();
     app.on_reopen(move |cx: &mut App| {
         if cx.windows().is_empty() {
@@ -82,6 +90,7 @@ fn main() {
                 conn_service_for_reopen.clone(),
                 redis_service_for_reopen.clone(),
                 mongo_service_for_reopen.clone(),
+                clipboard_service_for_reopen.clone(),
                 storage_for_reopen.clone(),
                 pref,
                 cx,
@@ -132,7 +141,29 @@ fn main() {
             KeyBinding::new("cmd-t", PullNow, Some("VcsView")),
             KeyBinding::new("cmd-r", RefreshWorkspace, Some("VcsView")),
             KeyBinding::new("cmd-shift-h", ToggleHistoryPane, Some("VcsView")),
+            // 剪贴板视图快捷键（KeyContext=ClipboardView，焦点在剪贴板视图时生效）
+            KeyBinding::new("cmd-f", FocusClipSearch, Some("ClipboardView")),
+            KeyBinding::new("enter", CopySelectedClip, Some("ClipboardView")),
+            KeyBinding::new("delete", DeleteSelectedClip, Some("ClipboardView")),
+            KeyBinding::new("backspace", DeleteSelectedClip, Some("ClipboardView")),
+            KeyBinding::new("down", SelectNextClip, Some("ClipboardView")),
+            KeyBinding::new("up", SelectPrevClip, Some("ClipboardView")),
         ]);
+
+        // 启动时清理孤儿媒体文件（崩溃 / 库磁盘不一致残留）
+        {
+            let svc = clipboard_service.clone();
+            cx.spawn(async move |_| {
+                if let Err(e) = svc.cleanup_orphans().await {
+                    tracing::warn!(error = %e, "clipboard orphan cleanup failed");
+                }
+            })
+            .detach();
+        }
+        // App 级剪贴板采集循环：独立于窗口生死，关窗后仍持续记录
+        spawn_clipboard_capture(clipboard_service.clone(), cx);
+        // 全局热键（cmd-shift-V）唤起底部悬浮抽屉
+        spawn_clipboard_hotkey(clipboard_service.clone(), cx);
 
         cx.set_menus(vec![Menu {
             name: "Ramag".into(),
@@ -145,6 +176,7 @@ fn main() {
             conn_service.clone(),
             redis_service.clone(),
             mongo_service.clone(),
+            clipboard_service.clone(),
             storage.clone(),
             initial_pref.clone(),
             cx,
@@ -152,12 +184,146 @@ fn main() {
     });
 }
 
+/// 采集间隔。macOS 无剪贴板变更通知，所有同类工具均靠轮询 changeCount（开销极小）
+const CAPTURE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// App 级采集循环：仅在 changeCount 变化时加载设置 + 处理，避免每拍解密设置。
+/// driver 的 NSPasteboard 读取在前台 executor（主线程）执行，符合 AppKit 约定
+fn spawn_clipboard_capture(service: Arc<ClipboardService>, cx: &mut App) {
+    cx.spawn(async move |cx| {
+        let mut last_count = service.driver().change_count();
+        loop {
+            cx.background_executor().timer(CAPTURE_INTERVAL).await;
+            let count = service.driver().change_count();
+            if count == last_count {
+                continue;
+            }
+            last_count = count;
+            let settings = service.load_settings().await;
+            if let Err(e) = service.capture_tick(&settings).await {
+                tracing::warn!(error = %e, "clipboard capture tick failed");
+            }
+        }
+    })
+    .detach();
+}
+
+/// 热键轮询间隔：channel 有事件即触发，间隔短以保证唤起手感
+const HOTKEY_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(80);
+
+/// 悬浮抽屉高度
+const DRAWER_HEIGHT: f32 = 280.0;
+/// 抽屉四周与屏幕可见区的留白
+const DRAWER_MARGIN: f32 = 5.0;
+
+/// 注册全局热键并轮询：触发切换抽屉；并在每拍检测失焦自动隐藏（点击外部即关）。
+/// 注册失败（缺权限等）仅记日志，不影响其余功能
+fn spawn_clipboard_hotkey(service: Arc<ClipboardService>, cx: &mut App) {
+    let Some(listener) = HotkeyListener::register_cmd_shift_v() else {
+        error!("global hotkey register failed; clipboard drawer disabled");
+        return;
+    };
+    cx.spawn(async move |cx| {
+        let mut drawer: Option<gpui::AnyWindowHandle> = None;
+        // 抽屉是否曾真正激活过：避免刚打开（尚未激活）就被失焦逻辑误关
+        let mut was_active = false;
+        loop {
+            cx.background_executor().timer(HOTKEY_POLL_INTERVAL).await;
+
+            // 失焦自动隐藏：曾激活过又失去激活态 = 用户点了别处
+            if let Some(handle) = &drawer {
+                let active = cx.update(|cx| {
+                    handle
+                        .update(cx, |_, window, _| window.is_window_active())
+                        .unwrap_or(false)
+                });
+                if active {
+                    was_active = true;
+                } else if was_active {
+                    let _ =
+                        cx.update(|cx| handle.update(cx, |_, window, _| window.remove_window()));
+                    drawer = None;
+                    was_active = false;
+                }
+            }
+
+            if !listener.poll() {
+                continue;
+            }
+            // 已打开 → 关闭（toggle）
+            if let Some(handle) = drawer.take() {
+                let _ = cx.update(|cx| handle.update(cx, |_, window, _| window.remove_window()));
+                was_active = false;
+                continue;
+            }
+            // 未打开 → 唤起：记录前台应用后开抽屉
+            let svc = service.clone();
+            drawer = cx.update(|cx| open_drawer_window(svc, cx));
+            was_active = false;
+        }
+    })
+    .detach();
+}
+
+/// 在主显示器底部打开满宽 Floating 抽屉窗口。
+/// 用 Floating（非 PopUp）+ 激活 app，搜索框输入法（中文）才能工作；可见区贴底避开 Dock
+fn open_drawer_window(
+    service: Arc<ClipboardService>,
+    cx: &mut App,
+) -> Option<gpui::AnyWindowHandle> {
+    let target_bundle = service.driver().frontmost_app().map(|s| s.bundle_id);
+
+    let display = cx.primary_display()?;
+    // visible_bounds 排除菜单栏 / Dock；四周留 margin，不贴边
+    let db = display.visible_bounds();
+    let x = db.origin.x.to_f64() as f32 + DRAWER_MARGIN;
+    let screen_y = db.origin.y.to_f64() as f32;
+    let width = db.size.width.to_f64() as f32 - DRAWER_MARGIN * 2.0;
+    let screen_h = db.size.height.to_f64() as f32;
+    let y = screen_y + screen_h - DRAWER_HEIGHT - DRAWER_MARGIN;
+    let bounds = Bounds {
+        origin: point(px(x), px(y)),
+        size: Size {
+            width: px(width),
+            height: px(DRAWER_HEIGHT),
+        },
+    };
+
+    // PopUp + 激活 app：PopUp 自带 CanJoinAllSpaces（全屏 Space 也能弹出）；
+    // cx.activate 让 app active，搜索框输入法（中文）方可工作；粘贴时再激活回原应用
+    let result = cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            titlebar: None,
+            kind: WindowKind::PopUp,
+            is_movable: false,
+            focus: true,
+            show: true,
+            ..Default::default()
+        },
+        move |window, cx| {
+            let drawer = create_clipboard_drawer(service, target_bundle, window, cx);
+            cx.new(|cx| Root::new(drawer, window, cx))
+        },
+    );
+    cx.activate(true);
+    match result {
+        Ok(handle) => Some(handle.into()),
+        Err(e) => {
+            error!(error = %e, "open drawer window failed");
+            None
+        }
+    }
+}
+
 /// init / on_reopen 共用
+#[allow(clippy::too_many_arguments)]
 fn open_main_window(
     registry: Arc<ToolRegistry>,
     conn_service: Arc<ConnectionService>,
     redis_service: Arc<RedisService>,
     mongo_service: Arc<MongoService>,
+    clipboard_service: Arc<ClipboardService>,
     storage: Arc<dyn Storage>,
     theme_pref: Option<String>,
     cx: &mut App,
@@ -196,11 +362,14 @@ fn open_main_window(
                 let git_driver: Arc<dyn GitDriver> = Arc::new(GitDriverImpl::new());
                 let vcs_view = create_vcs_view(git_driver, storage.clone(), window, cx);
 
+                let clipboard_view = create_clipboard_view(clipboard_service.clone(), window, cx);
+
                 let shell = cx.new(|cx| {
                     let mut shell = Shell::new(registry.clone(), window, cx);
                     shell.set_home_view(home_view.clone().into());
                     shell.register_tool_view(DbClientTool::ID, dbclient_view);
                     shell.register_tool_view(VcsTool::ID, vcs_view.into());
+                    shell.register_tool_view(ClipboardTool::ID, clipboard_view.into());
 
                     let _sub: Subscription = cx.subscribe_in(
                         &home_view,
@@ -264,6 +433,7 @@ fn build_tool_registry() -> Arc<ToolRegistry> {
     let registry = Arc::new(ToolRegistry::new());
     registry.register(Arc::new(DbClientTool::new()));
     registry.register(Arc::new(VcsTool::new()));
+    registry.register(Arc::new(ClipboardTool::new()));
     registry
 }
 
@@ -275,6 +445,11 @@ fn build_redis_service(storage: Arc<dyn Storage>) -> Arc<RedisService> {
 fn build_mongo_service(storage: Arc<dyn Storage>) -> Arc<MongoService> {
     let driver: Arc<dyn DocDriver> = Arc::new(MongoDriver::new());
     Arc::new(MongoService::new(driver, storage))
+}
+
+fn build_clipboard_service(storage: Arc<dyn Storage>) -> Arc<ClipboardService> {
+    let driver: Arc<dyn ClipboardDriver> = Arc::new(MacClipboardDriver::new());
+    Arc::new(ClipboardService::new(driver, storage))
 }
 
 fn init_tracing() {

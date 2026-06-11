@@ -6156,7 +6156,10 @@ checksum = "dc33ff2d4973d518d823d61aa239014831e521c75da58e3df4840d3f47749d09"
 name = "ramag-app"
 version = "0.0.1"
 dependencies = [
+ "async-trait",
+ "chrono",
  "hex",
+ "image",
  "parking_lot",
  "ramag-domain",
  "serde_json",
@@ -6174,12 +6177,14 @@ dependencies = [
  "gpui_platform",
  "ramag-app",
  "ramag-domain",
+ "ramag-infra-clipboard",
  "ramag-infra-git",
  "ramag-infra-mongodb",
  "ramag-infra-mysql",
  "ramag-infra-postgres",
  "ramag-infra-redis",
  "ramag-infra-storage",
+ "ramag-tool-clipboard",
  "ramag-tool-dbclient",
  "ramag-tool-mongodb",
  "ramag-tool-vcs",
@@ -6201,6 +6206,20 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "uuid",
+]
+
+[[package]]
+name = "ramag-infra-clipboard"
+version = "0.0.1"
+dependencies = [
+ "cocoa 0.26.0",
+ "core-foundation 0.10.0",
+ "core-graphics 0.24.0",
+ "directories",
+ "objc",
+ "parking_lot",
+ "ramag-domain",
+ "tracing",
 ]
 
 [[package]]
@@ -6299,6 +6318,7 @@ version = "0.0.1"
 dependencies = [
  "aes-gcm",
  "async-trait",
+ "chrono",
  "directories",
  "futures",
  "hex",
@@ -6311,6 +6331,22 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "ramag-tool-clipboard"
+version = "0.0.1"
+dependencies = [
+ "chrono",
+ "futures",
+ "gpui",
+ "gpui-component",
+ "ramag-app",
+ "ramag-domain",
+ "ramag-ui",
+ "schemars",
+ "serde",
  "tracing",
 ]
 

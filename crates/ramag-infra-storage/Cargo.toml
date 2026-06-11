@@ -23,6 +23,9 @@ futures = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+# 剪贴历史过期清理算 cutoff（workspace 既有依赖，零新增编译单元）
+chrono = { workspace = true }
+
 # 日志
 tracing = { workspace = true }
 

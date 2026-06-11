@@ -3,7 +3,8 @@
 use async_trait::async_trait;
 
 use crate::entities::{
-    ConnectionConfig, ConnectionId, QueryRecord, QueryRecordId, RepoConfig, RepoId,
+    ClipId, ClipItem, ConnectionConfig, ConnectionId, QueryRecord, QueryRecordId, RepoConfig,
+    RepoId,
 };
 use crate::error::Result;
 
@@ -58,4 +59,57 @@ pub trait Storage: Send + Sync {
     // 偏好 KV
     async fn get_preference(&self, key: &str) -> Result<Option<String>>;
     async fn set_preference(&self, key: &str, value: &str) -> Result<()>;
+
+    /// 用主密钥 AES-GCM 加密任意字节（剪贴图片落盘前调，密文存磁盘）
+    async fn seal(&self, _plain: &[u8]) -> Result<Vec<u8>> {
+        Err(crate::error::DomainError::NotImplemented("seal".into()))
+    }
+
+    /// 解密 `seal` 产物
+    async fn unseal(&self, _cipher: &[u8]) -> Result<Vec<u8>> {
+        Err(crate::error::DomainError::NotImplemented("unseal".into()))
+    }
+
+    // 剪贴板历史（默认 NotImplemented，与 repos 同策略：旧 mock 实现不强制跟进）
+
+    /// 新增或更新（按 id upsert）
+    async fn clip_save(&self, _item: &ClipItem) -> Result<()> {
+        Err(crate::error::DomainError::NotImplemented(
+            "clip_save".into(),
+        ))
+    }
+
+    /// 按 last_used_at desc 返回全部
+    async fn clip_list(&self) -> Result<Vec<ClipItem>> {
+        Err(crate::error::DomainError::NotImplemented(
+            "clip_list".into(),
+        ))
+    }
+
+    async fn clip_delete(&self, _id: &ClipId) -> Result<()> {
+        Err(crate::error::DomainError::NotImplemented(
+            "clip_delete".into(),
+        ))
+    }
+
+    /// 内容指纹查重（连续复制同内容时提升旧条目）
+    async fn clip_find_by_hash(&self, _hash: &str) -> Result<Option<ClipItem>> {
+        Err(crate::error::DomainError::NotImplemented(
+            "clip_find_by_hash".into(),
+        ))
+    }
+
+    /// 清空历史；keep_pinned=true 保留钉住项。返回被删条目的 image_path（调用方清理落盘文件）
+    async fn clip_clear(&self, _keep_pinned: bool) -> Result<Vec<String>> {
+        Err(crate::error::DomainError::NotImplemented(
+            "clip_clear".into(),
+        ))
+    }
+
+    /// 超量 / 过期清理（钉住豁免）。返回被删条目的 image_path
+    async fn clip_prune(&self, _max_items: u32, _max_age_days: u32) -> Result<Vec<String>> {
+        Err(crate::error::DomainError::NotImplemented(
+            "clip_prune".into(),
+        ))
+    }
 }

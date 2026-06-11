@@ -48,6 +48,31 @@ impl Cipher {
         String::from_utf8(plaintext)
             .map_err(|e| DomainError::Storage(format!("解密结果不是 UTF-8：{e}")))
     }
+
+    /// 加密任意字节，返回 `nonce(12) || ciphertext || tag(16)` 原始字节（不 hex，图片落盘用）
+    pub fn encrypt_bytes(&self, plain: &[u8]) -> Result<Vec<u8>> {
+        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+        let ciphertext = self
+            .inner
+            .encrypt(&nonce, plain)
+            .map_err(|e| DomainError::Storage(format!("加密失败：{e}")))?;
+        let mut blob = Vec::with_capacity(12 + ciphertext.len());
+        blob.extend_from_slice(&nonce);
+        blob.extend_from_slice(&ciphertext);
+        Ok(blob)
+    }
+
+    /// 解密 `encrypt_bytes` 产物
+    pub fn decrypt_bytes(&self, blob: &[u8]) -> Result<Vec<u8>> {
+        if blob.len() < 12 + 16 {
+            return Err(DomainError::Storage("密文长度异常".into()));
+        }
+        let (nonce_bytes, ciphertext) = blob.split_at(12);
+        let nonce = Nonce::from_slice(nonce_bytes);
+        self.inner
+            .decrypt(nonce, ciphertext)
+            .map_err(|e| DomainError::Storage(format!("解密失败（密钥可能错误）：{e}")))
+    }
 }
 
 #[cfg(test)]
@@ -113,6 +138,20 @@ mod tests {
         let encrypted = cipher.encrypt("").unwrap();
         let decrypted = cipher.decrypt(&encrypted).unwrap();
         assert_eq!(decrypted, "");
+    }
+
+    #[test]
+    fn bytes_round_trip() {
+        let cipher = Cipher::new(&dummy_key());
+        let data = vec![0u8, 1, 2, 255, 128, 13, 10, 0];
+        let enc = cipher.encrypt_bytes(&data).unwrap();
+        assert_ne!(enc, data);
+        assert_eq!(cipher.decrypt_bytes(&enc).unwrap(), data);
+        // 篡改任意字节 → 解密失败
+        let mut bad = enc.clone();
+        let last = bad.len() - 1;
+        bad[last] ^= 0xff;
+        assert!(cipher.decrypt_bytes(&bad).is_err());
     }
 
     #[test]

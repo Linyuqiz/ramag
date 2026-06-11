@@ -62,6 +62,7 @@ impl ActivityBar {
         match tool_id {
             "dbclient" => icons::database(),
             "vcs" => icons::git_branch(),
+            "clipboard" => icons::clipboard(),
             "jsonfmt" => Icon::new(IconName::File),
             "url" => Icon::new(IconName::Globe),
             "hash" => Icon::new(IconName::MemoryStick),

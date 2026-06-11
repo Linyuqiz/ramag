@@ -1,0 +1,28 @@
+[package]
+name = "ramag-infra-clipboard"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Ramag 剪贴板驱动（实现 Domain 的 ClipboardDriver trait，封装 NSPasteboard / NSWorkspace / CGEvent）"
+
+[lints]
+workspace = true
+
+[dependencies]
+ramag-domain = { workspace = true }
+
+# macOS FFI：与 gpui_macos 同款绑定，依赖树内已有
+objc = { workspace = true }
+cocoa = { workspace = true }
+core-graphics = { workspace = true }
+core-foundation = { workspace = true }
+
+# 图标缓存锁
+parking_lot = { workspace = true }
+
+# 媒体缓存目录定位
+directories = { workspace = true }
+
+# 日志
+tracing = { workspace = true }
