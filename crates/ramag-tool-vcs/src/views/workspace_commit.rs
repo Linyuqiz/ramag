@@ -6,6 +6,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::Input,
+    menu::{DropdownMenu as _, PopupMenuItem},
     v_flex,
 };
 
@@ -30,45 +31,47 @@ impl VcsView {
             && (staged_count > 0 || self.commit_amend)
             && (has_message || self.commit_amend);
 
-        let amend_btn = Button::new("vcs-amend-toggle")
-            .ghost()
-            .small()
-            .icon(IconName::Undo)
-            .label(if self.commit_amend {
-                "Amend ✓"
-            } else {
-                "Amend"
-            })
-            .tooltip("修改上一次 commit（不创建新 commit）；message 留空则保留原文")
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.toggle_commit_amend(cx);
-            }));
-
-        let sign_btn = Button::new("vcs-commit-sign-toggle")
-            .ghost()
-            .small()
-            .icon(IconName::CircleCheck)
-            .label(if self.commit_sign { "Sign ✓" } else { "Sign" })
-            .tooltip("用 GPG 签名 commit（需配好 user.signingkey 和 GPG agent）")
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.commit_sign = !this.commit_sign;
-                cx.notify();
-            }));
-
+        // 主按钮：普通模式提交暂存区；Amend 模式改写上一次 commit
         let commit_btn = Button::new("vcs-commit")
             .primary()
             .small()
             .icon(ramag_ui::icons::git_commit())
-            .label(if staged_count > 0 {
+            .label(if self.commit_amend {
+                "Amend 提交".to_string()
+            } else if staged_count > 0 {
                 format!("提交 ({staged_count})")
             } else {
                 "提交".to_string()
             })
-            .tooltip("把暂存区的改动写入仓库")
+            .tooltip(if self.commit_amend {
+                "改写上一次 commit（message 留空则保留原文）"
+            } else {
+                "把暂存区的改动写入仓库"
+            })
             .disabled(!can_commit)
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.confirm_commit(window, cx);
             }));
+        // 右侧小箭头：下拉切换 Amend 模式（与主按钮拼成分体按钮）
+        let amend_on = self.commit_amend;
+        let entity = cx.entity();
+        let more_btn = Button::new("vcs-commit-more")
+            .primary()
+            .small()
+            .icon(IconName::ChevronDown)
+            .tooltip("更多提交方式")
+            .dropdown_menu_with_anchor(gpui::Anchor::BottomRight, move |mut m, _, _| {
+                let ent = entity.clone();
+                let label = if amend_on {
+                    "✓ Amend 模式（点击退出）"
+                } else {
+                    "Amend 上一次提交"
+                };
+                m = m.item(PopupMenuItem::new(label).on_click(move |_, _, app| {
+                    ent.update(app, |this, cx| this.toggle_commit_amend(cx));
+                }));
+                m
+            });
 
         v_flex()
             .flex_none()
@@ -113,10 +116,9 @@ impl VcsView {
                 h_flex()
                     .items_center()
                     .justify_end()
-                    .gap(px(8.0))
-                    .child(sign_btn)
-                    .child(amend_btn)
-                    .child(commit_btn),
+                    .gap(px(2.0))
+                    .child(commit_btn)
+                    .child(more_btn),
             )
             .into_any_element()
     }

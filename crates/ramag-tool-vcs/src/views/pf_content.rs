@@ -21,8 +21,9 @@ trait RestrictScrollExt: Styled + Sized {
 }
 impl<T: Styled> RestrictScrollExt for T {}
 
-/// 单行高度（与 diff_panel 视觉一致 22px，便于切换视图无视差）
-const LINE_HEIGHT: f32 = 22.0;
+/// 单行高度直接复用 diff 的行高常量：两个视图字号同为 text_xs，
+/// 行高再不一致会产生「diff 字体更大」的密度错觉
+use super::diff_panel::DIFF_ROW_H as LINE_HEIGHT;
 /// 等宽字体单字符估算宽度（单位 px；mono 字体在 13px size 下约 7.5px/字）
 const MONO_CHAR_W: f32 = 7.5;
 

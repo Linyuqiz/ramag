@@ -7,28 +7,55 @@ use ropey::Rope;
 
 use super::vcs_view::VcsView;
 
-/// 文件路径扩展名 → tree-sitter 语言名（均为 gpui-component 内置语言）。
+/// 文件路径 → tree-sitter 语言名（均为 gpui-component `tree-sitter-languages` 内置）。
 ///
-/// 无扩展名 / 不在表内（Cargo.lock、.gitignore 等）→ None，调用方走纯文本渲染。
+/// 先按完整文件名匹配（Makefile / CMakeLists.txt 等无后缀），再按扩展名；
+/// 都不在表内（Cargo.lock、.gitignore 等）→ None，调用方走纯文本渲染。
 pub(super) fn lang_for_path(path: &str) -> Option<&'static str> {
-    // 仅取最后一段文件名的扩展名，避免目录名里的点干扰
+    // 仅取最后一段文件名，避免目录名里的点干扰
     let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    match name {
+        "Makefile" | "makefile" | "GNUmakefile" => return Some("make"),
+        "CMakeLists.txt" => return Some("cmake"),
+        _ => {}
+    }
     let ext = name.rsplit_once('.').map(|(_, e)| e)?;
     let lang = match ext.to_ascii_lowercase().as_str() {
         "rs" => "rust",
         "go" => "go",
-        "py" => "python",
-        "json" => "json",
-        "js" | "jsx" | "mjs" => "javascript",
-        "ts" | "tsx" => "typescript",
+        "py" | "pyi" => "python",
+        "json" | "jsonc" => "json",
+        "js" | "jsx" | "mjs" | "cjs" => "javascript",
+        "ts" | "mts" | "cts" => "typescript",
+        "tsx" => "tsx",
         "toml" => "toml",
         "yaml" | "yml" => "yaml",
         "sql" => "sql",
-        "md" => "markdown",
-        "sh" | "bash" => "bash",
+        "md" | "markdown" => "markdown",
+        "sh" | "bash" | "zsh" => "bash",
         "c" | "h" => "c",
-        "cpp" | "cc" | "hpp" => "cpp",
+        "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => "cpp",
         "java" => "java",
+        "kt" | "kts" => "kotlin",
+        "swift" => "swift",
+        "rb" => "ruby",
+        "php" => "php",
+        "lua" => "lua",
+        "scala" | "sbt" => "scala",
+        "ex" | "exs" => "elixir",
+        "cs" => "csharp",
+        "html" | "htm" => "html",
+        "css" => "css",
+        "svelte" => "svelte",
+        "astro" => "astro",
+        "ejs" => "ejs",
+        "erb" => "erb",
+        "graphql" | "gql" => "graphql",
+        "proto" => "proto",
+        "zig" => "zig",
+        "mk" => "make",
+        "cmake" => "cmake",
+        "diff" | "patch" => "diff",
         _ => return None,
     };
     Some(lang)
@@ -93,11 +120,31 @@ mod tests {
         assert_eq!(lang_for_path("a/b/util.go"), Some("go"));
         assert_eq!(lang_for_path("script.py"), Some("python"));
         assert_eq!(lang_for_path("data.json"), Some("json"));
-        assert_eq!(lang_for_path("app.tsx"), Some("typescript"));
         assert_eq!(lang_for_path("mod.mjs"), Some("javascript"));
         assert_eq!(lang_for_path("config.yml"), Some("yaml"));
         assert_eq!(lang_for_path("header.hpp"), Some("cpp"));
         assert_eq!(lang_for_path("Main.java"), Some("java"));
+        assert_eq!(lang_for_path("App.kt"), Some("kotlin"));
+        assert_eq!(lang_for_path("View.swift"), Some("swift"));
+        assert_eq!(lang_for_path("index.html"), Some("html"));
+        assert_eq!(lang_for_path("style.css"), Some("css"));
+        assert_eq!(lang_for_path("schema.graphql"), Some("graphql"));
+        assert_eq!(lang_for_path("api.proto"), Some("proto"));
+        assert_eq!(lang_for_path("fix.patch"), Some("diff"));
+    }
+
+    /// tsx 用独立 grammar（TSX 的 JSX 语法 typescript grammar 解析不了）
+    #[test]
+    fn tsx_uses_dedicated_grammar() {
+        assert_eq!(lang_for_path("app.tsx"), Some("tsx"));
+        assert_eq!(lang_for_path("util.ts"), Some("typescript"));
+    }
+
+    #[test]
+    fn filename_without_extension_matches() {
+        assert_eq!(lang_for_path("Makefile"), Some("make"));
+        assert_eq!(lang_for_path("scripts/GNUmakefile"), Some("make"));
+        assert_eq!(lang_for_path("CMakeLists.txt"), Some("cmake"));
     }
 
     #[test]
@@ -111,7 +158,6 @@ mod tests {
         // 无扩展名 / 仅前缀点 / 不在表内 → 纯文本
         assert_eq!(lang_for_path("Cargo.lock"), None);
         assert_eq!(lang_for_path(".gitignore"), None);
-        assert_eq!(lang_for_path("Makefile"), None);
         assert_eq!(lang_for_path("path/to/dir.with.dots/file"), None);
     }
 }

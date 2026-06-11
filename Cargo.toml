@@ -66,8 +66,10 @@ gpui_macros = { git = "https://github.com/zed-industries/zed" }
 
 # GPUI 组件库
 # 升级时同步检查下方 lsp-types / ropey 与 gpui-component 内部一致，否则 InputState 接口不兼容。
+# tree-sitter-languages 伞形 feature：全量 35 种语法树（含 sql），
+# VCS 的 diff / 文件内容按后缀高亮靠它；首次编译多几分钟，之后走缓存
 gpui-component = { git = "https://github.com/longbridge/gpui-component", features = [
-    "tree-sitter-sql",
+    "tree-sitter-languages",
 ] }
 gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
 
