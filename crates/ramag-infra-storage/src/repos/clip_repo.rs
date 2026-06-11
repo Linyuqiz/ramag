@@ -115,29 +115,24 @@ pub(crate) fn find_by_hash(
         .find(|i| i.content_hash == hash))
 }
 
-/// 返回被删条目的 image_path（调用方负责删落盘文件）
-pub(crate) fn clear(
-    db: Arc<Database>,
-    cipher: Arc<RwLock<Cipher>>,
-    keep_pinned: bool,
-) -> Result<Vec<String>> {
+/// 清空全部历史。返回被删条目的 image_path（调用方负责删落盘文件）
+pub(crate) fn clear(db: Arc<Database>, cipher: Arc<RwLock<Cipher>>) -> Result<Vec<String>> {
     let all = {
         let cipher = cipher.read();
         load_all(&db, &cipher)?
     };
-    let doomed: Vec<&ClipItem> = all.iter().filter(|i| !(keep_pinned && i.pinned)).collect();
-    let ids: Vec<String> = doomed.iter().map(|i| i.id.to_string()).collect();
-    let images: Vec<String> = doomed
+    let ids: Vec<String> = all.iter().map(|i| i.id.to_string()).collect();
+    let images: Vec<String> = all
         .iter()
         .flat_map(|i| [i.image_path.clone(), i.thumb_path.clone()])
         .flatten()
         .collect();
     remove_ids(&db, &ids)?;
-    info!(removed = ids.len(), keep_pinned, "clips cleared");
+    info!(removed = ids.len(), "clips cleared");
     Ok(images)
 }
 
-/// 超量 / 过期清理：未钉住条目按 last_used_at desc 保留前 max_items 条，且剔除超龄项
+/// 超量 / 过期清理：按 last_used_at desc 保留前 max_items 条，且剔除超龄项
 pub(crate) fn prune(
     db: Arc<Database>,
     cipher: Arc<RwLock<Cipher>>,
@@ -149,11 +144,11 @@ pub(crate) fn prune(
         load_all(&db, &cipher)?
     };
     let cutoff = Utc::now() - Duration::days(i64::from(max_age_days));
-    let mut unpinned: Vec<&ClipItem> = all.iter().filter(|i| !i.pinned).collect();
-    unpinned.sort_by_key(|i| std::cmp::Reverse(i.last_used_at));
+    let mut sorted: Vec<&ClipItem> = all.iter().collect();
+    sorted.sort_by_key(|i| std::cmp::Reverse(i.last_used_at));
 
     let mut doomed: Vec<&ClipItem> = Vec::new();
-    for (idx, item) in unpinned.iter().enumerate() {
+    for (idx, item) in sorted.iter().enumerate() {
         if idx >= max_items as usize || item.last_used_at < cutoff {
             doomed.push(item);
         }

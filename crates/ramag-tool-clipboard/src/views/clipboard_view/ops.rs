@@ -124,18 +124,6 @@ impl ClipboardView {
         }
     }
 
-    pub(super) fn toggle_pin(&mut self, item: ClipItem, cx: &mut Context<Self>) {
-        let svc = self.service.clone();
-        let pinned = !item.pinned;
-        cx.spawn(async move |this, cx| {
-            if let Err(e) = svc.set_pinned(&item, pinned).await {
-                error!(error = %e, "toggle pin failed");
-            }
-            let _ = this.update(cx, |this, cx| this.reload(cx));
-        })
-        .detach();
-    }
-
     pub(super) fn delete_clip(&mut self, item: ClipItem, cx: &mut Context<Self>) {
         let svc = self.service.clone();
         cx.spawn(async move |this, cx| {
@@ -147,10 +135,10 @@ impl ClipboardView {
         .detach();
     }
 
-    pub(super) fn clear_all(&mut self, keep_pinned: bool, cx: &mut Context<Self>) {
+    pub(super) fn clear_all(&mut self, cx: &mut Context<Self>) {
         let svc = self.service.clone();
         cx.spawn(async move |this, cx| {
-            if let Err(e) = svc.clear(keep_pinned).await {
+            if let Err(e) = svc.clear().await {
                 error!(error = %e, "clear clips failed");
             }
             let _ = this.update(cx, |this, cx| this.reload(cx));

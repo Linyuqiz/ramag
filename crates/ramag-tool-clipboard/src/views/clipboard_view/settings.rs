@@ -68,6 +68,7 @@ impl ClipboardView {
                 }),
             ))
             .child(self.stepper_row(
+                "count",
                 "条数上限",
                 &format!("{} 条", s.max_items),
                 // 数量级步长：小值小步、大值大步，几下即可调到 50 万
@@ -84,6 +85,7 @@ impl ClipboardView {
                 }),
             ))
             .child(self.stepper_row(
+                "age",
                 "保留天数",
                 &format!("{} 天", s.max_age_days),
                 cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -142,11 +144,13 @@ impl ClipboardView {
 
     fn stepper_row(
         &self,
+        id: &str,
         title: &str,
         value: &str,
         on_dec: impl Fn(&ClickEvent, &mut Window, &mut gpui::App) + 'static,
         on_inc: impl Fn(&ClickEvent, &mut Window, &mut gpui::App) + 'static,
     ) -> impl IntoElement {
+        // 两个 stepper 的按钮 id 必须唯一，否则 gpui 交互冲突导致点击无响应
         h_flex()
             .w_full()
             .items_center()
@@ -157,7 +161,7 @@ impl ClipboardView {
                     .items_center()
                     .gap(px(8.0))
                     .child(
-                        Button::new("dec")
+                        Button::new(format!("{id}-dec"))
                             .ghost()
                             .xsmall()
                             .label("−")
@@ -171,7 +175,7 @@ impl ClipboardView {
                             .child(value.to_string()),
                     )
                     .child(
-                        Button::new("inc")
+                        Button::new(format!("{id}-inc"))
                             .ghost()
                             .xsmall()
                             .label("+")
@@ -189,7 +193,7 @@ impl ClipboardView {
             "清空",
             true,
             move |_window, cx| {
-                entity.update(cx, |this, cx| this.clear_all(true, cx));
+                entity.update(cx, |this, cx| this.clear_all(cx));
             },
             window,
             cx,

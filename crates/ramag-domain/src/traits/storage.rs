@@ -99,8 +99,8 @@ pub trait Storage: Send + Sync {
         ))
     }
 
-    /// 清空历史；keep_pinned=true 保留钉住项。返回被删条目的 image_path（调用方清理落盘文件）
-    async fn clip_clear(&self, _keep_pinned: bool) -> Result<Vec<String>> {
+    /// 清空全部历史。返回被删条目的 image_path（调用方清理落盘文件）
+    async fn clip_clear(&self) -> Result<Vec<String>> {
         Err(crate::error::DomainError::NotImplemented(
             "clip_clear".into(),
         ))

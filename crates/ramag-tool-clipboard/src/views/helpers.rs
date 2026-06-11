@@ -16,11 +16,7 @@ pub fn filter_items<'a>(
         .filter(|i| kind.is_none_or(|k| i.kind == k))
         .filter(|i| q.is_empty() || matches_query(i, &q))
         .collect();
-    out.sort_by(|a, b| {
-        b.pinned
-            .cmp(&a.pinned)
-            .then(b.last_used_at.cmp(&a.last_used_at))
-    });
+    out.sort_by_key(|i| std::cmp::Reverse(i.last_used_at));
     out
 }
 
@@ -51,7 +47,7 @@ mod tests {
     use chrono::Duration;
     use ramag_domain::entities::{ClipId, fnv1a_hash};
 
-    fn clip(text: &str, kind: ClipKind, pinned: bool, age_secs: i64) -> ClipItem {
+    fn clip(text: &str, kind: ClipKind, age_secs: i64) -> ClipItem {
         let at = Utc::now() - Duration::seconds(age_secs);
         ClipItem {
             id: ClipId::new(),
@@ -65,7 +61,6 @@ mod tests {
             preview: text.to_string(),
             source: None,
             byte_size: 0,
-            pinned,
             content_hash: format!("{:016x}", fnv1a_hash(text.as_bytes())),
             created_at: at,
             last_used_at: at,
@@ -73,23 +68,23 @@ mod tests {
     }
 
     #[test]
-    fn pinned_first_then_recent() {
+    fn sorted_by_recency() {
         let items = vec![
-            clip("old", ClipKind::Text, false, 100),
-            clip("new", ClipKind::Text, false, 1),
-            clip("pinned-old", ClipKind::Text, true, 500),
+            clip("old", ClipKind::Text, 100),
+            clip("new", ClipKind::Text, 1),
+            clip("mid", ClipKind::Text, 50),
         ];
         let out = filter_items(&items, "", None);
-        assert_eq!(out[0].text.as_deref(), Some("pinned-old"));
-        assert_eq!(out[1].text.as_deref(), Some("new"));
+        assert_eq!(out[0].text.as_deref(), Some("new"));
+        assert_eq!(out[1].text.as_deref(), Some("mid"));
         assert_eq!(out[2].text.as_deref(), Some("old"));
     }
 
     #[test]
     fn filter_by_kind_and_query() {
         let items = vec![
-            clip("hello world", ClipKind::Text, false, 1),
-            clip("https://x.com", ClipKind::Link, false, 1),
+            clip("hello world", ClipKind::Text, 1),
+            clip("https://x.com", ClipKind::Link, 1),
         ];
         assert_eq!(filter_items(&items, "", Some(ClipKind::Link)).len(), 1);
         assert_eq!(filter_items(&items, "HELLO", None).len(), 1);

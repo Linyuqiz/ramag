@@ -229,10 +229,10 @@ impl Storage for RedbStorage {
         run_blocking(move || repos::clip_repo::find_by_hash(db, cipher, hash)).await
     }
 
-    async fn clip_clear(&self, keep_pinned: bool) -> Result<Vec<String>> {
+    async fn clip_clear(&self) -> Result<Vec<String>> {
         let db = self.db.clone();
         let cipher = self.cipher.clone();
-        run_blocking(move || repos::clip_repo::clear(db, cipher, keep_pinned)).await
+        run_blocking(move || repos::clip_repo::clear(db, cipher)).await
     }
 
     async fn clip_prune(&self, max_items: u32, max_age_days: u32) -> Result<Vec<String>> {
@@ -342,7 +342,7 @@ mod tests {
     use chrono::{Duration, Utc};
     use ramag_domain::entities::{ClipId, ClipKind};
 
-    fn sample_clip(text: &str, pinned: bool, age_days: i64) -> ramag_domain::entities::ClipItem {
+    fn sample_clip(text: &str, age_days: i64) -> ramag_domain::entities::ClipItem {
         let at = Utc::now() - Duration::days(age_days);
         ramag_domain::entities::ClipItem {
             id: ClipId::new(),
@@ -356,7 +356,6 @@ mod tests {
             preview: text.to_string(),
             source: None,
             byte_size: text.len() as u64,
-            pinned,
             content_hash: format!(
                 "{:016x}",
                 ramag_domain::entities::fnv1a_hash(text.as_bytes())
@@ -369,14 +368,8 @@ mod tests {
     #[tokio::test]
     async fn clip_save_list_roundtrip_sorted() {
         let (storage, _tmp) = make_test_storage();
-        storage
-            .clip_save(&sample_clip("old", false, 3))
-            .await
-            .unwrap();
-        storage
-            .clip_save(&sample_clip("new", false, 0))
-            .await
-            .unwrap();
+        storage.clip_save(&sample_clip("old", 3)).await.unwrap();
+        storage.clip_save(&sample_clip("new", 0)).await.unwrap();
 
         let list = storage.clip_list().await.unwrap();
         assert_eq!(list.len(), 2);
@@ -387,7 +380,7 @@ mod tests {
     #[tokio::test]
     async fn clip_find_by_hash_and_delete() {
         let (storage, _tmp) = make_test_storage();
-        let clip = sample_clip("dup-me", false, 0);
+        let clip = sample_clip("dup-me", 0);
         storage.clip_save(&clip).await.unwrap();
 
         let found = storage.clip_find_by_hash(&clip.content_hash).await.unwrap();
@@ -399,20 +392,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn clip_clear_respects_pinned() {
+    async fn clip_clear_removes_all() {
         let (storage, _tmp) = make_test_storage();
-        storage
-            .clip_save(&sample_clip("a", false, 0))
-            .await
-            .unwrap();
-        storage.clip_save(&sample_clip("b", true, 0)).await.unwrap();
+        storage.clip_save(&sample_clip("a", 0)).await.unwrap();
+        storage.clip_save(&sample_clip("b", 0)).await.unwrap();
 
-        storage.clip_clear(true).await.unwrap();
-        let rest = storage.clip_list().await.unwrap();
-        assert_eq!(rest.len(), 1);
-        assert!(rest[0].pinned);
-
-        storage.clip_clear(false).await.unwrap();
+        storage.clip_clear().await.unwrap();
         assert!(storage.clip_list().await.unwrap().is_empty());
     }
 
@@ -420,37 +405,24 @@ mod tests {
     async fn clip_prune_by_count_and_age() {
         let (storage, _tmp) = make_test_storage();
         storage
-            .clip_save(&sample_clip("expired", false, 40))
+            .clip_save(&sample_clip("expired", 40))
             .await
             .unwrap();
-        storage
-            .clip_save(&sample_clip("kept-1", false, 1))
-            .await
-            .unwrap();
-        storage
-            .clip_save(&sample_clip("kept-2", false, 0))
-            .await
-            .unwrap();
-        storage
-            .clip_save(&sample_clip("pinned-old", true, 90))
-            .await
-            .unwrap();
+        storage.clip_save(&sample_clip("kept-1", 1)).await.unwrap();
+        storage.clip_save(&sample_clip("kept-2", 0)).await.unwrap();
 
-        // 数量上限 2：超龄 expired 被剔，钉住超龄豁免
-        storage.clip_prune(2, 30).await.unwrap();
-        let rest = storage.clip_list().await.unwrap();
-        let texts: Vec<_> = rest.iter().map(|c| c.text.clone().unwrap()).collect();
-        assert_eq!(rest.len(), 3);
-        assert!(texts.contains(&"kept-1".to_string()));
-        assert!(texts.contains(&"kept-2".to_string()));
-        assert!(texts.contains(&"pinned-old".to_string()));
-
-        // 数量上限 1：未钉住只留最新
-        storage.clip_prune(1, 30).await.unwrap();
+        // 数量上限 5、保留 30 天：仅超龄 expired 被剔
+        storage.clip_prune(5, 30).await.unwrap();
         let rest = storage.clip_list().await.unwrap();
         let texts: Vec<_> = rest.iter().map(|c| c.text.clone().unwrap()).collect();
         assert_eq!(rest.len(), 2);
+        assert!(texts.contains(&"kept-1".to_string()));
         assert!(texts.contains(&"kept-2".to_string()));
-        assert!(texts.contains(&"pinned-old".to_string()));
+
+        // 数量上限 1：只留最新
+        storage.clip_prune(1, 30).await.unwrap();
+        let rest = storage.clip_list().await.unwrap();
+        assert_eq!(rest.len(), 1);
+        assert_eq!(rest[0].text.as_deref(), Some("kept-2"));
     }
 }

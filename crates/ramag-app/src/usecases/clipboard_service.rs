@@ -171,7 +171,6 @@ impl ClipboardService {
             preview,
             source,
             byte_size,
-            pinned: false,
             content_hash: hash,
             created_at: now,
             last_used_at: now,
@@ -305,14 +304,6 @@ impl ClipboardService {
         self.driver.reveal_in_finder(paths)
     }
 
-    pub async fn set_pinned(&self, item: &ClipItem, pinned: bool) -> Result<()> {
-        let mut updated = item.clone();
-        updated.pinned = pinned;
-        self.storage.clip_save(&updated).await?;
-        self.bump();
-        Ok(())
-    }
-
     pub async fn delete(&self, item: &ClipItem) -> Result<()> {
         self.storage.clip_delete(&item.id).await?;
         for path in [&item.image_path, &item.thumb_path].into_iter().flatten() {
@@ -322,8 +313,8 @@ impl ClipboardService {
         Ok(())
     }
 
-    pub async fn clear(&self, keep_pinned: bool) -> Result<()> {
-        let images = self.storage.clip_clear(keep_pinned).await?;
+    pub async fn clear(&self) -> Result<()> {
+        let images = self.storage.clip_clear().await?;
         self.cleanup_media(images);
         self.bump();
         Ok(())

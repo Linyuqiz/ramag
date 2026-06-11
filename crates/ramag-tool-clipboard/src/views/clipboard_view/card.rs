@@ -38,7 +38,6 @@ impl ClipboardView {
             .unwrap_or_default();
         let time = relative_time(item.last_used_at, Utc::now());
 
-        let item_pin = item.clone();
         let item_copy = item.clone();
         let item_dbl = item.clone();
         let item_del = item.clone();
@@ -67,9 +66,6 @@ impl ClipboardView {
                     .items_center()
                     .gap(px(6.0))
                     .child(kind_badge)
-                    .when(item.pinned, |this| {
-                        this.child(icons::pin().size_3().text_color(accent))
-                    })
                     .child(div().flex_1())
                     .child(div().text_xs().text_color(muted).child(time)),
             )
@@ -95,18 +91,6 @@ impl ClipboardView {
                             .text_ellipsis()
                             .child(source),
                     )
-                    .child(card_action_btn(
-                        "pin",
-                        if item.pinned {
-                            icons::pin_off()
-                        } else {
-                            icons::pin()
-                        },
-                        cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            cx.stop_propagation();
-                            this.toggle_pin(item_pin.clone(), cx);
-                        }),
-                    ))
                     .child(card_action_btn(
                         "copy",
                         icons::copy(),

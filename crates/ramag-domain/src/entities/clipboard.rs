@@ -102,7 +102,6 @@ pub struct ClipItem {
     pub source: Option<ClipSource>,
     /// 原始内容字节数（文本字节 / PNG 字节）
     pub byte_size: u64,
-    pub pinned: bool,
     /// 内容指纹（fnv1a 十六进制），同内容去重
     pub content_hash: String,
     pub created_at: DateTime<Utc>,
