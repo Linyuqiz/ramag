@@ -15,8 +15,14 @@ pub fn run(repo_path: &Path, message: &str, amend: bool, sign: bool) -> Result<C
     if sign {
         args.push("-S");
     }
-    args.push("-m");
-    args.push(message);
+    // amend + 空 message = 保留原 commit message（--no-edit）；
+    // 否则 `-m ""` 会让 git 报 "empty commit message" 拒绝提交
+    if amend && message.is_empty() {
+        args.push("--no-edit");
+    } else {
+        args.push("-m");
+        args.push(message);
+    }
     run_git_bytes(repo_path, &args)?;
     let id = run_git_text(repo_path, &["rev-parse", "HEAD"])?;
     Ok(CommitId(id.trim().to_string()))

@@ -20,6 +20,13 @@ gpui-component = { workspace = true }
 # 异步
 futures = { workspace = true }
 
+# 快捷键 Action derive（gpui Action 宏要求 Deserialize + JsonSchema）
+serde = { workspace = true }
+schemars = { workspace = true }
+
+# 文件系统监听：外部改动自动刷新工作区（依赖树中已有，零新增编译单元）
+notify = { workspace = true }
+
 # 语法高亮：SyntaxHighlighter 解析文本需要 Rope（diff / Project Files 代码着色）
 ropey = { workspace = true }
 

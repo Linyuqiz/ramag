@@ -47,7 +47,7 @@ impl VcsView {
         cx: &mut Context<Self>,
     ) {
         if !matches!(op, FileOp::Discard) {
-            self.run_file_op(op, path, cx);
+            self.run_file_op(op, vec![path], cx);
             return;
         }
         let view = cx.entity();
@@ -58,7 +58,7 @@ impl VcsView {
             format!("将丢弃「{path}」在工作区的全部未暂存改动，且无法恢复。\n确认继续吗？"),
             "丢弃",
             true,
-            move |this, cx| this.run_file_op(FileOp::Discard, path_for_run, cx),
+            move |this, cx| this.run_file_op(FileOp::Discard, vec![path_for_run], cx),
             window,
             cx,
         );

@@ -15,6 +15,7 @@ impl VcsView {
         };
         let driver = self.driver.clone();
         self.busy = true;
+        self.busy_label = Some("Revert 中…");
         self.error = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
@@ -22,6 +23,7 @@ impl VcsView {
             let new_status = driver.status(&repo).await.ok();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                this.busy_label = None;
                 if !this.is_current_repo(&repo) {
                     cx.notify();
                     return;
@@ -36,6 +38,9 @@ impl VcsView {
                     info!(%commit_id, "vcs: revert done");
                     // HEAD 推进一个 revert commit，刷新 history 第一页
                     this.load_history_page(0, cx);
+                    this.refresh_after_head_change(cx);
+                    let short: String = commit_id.chars().take(7).collect();
+                    this.notify_success(format!("已 Revert {short}"), cx);
                 }
                 cx.notify();
             });
@@ -50,6 +55,7 @@ impl VcsView {
         };
         let driver = self.driver.clone();
         self.busy = true;
+        self.busy_label = Some("Reset 中…");
         self.error = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
@@ -61,6 +67,7 @@ impl VcsView {
                 .unwrap_or_default();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                this.busy_label = None;
                 if !this.is_current_repo(&repo) {
                     cx.notify();
                     return;
@@ -74,8 +81,11 @@ impl VcsView {
                     this.error = Some(format!("Reset {kind:?} 失败：{e}"));
                 } else {
                     info!(%target, ?kind, "vcs: reset done");
-                    // HEAD 移动了，history 列表与暂存区状态都要重拉
+                    // HEAD 移动了：history、暂存区、已打开 tabs 的 diff 缓存全部重拉
                     this.load_history_page(0, cx);
+                    this.refresh_after_head_change(cx);
+                    let short: String = target.chars().take(7).collect();
+                    this.notify_success(format!("已 Reset（{kind:?}）到 {short}"), cx);
                 }
                 cx.notify();
             });
@@ -90,6 +100,7 @@ impl VcsView {
         };
         let driver = self.driver.clone();
         self.busy = true;
+        self.busy_label = Some("Stash 并切换中…");
         self.error = None;
         cx.notify();
         let target_for_log = target.clone();
@@ -107,6 +118,7 @@ impl VcsView {
                 .unwrap_or_default();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                this.busy_label = None;
                 if !this.is_current_repo(&repo) {
                     cx.notify();
                     return;
@@ -121,6 +133,10 @@ impl VcsView {
                         this.load_history_page(0, cx);
                         this.refresh_after_head_change(cx);
                         this.reload_stashes(cx);
+                        this.notify_success(
+                            format!("已 stash 工作区改动并切换到 {target_for_log}"),
+                            cx,
+                        );
                     }
                     Err(e) => {
                         error!(error = %e, target = %target_for_log, "vcs: stash+checkout failed");
@@ -153,6 +169,7 @@ impl VcsView {
         }
         let driver = self.driver.clone();
         self.busy = true;
+        self.busy_label = Some("切换分支中…");
         self.error = None;
         cx.notify();
         let target_for_log = target.clone();
@@ -169,6 +186,7 @@ impl VcsView {
                 .unwrap_or_default();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                this.busy_label = None;
                 if !this.is_current_repo(&repo) {
                     cx.notify();
                     return;
@@ -182,6 +200,10 @@ impl VcsView {
                         info!(target = %target_for_log, "vcs: discard + checkout done");
                         this.load_history_page(0, cx);
                         this.refresh_after_head_change(cx);
+                        this.notify_success(
+                            format!("已丢弃工作区改动并切换到 {target_for_log}"),
+                            cx,
+                        );
                     }
                     Err(e) => {
                         error!(error = %e, target = %target_for_log, "vcs: discard+checkout failed");

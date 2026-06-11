@@ -1,7 +1,12 @@
 //! VCS（Git）UI 层。底层 ramag-infra-git；尚未抽 VcsService，view 直调 driver
 
+pub mod actions;
 pub mod views;
+mod watcher;
 
+pub use actions::{
+    CommitNow, FocusCommitMessage, PullNow, PushNow, RefreshWorkspace, ToggleHistoryPane,
+};
 pub use views::vcs_view::VcsView;
 
 use std::sync::Arc;

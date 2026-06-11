@@ -61,6 +61,12 @@ pub struct VcsView {
     pub(super) loading: bool,
     /// 写操作正在进行中（stage / unstage / discard / commit）：避免重复点击
     pub(super) busy: bool,
+    /// busy 时工具栏 spinner 旁的操作名（"Pull 中…"等）；None = 不显示指示器
+    pub(super) busy_label: Option<&'static str>,
+    /// 异步操作完成后挂起的 toast；Render 持有 Window 时统一 push（与 dbclient 同模式）
+    pub(super) pending_notification: Option<gpui_component::notification::Notification>,
+    /// 上一次观察到的窗口激活态：仅在「未激活 → 激活」边缘触发工作区自动刷新
+    pub(super) was_window_active: bool,
     /// commit message 输入框（多行）
     pub(super) commit_input: Entity<InputState>,
     /// 是否 amend 上一次提交（默认 false）
@@ -222,6 +228,9 @@ pub struct VcsView {
     pub(super) conflict_content: Option<ConflictContent>,
     pub(super) loading_conflict: bool,
 
+    /// 当前仓库的文件系统监听句柄（drop 即停）；切仓重建，关仓置 None
+    pub(super) fs_watcher: Option<crate::watcher::RepoWatcher>,
+
     /// 视图焦点（cmd-w / 全局 action dispatch）
     pub(super) focus_handle: FocusHandle,
 }
@@ -329,6 +338,18 @@ impl VcsView {
             self.error = None;
             cx.notify();
         }
+    }
+
+    /// 挂起一条成功 toast，待 Render 持有 Window 时推送（异步回调里拿不到 Window）
+    pub(super) fn notify_success(
+        &mut self,
+        message: impl Into<SharedString>,
+        cx: &mut Context<Self>,
+    ) {
+        self.pending_notification = Some(
+            gpui_component::notification::Notification::success(message.into()).autohide(true),
+        );
+        cx.notify();
     }
 
     /// 切换 diff 视图模式；FullFile 与 Standard 后端 unified 行数不同，要清缓存重拉

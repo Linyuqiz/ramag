@@ -55,6 +55,7 @@ impl VcsView {
             let new_status = driver.status(&repo).await.ok();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                this.busy_label = None;
                 if !this.is_current_repo(&repo) {
                     cx.notify();
                     return;
@@ -65,16 +66,8 @@ impl VcsView {
                         if let Some(s) = new_status {
                             this.status = Some(s);
                         }
-                        // 清缓存让 select_file 强制重拉（回滚后内容已变，旧 cached_diff 失效）
-                        if let Some(idx) = this.active_file_tab_idx
-                            && let Some(tab) = this.file_tabs.get_mut(idx)
-                        {
-                            tab.cached_diff = None;
-                        }
-                        this.current_diff = None;
-                        if let Some((p, k)) = this.selected_file.clone() {
-                            this.select_file(p, k, cx);
-                        }
+                        // tabs 对齐：同文件两组 tab 缓存一并失效；变更全回滚则关 tab；active 自动重拉
+                        this.sync_changes_tabs_with_status(cx);
                     }
                     Err(e) => {
                         error!(error = %e, hunk_idx, ?kind, "vcs: hunk revert failed");

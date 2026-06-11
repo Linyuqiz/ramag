@@ -130,6 +130,27 @@ impl VcsView {
         for mode in modes {
             tabs_row = tabs_row.child(self.mode_tab_button(mode, active, cx));
         }
+        // 中段：busy 指示器（操作进行中显示 spinner + 操作名，慢操作不再像卡死）
+        let busy_indicator: AnyElement = if let Some(label) = self.busy_label {
+            h_flex()
+                .flex_1()
+                .min_w_0()
+                .justify_end()
+                .gap(px(4.0))
+                .items_center()
+                .child(gpui_component::spinner::Spinner::new().xsmall())
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(muted_fg)
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .child(label),
+                )
+                .into_any_element()
+        } else {
+            div().flex_1().into_any_element()
+        };
         // 末尾：分支选择器（显示当前 HEAD 分支名 + dropdown 列出所有分支可切换 / 创建）
         let mode_row = h_flex()
             .w_full()
@@ -140,7 +161,7 @@ impl VcsView {
             .gap(px(8.0))
             .items_center()
             .child(tabs_row)
-            .child(div().flex_1())
+            .child(busy_indicator)
             .child(self.render_branch_picker(cx));
 
         // 第 2 行：搜索框 + (Project 模式才显示的)全展开/全折叠 toggle + 刷新按钮
@@ -183,6 +204,20 @@ impl VcsView {
                     })),
             );
         }
+        // 手动刷新：外部（终端 / 编辑器）改动后立即同步；窗口重新激活时也会自动刷
+        if self.repo.is_some() {
+            search_row = search_row.child(
+                Button::new("vcs-refresh")
+                    .ghost()
+                    .xsmall()
+                    .icon(ramag_ui::icons::refresh_cw())
+                    .tooltip("刷新工作区状态（切回窗口时也会自动刷新）")
+                    .disabled(busy)
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.refresh_workspace_silent(cx);
+                    })),
+            );
+        }
         // 历史面板 toggle：从 ⋮ 菜单提出来的独立按钮（与展开/折叠并列）
         // 仅 repo 已打开时显示——RepoList 模式不需要
         if self.repo.is_some() {
@@ -208,7 +243,6 @@ impl VcsView {
         }
         // 末尾：Git 操作聚合菜单（Fetch / Pull / Push / 强推）
         search_row = search_row.child(self.render_remote_actions(cx));
-        let _ = busy; // 暂留：日后若禁用按钮可用
 
         v_flex()
             .child(mode_row)
@@ -359,12 +393,41 @@ impl VcsView {
         .into_any_element()
     }
 
-    /// Stash 视图：在主 panel 显示完整 stash 列表（与左侧栏 Stash 段共用数据）
+    /// Stash 视图：顶部「Stash 工作区改动」入口 + 完整 stash 列表（与左侧栏 Stash 段共用数据）
     fn render_stash_view(&self, cx: &mut Context<Self>) -> AnyElement {
+        // 工作区干净（无任何可 stash 的文件）时禁用入口
+        let has_changes = self
+            .status
+            .as_ref()
+            .map(|s| s.files.iter().any(|f| !f.is_conflicted()))
+            .unwrap_or(false);
+        let save_btn = Button::new("vcs-stash-save")
+            .outline()
+            .xsmall()
+            .icon(IconName::Inbox)
+            .label("Stash 工作区改动")
+            .tooltip("把当前全部改动（含未跟踪文件）存入 stash 堆栈，工作区恢复干净")
+            .disabled(self.busy || !has_changes)
+            .on_click(cx.listener(|_this, _: &ClickEvent, window, cx| {
+                let entity = cx.entity();
+                ramag_ui::open_prompt(
+                    "Stash 工作区改动",
+                    "输入 stash 说明（可留空，默认用 git 自动描述）",
+                    "",
+                    "Stash",
+                    move |msg, _, app| {
+                        entity.update(app, |this, cx| this.run_stash_save(msg, cx));
+                    },
+                    window,
+                    cx,
+                );
+            }));
         // 复用 sidebar 的 stash 段渲染：列表 + 行尾按钮（apply / pop / drop）
         // 给一个独立 wrapper，避免被 sidebar 的折叠样式影响
         v_flex()
             .size_full()
+            .gap(px(8.0))
+            .child(h_flex().child(save_btn))
             .child(self.render_stash_list_body(cx))
             .into_any_element()
     }

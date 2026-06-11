@@ -1,7 +1,8 @@
 //! VcsView 顶层 Render：tab bar + body 路由（RepoList / IDE 布局）
 
 use gpui::{
-    AnyElement, Context, IntoElement, ParentElement, Render, Styled, Window, div, prelude::*,
+    AnyElement, Context, Focusable as _, IntoElement, ParentElement, Render, Styled, Window, div,
+    prelude::*,
 };
 use gpui_component::{ActiveTheme, v_flex};
 
@@ -10,6 +11,11 @@ use super::VcsView;
 
 impl Render for VcsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // 把异步操作完成时挂起的 toast 推送出来（commit / push / pull 等成功提示）
+        if let Some(n) = self.pending_notification.take() {
+            use gpui_component::WindowExt as _;
+            window.push_notification(n, cx);
+        }
         // commit 草稿恢复：仓库切换后用 cx.defer_in 借 Window 写回 InputState
         if let Some(text) = self.pending_commit_text.take() {
             let input = self.commit_input.clone();
@@ -64,6 +70,58 @@ impl Render for VcsView {
                     cx.propagate();
                 }
             }))
+            // cmd-r：手动刷新工作区
+            .on_action(
+                cx.listener(|this, _: &crate::actions::RefreshWorkspace, _, cx| {
+                    if this.repo.is_some() && !this.loading {
+                        this.refresh_workspace_silent(cx);
+                    }
+                }),
+            )
+            // cmd-shift-k / cmd-t：push / pull 当前分支
+            .on_action(cx.listener(|this, _: &crate::actions::PushNow, _, cx| {
+                if this.repo.is_some() && !this.busy {
+                    this.run_remote_op(super::super::helpers::RemoteOp::Push, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &crate::actions::PullNow, _, cx| {
+                if this.repo.is_some() && !this.busy {
+                    this.run_remote_op(super::super::helpers::RemoteOp::Pull, cx);
+                }
+            }))
+            // cmd-shift-h：底部历史面板
+            .on_action(
+                cx.listener(|this, _: &crate::actions::ToggleHistoryPane, _, cx| {
+                    if this.repo.is_some() {
+                        this.toggle_history_pane(cx);
+                    }
+                }),
+            )
+            // cmd-k：切 Changes 并聚焦 commit 输入框
+            .on_action(
+                cx.listener(|this, _: &crate::actions::FocusCommitMessage, window, cx| {
+                    if this.repo.is_none() {
+                        return;
+                    }
+                    this.set_files_view_mode(super::super::helpers::FilesViewMode::Changes, cx);
+                    let fh = this.commit_input.read(cx).focus_handle(cx);
+                    window.focus(&fh, cx);
+                }),
+            )
+            // cmd-enter：仅 commit 输入框聚焦时提交（其他输入框里不劫持）
+            .on_action(
+                cx.listener(|this, _: &crate::actions::CommitNow, window, cx| {
+                    if this.repo.is_none() || this.busy {
+                        return;
+                    }
+                    let fh = this.commit_input.read(cx).focus_handle(cx);
+                    if fh.is_focused(window) {
+                        this.confirm_commit(window, cx);
+                    } else {
+                        cx.propagate();
+                    }
+                }),
+            )
             .child(self.render_tabs(cx))
             .child(div().flex_1().min_h_0().child(body))
     }

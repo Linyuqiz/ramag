@@ -1,11 +1,12 @@
-//! 文件 tab：select_file / close_file_tab / activate_file_tab_state
+//! 文件 tab：select_file / close_file_tab / activate_file_tab_state / untracked 预览
 
 use gpui::Context;
-use ramag_domain::entities::DiffKind;
+use ramag_domain::entities::{DiffKind, DiffLine, DiffLineKind, FileChangeKind, FileDiff, Hunk};
 use tracing::error;
 
 use super::helpers::{FileTab, FileTabSource, GroupKind};
 use super::vcs_view::VcsView;
+use super::vcs_view_ops_repo::{RawFileContent, read_raw_file_content};
 
 impl VcsView {
     /// 选中文件查看 diff（Changes 模式）：tab 已存在则复用并优先展示缓存；否则新开 tab + 异步拉
@@ -64,11 +65,16 @@ impl VcsView {
         }
         cx.notify();
 
-        // Untracked / Conflict 暂不渲染 diff
         let diff_kind = match kind {
             GroupKind::Staged => DiffKind::IndexVsHead,
             GroupKind::Unstaged => DiffKind::WorkingTreeVsIndex,
-            GroupKind::Untracked | GroupKind::Conflict => {
+            // Untracked 不在 index：git diff 无输出 → 读盘构造「全新增」伪 diff 预览
+            GroupKind::Untracked => {
+                self.load_untracked_preview(path, cx);
+                return;
+            }
+            // Conflict 走三栏解决器（左侧行点击直达），diff 区仅给提示
+            GroupKind::Conflict => {
                 self.loading_diff = false;
                 cx.notify();
                 return;
@@ -141,6 +147,60 @@ impl VcsView {
         cx.notify();
     }
 
+    /// 读盘构造 untracked 文件的「全新增」伪 diff：与普通 diff 同一渲染管线，
+    /// 新文件点开即可预览内容（之前是占位文案，必须先 Stage 才能看）
+    fn load_untracked_preview(&mut self, path: String, cx: &mut Context<Self>) {
+        let Some(repo) = self.repo.as_ref() else {
+            return;
+        };
+        let repo_id = repo.id.clone();
+        let abs_path = std::path::PathBuf::from(&repo.path).join(&path);
+        cx.spawn(async move |this, cx| {
+            let (tx, rx) = futures::channel::oneshot::channel();
+            let rel_for_thread = path.clone();
+            std::thread::spawn(move || {
+                let raw = read_raw_file_content(&abs_path, &rel_for_thread);
+                let _ = tx.send(raw);
+            });
+            let raw = rx.await.ok();
+            let _ = this.update(cx, |this, cx| {
+                this.loading_diff = false;
+                if !this.is_current_repo(&repo_id) {
+                    cx.notify();
+                    return;
+                }
+                match raw {
+                    Some(raw) if raw.error.is_none() => {
+                        let d = build_untracked_diff(raw);
+                        if let Some(tab) = this.file_tabs.iter_mut().find(|t| {
+                            t.path == path
+                                && t.source == FileTabSource::Changes(GroupKind::Untracked)
+                        }) {
+                            tab.cached_diff = Some(d.clone());
+                        }
+                        let is_selected = this
+                            .selected_file
+                            .as_ref()
+                            .is_some_and(|(p, k)| p == &path && *k == GroupKind::Untracked);
+                        if is_selected {
+                            this.current_diff = Some(d);
+                        }
+                    }
+                    Some(raw) => {
+                        let msg = raw.error.unwrap_or_else(|| "未知错误".into());
+                        error!(error = %msg, path = %path, "vcs: read untracked file failed");
+                        this.error = Some(format!("读取文件失败：{msg}"));
+                    }
+                    None => {
+                        this.error = Some("读取文件失败：内部通道中断".into());
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// 同步 active tab 的派生状态：根据 source 写 selected_file / selected_pf_path 等
     pub(super) fn activate_file_tab_state(&mut self, tab: FileTab) {
         match &tab.source {
@@ -174,5 +234,87 @@ impl VcsView {
                 self.selected_commit_file = Some(tab.path.clone());
             }
         }
+    }
+}
+
+/// 文件内容 → 「全新增」伪 diff：单 hunk，每行 Add；二进制走 FileDiff.binary 占位；
+/// 截断（>4MB）通过 hunk heading 提示
+fn build_untracked_diff(raw: RawFileContent) -> FileDiff {
+    let lines: Vec<DiffLine> = raw
+        .lines
+        .into_iter()
+        .enumerate()
+        .map(|(i, text)| DiffLine {
+            kind: DiffLineKind::Add,
+            old_lineno: None,
+            new_lineno: Some(i as u32 + 1),
+            text,
+        })
+        .collect();
+    let hunks = if lines.is_empty() {
+        Vec::new()
+    } else {
+        vec![Hunk {
+            old_start: 0,
+            old_lines: 0,
+            new_start: 1,
+            new_lines: lines.len() as u32,
+            heading: raw
+                .truncated
+                .then(|| "文件过大，预览已截断（前 4MB）".to_string()),
+            lines,
+        }]
+    };
+    FileDiff {
+        path: raw.path,
+        old_path: None,
+        change_kind: FileChangeKind::Untracked,
+        binary: raw.binary,
+        old_mode: None,
+        new_mode: None,
+        hunks,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn raw(lines: Vec<&str>, binary: bool, truncated: bool) -> RawFileContent {
+        RawFileContent {
+            path: "new.rs".into(),
+            lines: lines.into_iter().map(str::to_owned).collect(),
+            truncated,
+            binary,
+            error: None,
+        }
+    }
+
+    #[test]
+    fn untracked_diff_marks_all_lines_added() {
+        let d = build_untracked_diff(raw(vec!["a", "b"], false, false));
+        assert_eq!(d.hunks.len(), 1);
+        let hunk = &d.hunks[0];
+        assert_eq!(hunk.new_lines, 2);
+        assert!(
+            hunk.lines
+                .iter()
+                .all(|l| matches!(l.kind, DiffLineKind::Add))
+        );
+        assert_eq!(hunk.lines[1].new_lineno, Some(2));
+        assert_eq!(hunk.lines[1].old_lineno, None);
+    }
+
+    #[test]
+    fn untracked_diff_binary_has_no_hunks() {
+        let d = build_untracked_diff(raw(vec![], true, false));
+        assert!(d.binary);
+        assert!(d.hunks.is_empty());
+    }
+
+    #[test]
+    fn untracked_diff_truncated_sets_heading() {
+        let d = build_untracked_diff(raw(vec!["x"], false, true));
+        assert!(d.hunks[0].heading.as_deref().unwrap_or("").contains("截断"));
     }
 }

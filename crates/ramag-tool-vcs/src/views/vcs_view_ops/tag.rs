@@ -60,6 +60,7 @@ impl VcsView {
             let new_tags = driver.list_tags(&repo).await.unwrap_or_default();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                this.busy_label = None;
                 if !this.is_current_repo(&repo) {
                     cx.notify();
                     return;
@@ -70,6 +71,12 @@ impl VcsView {
                     this.error = Some(format!("Tag 操作失败：{e}"));
                 } else {
                     info!(?op, "vcs: tag op done");
+                    let msg = match &op {
+                        TagOp::Create { name, .. } => format!("已创建 tag {name}"),
+                        TagOp::Delete(name) => format!("已删除 tag {name}"),
+                        TagOp::Push(name) => format!("已推送 tag {name} 到 origin"),
+                    };
+                    this.notify_success(msg, cx);
                 }
                 cx.notify();
             });

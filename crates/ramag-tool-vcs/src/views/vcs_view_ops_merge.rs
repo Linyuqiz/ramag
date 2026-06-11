@@ -51,6 +51,7 @@ impl VcsView {
         };
         let driver = self.driver.clone();
         self.busy = true;
+        self.busy_label = Some("Cherry-pick 中…");
         self.error = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
@@ -58,6 +59,7 @@ impl VcsView {
             let new_status = driver.status(&repo).await.ok();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                this.busy_label = None;
                 if !this.is_current_repo(&repo) {
                     cx.notify();
                     return;
@@ -70,6 +72,11 @@ impl VcsView {
                     this.error = Some(format!("Cherry-pick 失败：{e}（如有冲突请到工作区处理）"));
                 } else {
                     info!(%commit_id, "vcs: cherry-pick done");
+                    // HEAD 推进了一个新 commit
+                    this.load_history_page(0, cx);
+                    this.refresh_after_head_change(cx);
+                    let short: String = commit_id.chars().take(7).collect();
+                    this.notify_success(format!("已 cherry-pick {short}"), cx);
                 }
                 cx.notify();
             });
@@ -97,6 +104,7 @@ impl VcsView {
             let new_status = driver.status(&repo).await.ok();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                this.busy_label = None;
                 if !this.is_current_repo(&repo) {
                     cx.notify();
                     return;
@@ -109,6 +117,19 @@ impl VcsView {
                     this.error = Some(format!("冲突操作失败：{e}"));
                 } else {
                     info!(?op, %path, "vcs: conflict op done");
+                    // 该文件已解决：若三栏编辑器正开着它，关闭回 diff 视图
+                    if this.conflict_editor_path.as_deref() == Some(path.as_str()) {
+                        this.conflict_editor_path = None;
+                        this.conflict_content = None;
+                    }
+                    // 文件离开冲突组（→ 已暂存）：tabs 跟着迁移
+                    this.sync_changes_tabs_with_status(cx);
+                    let what = match op {
+                        ConflictOp::UseOurs => "已采纳我方（HEAD）版本",
+                        ConflictOp::UseTheirs => "已采纳对方版本",
+                        ConflictOp::MarkResolved => "已标记为已解决",
+                    };
+                    this.notify_success(format!("{what}：{path}"), cx);
                 }
                 cx.notify();
             });
@@ -128,6 +149,7 @@ impl VcsView {
         };
         let driver = self.driver.clone();
         self.busy = true;
+        self.busy_label = Some("处理中…");
         self.error = None;
         cx.notify();
 
@@ -161,6 +183,7 @@ impl VcsView {
                 .unwrap_or_default();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                this.busy_label = None;
                 if !this.is_current_repo(&repo) {
                     cx.notify();
                     return;
@@ -174,6 +197,15 @@ impl VcsView {
                     this.error = Some(format!("{operation:?} {step:?} 失败：{e}"));
                 } else {
                     info!(?operation, ?step, "vcs: op step done");
+                    // 继续 = 产生新 commit / 推进 rebase；中止 = 回滚工作区。HEAD 内容都变了
+                    this.load_history_page(0, cx);
+                    this.refresh_after_head_change(cx);
+                    let step_label = match step {
+                        OperationStep::Continue => "已继续",
+                        OperationStep::Skip => "已跳过当前 commit",
+                        OperationStep::Abort => "已中止",
+                    };
+                    this.notify_success(format!("{operation:?}：{step_label}"), cx);
                 }
                 cx.notify();
             });
@@ -224,6 +256,7 @@ impl VcsView {
         let onto = self.rebase_plan_onto.clone();
         let todos: Vec<ramag_domain::entities::RebaseTodo> = self.rebase_todos.clone();
         self.busy = true;
+        self.busy_label = Some("Rebase 中…");
         self.error = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
@@ -237,6 +270,7 @@ impl VcsView {
                 .unwrap_or_default();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                this.busy_label = None;
                 if !this.is_current_repo(&repo) {
                     cx.notify();
                     return;
@@ -252,7 +286,10 @@ impl VcsView {
                     this.error = Some(format!("交互式 Rebase 失败：{e}（如有冲突请在工作区处理）"));
                 } else {
                     info!(%onto, "vcs: interactive rebase done");
+                    // 历史被改写：history 与所有 diff 缓存都要重建
                     this.load_history_page(0, cx);
+                    this.refresh_after_head_change(cx);
+                    this.notify_success("交互式 Rebase 完成", cx);
                 }
                 cx.notify();
             });

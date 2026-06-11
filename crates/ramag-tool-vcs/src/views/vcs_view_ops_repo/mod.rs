@@ -224,6 +224,7 @@ impl VcsView {
     }
 
     fn reset_session_state(&mut self, cx: &mut Context<Self>) {
+        self.fs_watcher = None;
         self.repo = None;
         self.status = None;
         self.local_branches.clear();
@@ -350,6 +351,8 @@ pub(super) async fn open_repo_async(
 
         // 已访问过的仓库：还原文件 tab 状态；新仓库：空 tabs 让用户自己选
         this.restore_session_from_cache(&repo_config.path);
+        // 启动该仓库的文件系统监听（旧仓库的 watcher 在内部先 drop）
+        this.start_fs_watcher(cx);
         cx.notify();
         this.reload_stashes(cx);
         this.reload_tags(cx);
@@ -366,4 +369,6 @@ pub(super) async fn open_repo_async(
 /// 在 worker 线程同步读盘 + 二进制 / 截断检测 → 跨线程 Send 的 [`RawFileContent`]
 mod admin;
 mod file_io;
-use file_io::{finalize_file_snapshot, read_raw_file_content};
+use file_io::finalize_file_snapshot;
+// untracked 伪 diff 预览（vcs_view_ops_file_tab）复用同一读盘函数
+pub(in crate::views) use file_io::read_raw_file_content;

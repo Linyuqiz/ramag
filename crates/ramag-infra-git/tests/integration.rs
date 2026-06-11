@@ -543,3 +543,31 @@ fn diff_no_newline_at_eof() {
         "`\\ No newline` 标记不应被当成内容行，实际 {all:?}"
     );
 }
+
+/// amend：空 message 保留原 commit message；非空 message 改写。两种都不应新增 commit 数
+#[test]
+fn amend_keeps_or_rewrites_message() {
+    let (driver, id, tmp) = setup();
+    commit_file(
+        &driver,
+        &id,
+        tmp.path(),
+        "a.txt",
+        "v1\n",
+        "original message",
+    );
+
+    // 空 message amend：补一个文件进上一个 commit，message 不变
+    write(tmp.path(), "b.txt", "extra\n");
+    block_on(driver.stage(&id, &["b.txt".to_string()])).unwrap();
+    block_on(driver.commit(&id, "", true, false)).expect("空 message amend 应成功");
+    let log = block_on(driver.log(&id, LogOptions::default())).unwrap();
+    assert_eq!(log.len(), 1, "amend 不应新增 commit");
+    assert_eq!(log[0].subject, "original message", "空 message 应保留原文");
+
+    // 非空 message amend：改写 message
+    block_on(driver.commit(&id, "rewritten", true, false)).expect("amend 改 message 应成功");
+    let log = block_on(driver.log(&id, LogOptions::default())).unwrap();
+    assert_eq!(log.len(), 1);
+    assert_eq!(log[0].subject, "rewritten");
+}

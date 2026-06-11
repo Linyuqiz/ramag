@@ -4,7 +4,7 @@ use super::{PF_FILE_MAX_BYTES, RawFileContent};
 use crate::views::helpers::FileContentSnapshot;
 
 /// 读盘失败（路径不存在 / 权限不足）→ raw.error 携带消息，UI 渲染层提示
-pub(super) fn read_raw_file_content(abs: &std::path::Path, rel: &str) -> RawFileContent {
+pub(in crate::views) fn read_raw_file_content(abs: &std::path::Path, rel: &str) -> RawFileContent {
     let metadata = match std::fs::metadata(abs) {
         Ok(m) => m,
         Err(e) => {

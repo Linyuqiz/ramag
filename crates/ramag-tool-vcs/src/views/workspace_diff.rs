@@ -315,11 +315,9 @@ impl VcsView {
         if self.loading_diff {
             return placeholder("拉取中...", muted_fg);
         }
-        if matches!(kind, GroupKind::Untracked) {
-            return placeholder("（未跟踪文件，先 Stage 后查看 diff）", muted_fg);
-        }
+        // Untracked 不再短路：读盘伪 diff 已写入 current_diff，走正常渲染
         if matches!(kind, GroupKind::Conflict) {
-            return placeholder("（冲突文件需要三栏解决器）", muted_fg);
+            return placeholder("（点击左侧冲突文件行，直接打开三栏冲突解决器）", muted_fg);
         }
         let Some(d) = &self.current_diff else {
             return placeholder("（无差异）", muted_fg);

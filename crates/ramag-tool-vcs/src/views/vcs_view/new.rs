@@ -59,6 +59,17 @@ impl VcsView {
             },
         )
         .detach();
+        // 用户在外部（编辑器 / 终端）改动文件后切回窗口 → 自动刷新工作区，
+        // 不必手动点刷新。仅在「未激活 → 激活」边缘且已打开仓库时触发
+        cx.observe_window_activation(window, |this: &mut Self, window, cx| {
+            let active = window.is_window_active();
+            let became_active = active && !this.was_window_active;
+            this.was_window_active = active;
+            if became_active && this.repo.is_some() && !this.loading {
+                this.refresh_workspace_silent(cx);
+            }
+        })
+        .detach();
         let this = Self {
             driver,
             storage,
@@ -69,6 +80,9 @@ impl VcsView {
             error: None,
             loading: false,
             busy: false,
+            busy_label: None,
+            pending_notification: None,
+            was_window_active: window.is_window_active(),
             commit_input,
             commit_amend: false,
             commit_sign: false,
@@ -154,6 +168,7 @@ impl VcsView {
             conflict_editor_path: None,
             conflict_content: None,
             loading_conflict: false,
+            fs_watcher: None,
             focus_handle: cx.focus_handle(),
         };
         Self::load_recent_repos_async(cx);

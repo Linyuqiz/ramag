@@ -382,7 +382,12 @@ impl VcsView {
             .cursor_pointer()
             .hover(move |this| this.bg(hover_bg))
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.select_file(path_for_click.clone(), kind, cx);
+                // 冲突文件：点击行直达三栏解决器（diff 区无法表达三方内容）
+                if matches!(kind, GroupKind::Conflict) {
+                    this.open_conflict_editor(path_for_click.clone(), cx);
+                } else {
+                    this.select_file(path_for_click.clone(), kind, cx);
+                }
             }))
             .child(
                 div()
@@ -437,9 +442,7 @@ fn bulk_op_button(
         .label(label)
         .disabled(busy)
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            for p in paths.clone() {
-                this.run_file_op(op, p, cx);
-            }
+            this.run_file_op(op, paths.clone(), cx);
         }))
         .into_any_element()
 }

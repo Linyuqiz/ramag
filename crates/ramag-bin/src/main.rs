@@ -22,7 +22,10 @@ use ramag_tool_dbclient::{
     RunStatementAtCursor, SaveSqlFile, ToggleHistory, ToggleSqlEditor, create_dbclient_view,
 };
 use ramag_tool_mongodb::{FormatMongoJson, NewMongoQueryTab, RunMongoQuery, ToggleMongoEditor};
-use ramag_tool_vcs::{VcsTool, create_vcs_view};
+use ramag_tool_vcs::{
+    CommitNow, FocusCommitMessage, PullNow, PushNow, RefreshWorkspace, ToggleHistoryPane, VcsTool,
+    create_vcs_view,
+};
 use ramag_ui::{
     CloseTab, HomeEvent, HomeView, Mode, NavTarget, RamagAssets, Shell, StorageGlobal, apply_theme,
     init_theme,
@@ -122,6 +125,13 @@ fn main() {
             KeyBinding::new("cmd-t", NewMongoQueryTab, Some("MongoQueryPanel")),
             KeyBinding::new("cmd-shift-f", FormatMongoJson, Some("MongoQueryTab")),
             KeyBinding::new("cmd-e", ToggleMongoEditor, Some("MongoQueryPanel")),
+            // VCS 视图快捷键（context=VcsView，焦点在 VCS 视图时优先于上面的 None context 绑定）
+            KeyBinding::new("cmd-k", FocusCommitMessage, Some("VcsView")),
+            KeyBinding::new("cmd-enter", CommitNow, Some("VcsView")),
+            KeyBinding::new("cmd-shift-k", PushNow, Some("VcsView")),
+            KeyBinding::new("cmd-t", PullNow, Some("VcsView")),
+            KeyBinding::new("cmd-r", RefreshWorkspace, Some("VcsView")),
+            KeyBinding::new("cmd-shift-h", ToggleHistoryPane, Some("VcsView")),
         ]);
 
         cx.set_menus(vec![Menu {

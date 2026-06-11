@@ -40,7 +40,19 @@ impl VcsView {
             return;
         }
         let driver = self.driver.clone();
+        let op_label = match op {
+            RemoteOp::Fetch => "Fetch",
+            RemoteOp::Pull => "Pull",
+            RemoteOp::Push => "Push",
+            RemoteOp::PushForce => "强推",
+        };
         self.busy = true;
+        self.busy_label = Some(match op {
+            RemoteOp::Fetch => "Fetch 中…",
+            RemoteOp::Pull => "Pull 中…",
+            RemoteOp::Push => "Push 中…",
+            RemoteOp::PushForce => "强推中…",
+        });
         self.error = None;
         cx.notify();
 
@@ -65,26 +77,54 @@ impl VcsView {
                         .await
                 }
             };
-            // 不论成功失败都刷新一次 status（pull 后 ahead/behind 必变）
+            // 不论成功失败都刷新一次 status（pull 后 ahead/behind 必变）；
+            // remote 分支同刷：fetch/pull 更新远端 refs，push -u 会新建 origin/<branch>
             let new_status = driver.status(&repo).await.ok();
             let local = driver.list_branches(&repo, BranchKind::Local).await.ok();
+            let remote_b = driver.list_branches(&repo, BranchKind::Remote).await.ok();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                this.busy_label = None;
                 if !this.is_current_repo(&repo) {
                     cx.notify();
                     return;
-                }
-                if let Err(e) = result {
-                    error!(error = %e, ?op, "vcs: remote op failed");
-                    this.error = Some(format!("{op:?} 失败：{e}"));
-                } else {
-                    info!(?op, "vcs: remote op done");
                 }
                 if let Some(s) = new_status {
                     this.status = Some(s);
                 }
                 if let Some(b) = local {
                     this.local_branches = b;
+                }
+                if let Some(b) = remote_b {
+                    this.remote_branches = b;
+                }
+                match result {
+                    Err(e) => {
+                        error!(error = %e, ?op, "vcs: remote op failed");
+                        this.error = Some(format!("{op_label} 失败：{e}"));
+                    }
+                    Ok(_) => {
+                        info!(?op, "vcs: remote op done");
+                        let msg = match op {
+                            RemoteOp::Fetch => "Fetch 完成".to_string(),
+                            RemoteOp::Pull => format!("Pull 完成（{remote_name}/{remote_branch}）"),
+                            RemoteOp::Push if need_set_upstream => {
+                                format!("Push 成功，已设置 upstream {remote_name}/{local_branch}")
+                            }
+                            RemoteOp::Push => format!("Push 成功（{remote_name}/{local_branch}）"),
+                            RemoteOp::PushForce => {
+                                format!("强推成功（{remote_name}/{local_branch}）")
+                            }
+                        };
+                        this.notify_success(msg, cx);
+                        // Pull 可能带来新 commit：HEAD 内容变了，缓存全失效 + history 刷新
+                        if matches!(op, RemoteOp::Pull) {
+                            this.refresh_after_head_change(cx);
+                            if this.history_pane_visible || !this.history_commits.is_empty() {
+                                this.load_history_page(0, cx);
+                            }
+                        }
+                    }
                 }
                 cx.notify();
             });

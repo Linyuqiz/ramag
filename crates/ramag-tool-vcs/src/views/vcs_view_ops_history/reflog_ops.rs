@@ -59,6 +59,7 @@ impl VcsView {
             let new_status = driver.status(&repo).await.ok();
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                this.busy_label = None;
                 if !this.is_current_repo(&repo) {
                     cx.notify();
                     return;
@@ -73,6 +74,9 @@ impl VcsView {
                     info!(%commit, "vcs: reflog checkout done");
                     this.showing_reflog = false;
                     this.load_history_page(0, cx);
+                    this.refresh_after_head_change(cx);
+                    let short: String = commit.chars().take(7).collect();
+                    this.notify_success(format!("已 checkout 到 {short}（detached HEAD）"), cx);
                 }
                 cx.notify();
             });

@@ -32,6 +32,7 @@ pub mod vcs_view_ops_merge;
 pub mod vcs_view_ops_patch;
 pub mod vcs_view_ops_remote;
 pub mod vcs_view_ops_repo;
+pub mod vcs_view_ops_sync;
 pub mod workspace_commit;
 pub mod workspace_conflict;
 pub mod workspace_diff;

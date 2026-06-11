@@ -39,10 +39,9 @@ impl VcsView {
             } else {
                 "Amend"
             })
-            .tooltip("修改上一次 commit（不创建新 commit）")
+            .tooltip("修改上一次 commit（不创建新 commit）；message 留空则保留原文")
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.commit_amend = !this.commit_amend;
-                cx.notify();
+                this.toggle_commit_amend(cx);
             }));
 
         let sign_btn = Button::new("vcs-commit-sign-toggle")
