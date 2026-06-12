@@ -1,4 +1,3 @@
-pub mod blame_view;
 pub mod branch_picker;
 pub mod commit_detail;
 pub mod commit_graph;

@@ -21,10 +21,8 @@ async-trait = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }
 
-# 序列化与时间
-serde = { workspace = true }
+# BSON ↔ JSON 转换
 serde_json = { workspace = true }
-chrono = { workspace = true }
 
 # 连接池缓存
 dashmap = { workspace = true }

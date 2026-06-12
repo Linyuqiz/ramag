@@ -25,7 +25,7 @@ pub enum HashFieldFormMode {
 
 #[derive(Debug, Clone)]
 pub enum HashFieldFormEvent {
-    /// 提交成功，返回 (field, value)，让上层重载详情
+    /// 提交成功，返回 field，让上层重载详情
     Saved {
         field: String,
     },

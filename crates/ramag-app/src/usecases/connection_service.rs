@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use ramag_domain::entities::{
     Column, ConnectionConfig, ConnectionId, DriverKind, ForeignKey, Index, Query, QueryRecord,
-    QueryRecordId, QueryResult, Schema, Table,
+    QueryResult, Schema, Table,
 };
 use ramag_domain::error::{DomainError, Result};
 use ramag_domain::traits::{CancelHandle, Driver, Storage};
@@ -35,10 +35,6 @@ impl ConnectionService {
         self.storage.list_connections().await
     }
 
-    pub async fn get(&self, id: &ConnectionId) -> Result<Option<ConnectionConfig>> {
-        self.storage.get_connection(id).await
-    }
-
     pub async fn save(&self, config: &ConnectionConfig) -> Result<()> {
         self.storage.save_connection(config).await
     }
@@ -62,13 +58,6 @@ impl ConnectionService {
         if let Ok(driver) = self.driver_for(config) {
             driver.evict_pool(&config.id);
         }
-    }
-
-    /// 测试通过才保存
-    pub async fn test_and_save(&self, config: &ConnectionConfig) -> Result<()> {
-        self.driver_for(config)?.test_connection(config).await?;
-        self.storage.save_connection(config).await?;
-        Ok(())
     }
 
     // 元数据查询（走 driver）
@@ -115,10 +104,6 @@ impl ConnectionService {
     }
 
     // 查询执行
-
-    pub async fn execute(&self, config: &ConnectionConfig, query: &Query) -> Result<QueryResult> {
-        self.driver_for(config)?.execute(config, query).await
-    }
 
     pub async fn cancel_query(&self, config: &ConnectionConfig, thread_id: u64) -> Result<()> {
         self.driver_for(config)?
@@ -193,13 +178,5 @@ impl ConnectionService {
         limit: usize,
     ) -> Result<Vec<QueryRecord>> {
         self.storage.list_history(connection_id, limit).await
-    }
-
-    pub async fn delete_history(&self, id: &QueryRecordId) -> Result<()> {
-        self.storage.delete_history(id).await
-    }
-
-    pub async fn clear_history(&self, connection_id: Option<&ConnectionId>) -> Result<()> {
-        self.storage.clear_history(connection_id).await
     }
 }

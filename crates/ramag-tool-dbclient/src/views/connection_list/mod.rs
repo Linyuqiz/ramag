@@ -133,15 +133,6 @@ impl ConnectionListPanel {
         .detach();
     }
 
-    pub fn set_selected(&mut self, id: Option<ConnectionId>, cx: &mut Context<Self>) {
-        self.selected = id;
-        cx.notify();
-    }
-
-    pub fn selected(&self) -> Option<&ConnectionId> {
-        self.selected.as_ref()
-    }
-
     pub fn connections(&self) -> &[ConnectionConfig] {
         &self.connections
     }
@@ -171,15 +162,4 @@ impl ConnectionListPanel {
             .cloned()
             .collect()
     }
-}
-
-/// 调用方需持 `&mut Window`
-pub fn create(
-    service: Arc<ConnectionService>,
-    redis_service: Arc<RedisService>,
-    mongo_service: Arc<MongoService>,
-    window: &mut Window,
-    cx: &mut gpui::App,
-) -> Entity<ConnectionListPanel> {
-    cx.new(|cx| ConnectionListPanel::new(service, redis_service, mongo_service, window, cx))
 }

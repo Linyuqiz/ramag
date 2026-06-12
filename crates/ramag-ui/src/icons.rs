@@ -83,16 +83,6 @@ pub fn clipboard() -> Icon {
 }
 
 #[inline]
-pub fn pin() -> Icon {
-    Icon::default().path("icons/pin.svg")
-}
-
-#[inline]
-pub fn pin_off() -> Icon {
-    Icon::default().path("icons/pin-off.svg")
-}
-
-#[inline]
 pub fn settings() -> Icon {
     Icon::default().path("icons/settings.svg")
 }
@@ -100,9 +90,4 @@ pub fn settings() -> Icon {
 #[inline]
 pub fn copy() -> Icon {
     Icon::default().path("icons/copy.svg")
-}
-
-#[inline]
-pub fn checker() -> Icon {
-    Icon::default().path("icons/checker.svg")
 }

@@ -1,4 +1,4 @@
-//! 结果区顶部工具栏：过滤列 / 过滤行 / 导出 / 复制全部。
+//! 结果区顶部工具栏：过滤列 / 过滤行 / 增删文档 / 导出 / 运行。
 //! 行数 / 耗时摘要已下沉到底部 status bar（见 mod.rs render_status_bar），与 dbclient 一致
 
 use gpui::{Anchor, Context, div, prelude::*, px};

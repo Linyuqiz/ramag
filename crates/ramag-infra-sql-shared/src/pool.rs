@@ -32,10 +32,6 @@ impl<Db: Database> PoolCache<Db> {
         Self::default()
     }
 
-    pub fn clone_handle(&self) -> Self {
-        self.clone()
-    }
-
     /// 未命中返回 None（外部 build_pool 后 insert）
     pub fn get(&self, id: &ConnectionId) -> Option<Pool<Db>> {
         self.pools.get(id).map(|e| e.clone())
@@ -49,23 +45,5 @@ impl<Db: Database> PoolCache<Db> {
         if self.pools.remove(id).is_some() {
             info!(connection_id = %id, "pool evicted");
         }
-    }
-
-    pub async fn close_all(&self) {
-        let ids: Vec<_> = self.pools.iter().map(|e| e.key().clone()).collect();
-        for id in ids {
-            if let Some((_, pool)) = self.pools.remove(&id) {
-                pool.close().await;
-            }
-        }
-        info!("all pools closed");
-    }
-
-    pub fn len(&self) -> usize {
-        self.pools.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.pools.is_empty()
     }
 }

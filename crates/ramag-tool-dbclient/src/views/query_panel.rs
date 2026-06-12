@@ -38,7 +38,7 @@ pub struct QueryPanel {
     connection: Option<ConnectionConfig>,
     /// 当前激活的默认库（点表树/schema 行后同步给所有 Tab）
     active_schema: Option<String>,
-    /// 历史面板，懒创建一次。Dialog 弹框形式，cmd-shift-h 触发
+    /// 历史面板。Dialog 弹框形式，cmd-shift-h 触发
     history: Entity<HistoryPanel>,
     /// SQL 编辑器显隐（cmd-e 或表树按钮切换；全局生效，新 Tab 按此初始化）
     show_editor: bool,
@@ -156,11 +156,6 @@ impl QueryPanel {
         v
     }
 
-    /// 当前 SQL 编辑器是否展示（供外部读取）
-    pub fn editor_visible(&self) -> bool {
-        self.show_editor
-    }
-
     fn add_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // 找出未使用的最小编号（这样关闭"查询 1"再新建会重新得到"查询 1"）
         let title = {
@@ -228,13 +223,6 @@ impl QueryPanel {
     fn focus_active_editor(&self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(tab) = self.tabs.get(self.active) {
             tab.update(cx, |t, cx| t.focus_editor(window, cx));
-        }
-    }
-
-    /// 把 SQL 写入当前激活 Tab 的编辑器
-    pub fn prefill_active_sql(&mut self, sql: String, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(tab) = self.tabs.get(self.active) {
-            tab.update(cx, |t, cx| t.set_sql(sql, window, cx));
         }
     }
 

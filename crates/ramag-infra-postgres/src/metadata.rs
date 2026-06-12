@@ -253,15 +253,6 @@ pub async fn list_foreign_keys(
     Ok(grouped.into_values().collect())
 }
 
-/// SELECT 1
-pub async fn ping(pool: &PgPool) -> Result<()> {
-    let _: (i32,) = sqlx::query_as("SELECT 1")
-        .fetch_one(pool)
-        .await
-        .map_err(|e| map_postgres_error(&e))?;
-    Ok(())
-}
-
 /// `SHOW server_version`，形如 "13.5"
 pub async fn server_version(pool: &PgPool) -> Result<String> {
     let (v,): (String,) = sqlx::query_as("SHOW server_version")

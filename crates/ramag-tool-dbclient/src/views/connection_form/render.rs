@@ -86,7 +86,6 @@ impl ConnectionFormPanel {
 
 impl Render for ConnectionFormPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // self.render_driver_selector 跨文件调用：mod.rs 内的方法定义在 impl 块（pub(super) fn）
         let theme = cx.theme();
         let muted_fg = theme.muted_foreground;
         let border = theme.border;

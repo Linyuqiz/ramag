@@ -43,7 +43,7 @@ pub enum KeyTreeEvent {
     Selected(String),
     /// 请求新建 Key（点击顶部 "+" 按钮）；由上层弹出 KeyCreateForm 对话框处理
     RequestCreate,
-    /// 用户切换 DB（0-15）；由 Session 处理（同步详情/CLI/监控等子组件 + 重新加载树）
+    /// 用户切换 DB（0-15）；由 Session 处理（同步详情 + 重新加载树）
     DbSelected(u8),
     /// 树侧右键删除完成（key / 前缀 / 整库）；Session 据此清理详情面板
     KeysDeleted(DeletedScope),
@@ -190,14 +190,6 @@ impl KeyTreePanel {
                 }
             }
         }
-    }
-
-    pub fn selected(&self) -> Option<&str> {
-        self.selected.as_deref()
-    }
-
-    pub fn db(&self) -> u8 {
-        self.db
     }
 
     fn select_key(&mut self, key: String, cx: &mut Context<Self>) {

@@ -1,4 +1,4 @@
-//! Redis 专用 tokio runtime（与 SQL runtime 独立，避免 SQL 长查询挤占 Pub/Sub）。
+//! Redis 专用 tokio runtime（与 SQL runtime 独立，避免长查询互相挤占）。
 //! 桥接形态同 sql-shared::runtime
 
 use std::future::Future;
@@ -18,7 +18,7 @@ pub fn tokio_runtime() -> &'static Runtime {
             .thread_name("ramag-redis-tokio")
             .enable_all()
             .build()
-            .expect("无法创建 redis 专用 tokio runtime")
+            .expect("failed to build redis tokio runtime")
     })
 }
 
@@ -37,7 +37,7 @@ where
     });
 
     rx.await
-        .expect("redis tokio runtime 内任务未送回结果（异常情况）")
+        .expect("redis tokio task dropped before sending result")
 }
 
 #[cfg(test)]

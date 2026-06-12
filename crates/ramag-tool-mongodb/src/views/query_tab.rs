@@ -89,13 +89,6 @@ impl MongoQueryTab {
         }
     }
 
-    /// 切换编辑器显隐，返回当前可见状态
-    pub fn toggle_editor(&mut self, cx: &mut Context<Self>) -> bool {
-        self.show_editor = !self.show_editor;
-        cx.notify();
-        self.show_editor
-    }
-
     /// 由 QueryPanel 同步全局开关给新建 / 切换的 Tab
     pub fn set_show_editor(&mut self, v: bool, cx: &mut Context<Self>) {
         if self.show_editor != v {
@@ -139,14 +132,6 @@ impl MongoQueryTab {
         if self.database != db {
             self.database = db;
             cx.notify();
-        }
-    }
-
-    pub fn title(&self) -> String {
-        if let Some(coll) = &self.collection {
-            format!("{}.{coll}", self.database)
-        } else {
-            self.database.clone()
         }
     }
 
@@ -257,7 +242,6 @@ impl Render for MongoQueryTab {
         let bg = cx.theme().background;
         let fg = cx.theme().foreground;
         let border = cx.theme().border;
-        let _ = self.title(); // 当前 db.collection 标签已由左侧 collection_tree header 展示，不再重复
 
         // 编辑器仅在 show_editor=true 时显示；运行 / 格式化按钮已移到 query_panel 顶部 tab 栏（与 dbclient 一致）
         let show_editor = self.show_editor;

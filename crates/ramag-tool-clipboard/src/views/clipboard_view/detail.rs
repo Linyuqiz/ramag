@@ -63,7 +63,7 @@ impl ClipboardView {
     }
 
     /// 详情底部只保留卡片行没有的上下文动作（浏览器打开 / Finder 显示 / 纯文本复制）。
-    /// 复制 / 固定 / 删除已由卡片行图标按钮覆盖，不在详情重复。无适用动作时返回 None
+    /// 复制 / 删除已由卡片行图标按钮覆盖，不在详情重复。无适用动作时返回 None
     fn detail_actions(&self, item: &ClipItem, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
         let btn = match item.kind {
             ClipKind::Link => item.text.clone().map(|url| {

@@ -3,7 +3,7 @@
 use chrono::{DateTime, Utc};
 use ramag_domain::entities::{ClipItem, ClipKind};
 
-/// 过滤 + 排序：钉住优先，组内按 last_used_at desc。
+/// 过滤 + 排序：按 last_used_at desc。
 /// 搜索匹配 preview / text（大小写不敏感）；kind=None 不限类型
 pub fn filter_items<'a>(
     items: &'a [ClipItem],

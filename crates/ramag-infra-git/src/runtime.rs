@@ -2,10 +2,8 @@
 //! `expect`：oneshot 失败 = 工作线程未送回结果（panic 已被 catch_unwind 捕获，不应触发）
 #![allow(clippy::expect_used)]
 
-use std::future::Future;
 use std::panic::AssertUnwindSafe;
 
-use futures::FutureExt;
 use futures::channel::oneshot;
 
 use ramag_domain::error::{DomainError, Result};
@@ -26,13 +24,4 @@ where
     });
     rx.await
         .expect("git worker thread dropped before sending result")
-}
-
-/// future 化版本，给需要 lazy fold 的场景
-pub fn run_blocking_future<F, T>(f: F) -> impl Future<Output = Result<T>>
-where
-    F: FnOnce() -> Result<T> + Send + 'static,
-    T: Send + 'static,
-{
-    run_blocking(f).boxed()
 }

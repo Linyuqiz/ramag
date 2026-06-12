@@ -45,7 +45,7 @@ pub(super) fn estimate_col_width(
 
 /// 列宽拖拽 drag value：携带列索引（被拖动的列）
 #[derive(Clone)]
-pub(super) struct ColResizeDrag(#[allow(dead_code)] pub usize);
+pub(super) struct ColResizeDrag(pub usize);
 
 impl gpui::Render for ColResizeDrag {
     fn render(&mut self, _: &mut gpui::Window, _: &mut Context<Self>) -> impl IntoElement {

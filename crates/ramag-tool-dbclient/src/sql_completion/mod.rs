@@ -16,7 +16,7 @@ use lsp_types::{
 use parking_lot::RwLock;
 use ropey::Rope;
 
-/// SQL 关键字 + 常用函数（MySQL + PostgreSQL union；下拉补全用，driver 中性）
+/// Schema 元数据缓存：表 / 视图 / 列 / schema 列表，供补全与视图判定共用。
 /// 把这个 Arc 传给 SqlCompletionProvider；后续即使重建编辑器也读同一份。
 #[derive(Default)]
 pub struct SchemaCache {

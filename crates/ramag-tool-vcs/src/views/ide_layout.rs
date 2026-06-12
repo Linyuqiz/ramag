@@ -1,5 +1,5 @@
 //! IDE 风布局：toolbar + op banner + 上半（左 files / 右 main）+ 下半 history。
-//! 拖拽：`ide_main_resize` 上下 / `ide_left_resize` 上半左右；侧栏靠 toggle 切换，固定 220px
+//! 拖拽：`ide_files_resize` 上下 / `ide_left_resize` 上半左右；侧栏靠 toggle 切换，固定 220px
 
 use gpui::{
     AnyElement, ClickEvent, Context, IntoElement, ParentElement, Styled, div, prelude::*, px,

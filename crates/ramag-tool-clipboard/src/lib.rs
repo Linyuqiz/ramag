@@ -1,4 +1,4 @@
-//! 剪贴板工具：历史卡片流 + 搜索/筛选/钉住 + 设置。
+//! 剪贴板工具：历史卡片流 + 搜索/筛选 + 设置。
 //! 采集循环在 ramag-bin 的 App 级 spawn 中运行（独立于本视图生死）
 
 pub mod actions;
@@ -47,7 +47,7 @@ impl ClipboardTool {
             meta: ToolMeta::new(
                 Self::ID,
                 "剪贴板",
-                "剪贴历史：搜索 / 筛选 / 固定 / 快速粘贴，全本地加密",
+                "剪贴历史：搜索 / 筛选 / 快速粘贴，全本地加密",
             )
             .with_icon("clipboard"),
         }

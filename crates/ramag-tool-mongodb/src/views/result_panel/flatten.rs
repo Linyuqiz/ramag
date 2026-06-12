@@ -29,12 +29,6 @@ pub struct FlatTable {
     pub rows: Vec<Vec<Cell>>,
 }
 
-impl FlatTable {
-    pub fn is_empty(&self) -> bool {
-        self.rows.is_empty()
-    }
-}
-
 /// 测试便捷入口：不展开（等价 build_flat_table_with 传空集）
 #[cfg(test)]
 fn build_flat_table(docs: &[Value]) -> FlatTable {

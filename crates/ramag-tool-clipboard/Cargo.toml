@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Ramag 剪贴板工具：历史卡片流 / 搜索筛选 / 钉住 / 悬浮抽屉快速粘贴"
+description = "Ramag 剪贴板工具：历史卡片流 / 搜索筛选 / 悬浮抽屉快速粘贴"
 
 [lints]
 workspace = true
@@ -17,9 +17,6 @@ ramag-ui = { workspace = true }
 # GPUI 渲染
 gpui = { workspace = true }
 gpui-component = { workspace = true }
-
-# 异步
-futures = { workspace = true }
 
 # 快捷键 Action derive（gpui Action 宏要求 Deserialize + JsonSchema）
 serde = { workspace = true }

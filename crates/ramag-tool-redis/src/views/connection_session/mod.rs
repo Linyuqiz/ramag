@@ -67,7 +67,7 @@ impl RedisSessionPanel {
             p.focus_panel(window, cx);
         });
 
-        // 树事件：选中 → detail.load_key + 切回 KeyDetail tab；新建 → 弹 dialog；DB 切换 → 同步
+        // 树事件：选中 → detail.load_key + 聚焦详情；新建 → 弹 dialog；DB 切换 → 同步
         let mut subs = Vec::new();
         subs.push(cx.subscribe_in(
             &tree,
@@ -317,7 +317,6 @@ impl Render for RedisSessionPanel {
             .size_full()
             .key_context("RedisSession")
             .on_action(cx.listener(|this, _: &CloseTab, window, cx| {
-                info!("redis session: CloseTab action received");
                 let has_key = this.detail.read(cx).current_key().is_some();
                 if has_key {
                     this.detail.update(cx, |p, cx_inner| {

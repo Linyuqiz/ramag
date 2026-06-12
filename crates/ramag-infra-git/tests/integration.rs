@@ -320,7 +320,7 @@ fn rebase_onto_branch() {
     assert!(log.iter().any(|c| c.subject == "feat"));
 }
 
-/// interactive rebase：drop 中间 commit。验证 execute（上次改过 stderr 判定）真机可用
+/// interactive rebase：drop 中间 commit，验证 execute 的 stderr 判定真机可用
 #[test]
 fn interactive_rebase_drop() {
     let (driver, id, tmp) = setup();

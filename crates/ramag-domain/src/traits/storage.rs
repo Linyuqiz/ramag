@@ -106,7 +106,7 @@ pub trait Storage: Send + Sync {
         ))
     }
 
-    /// 超量 / 过期清理（钉住豁免）。返回被删条目的 image_path
+    /// 超量 / 过期清理。返回被删条目的 image_path
     async fn clip_prune(&self, _max_items: u32, _max_age_days: u32) -> Result<Vec<String>> {
         Err(crate::error::DomainError::NotImplemented(
             "clip_prune".into(),

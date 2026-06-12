@@ -138,28 +138,6 @@ impl ConnectionConfig {
         }
     }
 
-    /// 构造 PostgreSQL 连接。PG 必须指定 database，不能省
-    pub fn new_postgres(
-        name: impl Into<String>,
-        host: impl Into<String>,
-        port: u16,
-        user: impl Into<String>,
-        database: impl Into<String>,
-    ) -> Self {
-        Self {
-            id: ConnectionId::new(),
-            name: name.into(),
-            driver: DriverKind::Postgres,
-            host: host.into(),
-            port,
-            username: user.into(),
-            password: String::new(),
-            database: Some(database.into()),
-            remark: None,
-            color: ConnectionColor::default(),
-        }
-    }
-
     /// 构造 MongoDB 连接。database 可选，留空表示默认 `admin`
     pub fn new_mongodb(name: impl Into<String>, host: impl Into<String>, port: u16) -> Self {
         Self {

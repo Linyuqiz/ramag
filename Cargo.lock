@@ -6275,13 +6275,11 @@ version = "0.0.1"
 dependencies = [
  "async-trait",
  "bson",
- "chrono",
  "dashmap",
  "futures",
  "mongodb",
  "once_cell",
  "ramag-domain",
- "serde",
  "serde_json",
  "tokio",
  "tracing",
@@ -6371,7 +6369,6 @@ name = "ramag-tool-clipboard"
 version = "0.0.1"
 dependencies = [
  "chrono",
- "futures",
  "gpui",
  "gpui-component",
  "ramag-app",

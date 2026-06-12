@@ -189,7 +189,7 @@ impl ClipboardView {
         let entity = cx.entity().clone();
         open_confirm(
             "清空剪贴历史",
-            "将删除全部未固定的历史条目，固定项保留。此操作不可撤销。",
+            "将删除全部历史条目。此操作不可撤销。",
             "清空",
             true,
             move |_window, cx| {

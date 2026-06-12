@@ -114,9 +114,9 @@ pub struct ClipboardSettings {
     /// 总开关：false 暂停记录
     pub enabled: bool,
     pub capture_images: bool,
-    /// 历史条数上限（钉住项豁免）
+    /// 历史条数上限
     pub max_items: u32,
-    /// 保留天数（钉住项豁免）
+    /// 保留天数
     pub max_age_days: u32,
     /// 单条内容字节上限，超出跳过不记录
     pub max_item_bytes: u64,

@@ -37,7 +37,7 @@ use ramag_ui::{
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
-use tracing::{Level, error, info};
+use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
@@ -480,7 +480,6 @@ fn init_tracing() {
         .with(file_layer)
         .init();
 
-    let _ = Level::TRACE;
     eprintln!("ramag log file: {}", log_path.display());
     info!(log = %log_path.display(), "log file ready");
 }

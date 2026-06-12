@@ -274,7 +274,7 @@ impl VcsView {
                         let Some(dest) = this.clone_dest_path.clone() else {
                             return;
                         };
-                        // dest = parent_dir / repo_name derived from url
+                        // 目标路径 = 所选父目录 / 从 URL 推导的仓库名
                         let repo_name = url
                             .split('/')
                             .next_back()

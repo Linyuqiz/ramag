@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Ramag Redis 工具：实现 Tool trait + 提供 Redis GUI（连接、Key 浏览、命令行）"
+description = "Ramag Redis 视图组件（由 dbclient 装载）：连接会话 / Key 树 / 值展示与编辑"
 
 [lints]
 workspace = true

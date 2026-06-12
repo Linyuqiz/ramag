@@ -85,14 +85,6 @@ impl PoolCache {
             info!(connection_id = %conn_id, evicted = n, "redis pools evicted");
         }
     }
-
-    pub fn len(&self) -> usize {
-        self.pools.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.pools.is_empty()
-    }
 }
 
 async fn build_connection_manager(config: &ConnectionConfig, db: u8) -> Result<ConnectionManager> {

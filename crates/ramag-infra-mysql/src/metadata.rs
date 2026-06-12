@@ -212,15 +212,6 @@ pub async fn list_foreign_keys(
     Ok(grouped.into_values().collect())
 }
 
-/// SELECT 1
-pub async fn ping(pool: &MySqlPool) -> Result<()> {
-    let _: (i64,) = sqlx::query_as("SELECT 1")
-        .fetch_one(pool)
-        .await
-        .map_err(|e| map_mysql_error(&e))?;
-    Ok(())
-}
-
 /// `SELECT VERSION()`，形如 "8.0.32"
 pub async fn server_version(pool: &MySqlPool) -> Result<String> {
     let (v,): (String,) = sqlx::query_as("SELECT VERSION()")

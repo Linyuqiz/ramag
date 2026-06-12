@@ -31,7 +31,7 @@ pub enum CaptureDecision {
 pub struct ClipboardService {
     driver: Arc<dyn ClipboardDriver>,
     storage: Arc<dyn Storage>,
-    /// 历史变更版本号：任何写操作（采集 / 复制 / 钉住 / 删除）后自增。
+    /// 历史变更版本号：任何写操作（采集 / 复制 / 删除）后自增。
     /// 视图轮询此值，仅在变化时才重载解密，避免每拍全表解密
     revision: Arc<AtomicU64>,
 }
@@ -337,11 +337,6 @@ impl ClipboardService {
                 warn!(error = %e, path, "remove clip media failed");
             }
         }
-    }
-
-    /// 辅助功能权限检查（透传 driver）
-    pub fn accessibility_trusted(&self, prompt: bool) -> bool {
-        self.driver.accessibility_trusted(prompt)
     }
 }
 

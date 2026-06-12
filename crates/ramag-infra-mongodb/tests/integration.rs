@@ -293,7 +293,7 @@ async fn test_update_one_reproduce() {
         "age 应被更新为 31（若失败=filter 没匹配上 → 更新不生效）"
     );
 
-    // 5) 改成相同值：affected 取 matched_count，应为 1（问题 A 回归：改相同值不再误判「未匹配」）
+    // 5) 改成相同值：affected 取 matched_count，应为 1（回归：改相同值不再误判「未匹配」）
     let same = driver
         .update_one(&cfg, &db, coll, &filter, &json!({ "$set": { "age": 31 } }))
         .await

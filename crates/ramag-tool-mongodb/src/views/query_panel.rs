@@ -41,8 +41,7 @@ pub struct MongoQueryPanel {
 }
 
 impl MongoQueryPanel {
-    pub fn new(service: Arc<MongoService>, _window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let _ = cx;
+    pub fn new(service: Arc<MongoService>, _window: &mut Window, _cx: &mut Context<Self>) -> Self {
         Self {
             service,
             connection: None,

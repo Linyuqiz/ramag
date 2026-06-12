@@ -10,7 +10,7 @@ pub mod types;
 use async_trait::async_trait;
 
 use ramag_domain::entities::{
-    Column, ConnectionConfig, ConnectionId, ForeignKey, Index, Schema, Table, Value, Warning,
+    Column, ConnectionConfig, ForeignKey, Index, Schema, Table, Value, Warning,
 };
 use ramag_domain::error::{DomainError, Result};
 use ramag_domain::traits::CancelHandle;
@@ -29,16 +29,6 @@ pub struct MysqlDriver {
 impl MysqlDriver {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// 配置变更后调，强制下次重建池
-    pub fn evict_pool(&self, id: &ConnectionId) {
-        self.pools.evict(id);
-    }
-
-    /// 程序退出前调
-    pub async fn shutdown(&self) {
-        self.pools.close_all().await;
     }
 }
 

@@ -459,7 +459,10 @@ impl QueryTab {
                         cache.write().columns.insert((schema, table), names);
                     }
                     Err(e) => {
-                        tracing::warn!(error = %e, "prefetch columns failed");
+                        tracing::warn!(
+                            error = %e, schema = %schema, table = %table,
+                            "prefetch columns failed"
+                        );
                     }
                 }
             }

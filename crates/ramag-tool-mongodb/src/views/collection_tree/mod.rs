@@ -291,10 +291,8 @@ impl Render for CollectionTreePanel {
             window.push_notification(n, cx);
         }
         let theme = cx.theme();
-        let fg = theme.foreground;
         let muted_fg = theme.muted_foreground;
         let border = theme.border;
-        let accent = theme.accent;
 
         let filter = self.current_filter(cx);
 
@@ -409,7 +407,6 @@ impl Render for CollectionTreePanel {
 
         // 扁平化树行 → uniform_list 行虚拟化（仿 dbclient::table_tree）
         let tree_rows: Rc<Vec<TreeRow>> = Rc::new(self.build_tree_rows(&filter));
-        let _ = (fg, accent); // 颜色由 render_tree_row 内自取
         let body = uniform_list(
             "mongo-tree-rows",
             tree_rows.len(),

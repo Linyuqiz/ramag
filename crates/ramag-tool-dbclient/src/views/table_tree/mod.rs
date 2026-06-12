@@ -346,13 +346,13 @@ impl TableTreePanel {
                 match idx_res {
                     Ok(ix) => entry.indexes = ix,
                     Err(e) => {
-                        tracing::warn!(error = %e, "list indexes failed (non-fatal)");
+                        tracing::warn!(error = %e, schema = %schema_async, table = %table_async, "list indexes failed (non-fatal)");
                     }
                 }
                 match fk_res {
                     Ok(fk) => entry.foreign_keys = fk,
                     Err(e) => {
-                        tracing::warn!(error = %e, "list foreign keys failed (non-fatal)");
+                        tracing::warn!(error = %e, schema = %schema_async, table = %table_async, "list foreign keys failed (non-fatal)");
                     }
                 }
                 cx.notify();

@@ -93,8 +93,6 @@ impl VcsView {
         );
         // blame 不再替换主区：开启 blame 后点行号 → 顶部 banner 展示该行作者
         // 行号 cell 的点击交互仍然有效，无论 showing_blame 与否
-        let _ = border;
-        let _ = muted_bg;
         let body_layout: AnyElement = div()
             .flex_1()
             .min_h_0()
@@ -299,7 +297,6 @@ impl VcsView {
     }
 
     /// 中间 body：diff（loading / 占位 / unified or split）；blame 单独由 render_diff_block 摆放
-    #[allow(clippy::too_many_arguments)]
     #[allow(clippy::too_many_arguments)]
     fn render_diff_body(
         &self,

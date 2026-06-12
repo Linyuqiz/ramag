@@ -1,4 +1,4 @@
-//! ClipboardView 异步操作：重载 / 复制 / 钉住 / 删除 / 清空 / 键盘导航
+//! ClipboardView 异步操作：重载 / 复制 / 删除 / 清空 / 键盘导航
 
 use gpui::{Context, ScrollStrategy, Window};
 use gpui_component::notification::Notification;

@@ -41,8 +41,6 @@ pub(super) fn connection_row(
     } else {
         None
     };
-    let _ = muted_fg; // 圆点逻辑不再用 muted_fg；保留参数避免改签名
-
     let kind_label = match conn.driver {
         DriverKind::Mysql => "MySQL",
         DriverKind::Postgres => "PostgreSQL",

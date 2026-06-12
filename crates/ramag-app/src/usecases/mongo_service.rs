@@ -1,11 +1,11 @@
 //! MongoService：MongoDB 连接 + 文档操作聚合，与 ConnectionService / RedisService 并列。
-//! Storage 与 ConnectionService 共用同一份 redb，list() 按 driver 过滤互不污染
+//! Storage 与 ConnectionService 共用同一份 redb
 
 use std::sync::Arc;
 
 use ramag_domain::entities::{
-    ConnectionConfig, ConnectionId, DriverKind, MongoCollection, MongoCollectionStats,
-    MongoDatabase, MongoDocument, MongoIndex, MongoQueryResult, MongoQuerySpec, QueryRecord,
+    ConnectionConfig, ConnectionId, MongoCollection, MongoDatabase, MongoDocument,
+    MongoQueryResult, QueryRecord,
 };
 use ramag_domain::error::Result;
 use ramag_domain::traits::{DocDriver, Storage};
@@ -18,29 +18,6 @@ pub struct MongoService {
 impl MongoService {
     pub fn new(driver: Arc<dyn DocDriver>, storage: Arc<dyn Storage>) -> Self {
         Self { driver, storage }
-    }
-
-    // 连接 CRUD（仅 Mongo driver 的连接）
-
-    /// 按 driver 过滤
-    pub async fn list(&self) -> Result<Vec<ConnectionConfig>> {
-        let all = self.storage.list_connections().await?;
-        Ok(all
-            .into_iter()
-            .filter(|c| matches!(c.driver, DriverKind::Mongodb))
-            .collect())
-    }
-
-    pub async fn get(&self, id: &ConnectionId) -> Result<Option<ConnectionConfig>> {
-        self.storage.get_connection(id).await
-    }
-
-    pub async fn save(&self, config: &ConnectionConfig) -> Result<()> {
-        self.storage.save_connection(config).await
-    }
-
-    pub async fn delete(&self, id: &ConnectionId) -> Result<()> {
-        self.storage.delete_connection(id).await
     }
 
     // 连接动作
@@ -57,12 +34,6 @@ impl MongoService {
         self.driver.evict_pool(id);
     }
 
-    pub async fn test_and_save(&self, config: &ConnectionConfig) -> Result<()> {
-        self.driver.test_connection(config).await?;
-        self.storage.save_connection(config).await?;
-        Ok(())
-    }
-
     // 元数据
 
     pub async fn list_databases(&self, config: &ConnectionConfig) -> Result<Vec<MongoDatabase>> {
@@ -75,56 +46,6 @@ impl MongoService {
         db: &str,
     ) -> Result<Vec<MongoCollection>> {
         self.driver.list_collections(config, db).await
-    }
-
-    pub async fn list_indexes(
-        &self,
-        config: &ConnectionConfig,
-        db: &str,
-        coll: &str,
-    ) -> Result<Vec<MongoIndex>> {
-        self.driver.list_indexes(config, db, coll).await
-    }
-
-    pub async fn collection_stats(
-        &self,
-        config: &ConnectionConfig,
-        db: &str,
-        coll: &str,
-    ) -> Result<MongoCollectionStats> {
-        self.driver.collection_stats(config, db, coll).await
-    }
-
-    // 查询
-
-    pub async fn find(
-        &self,
-        config: &ConnectionConfig,
-        db: &str,
-        coll: &str,
-        spec: &MongoQuerySpec,
-    ) -> Result<MongoQueryResult> {
-        self.driver.find(config, db, coll, spec).await
-    }
-
-    pub async fn count(
-        &self,
-        config: &ConnectionConfig,
-        db: &str,
-        coll: &str,
-        filter: &MongoDocument,
-    ) -> Result<u64> {
-        self.driver.count(config, db, coll, filter).await
-    }
-
-    pub async fn aggregate(
-        &self,
-        config: &ConnectionConfig,
-        db: &str,
-        coll: &str,
-        pipeline: Vec<MongoDocument>,
-    ) -> Result<MongoQueryResult> {
-        self.driver.aggregate(config, db, coll, pipeline).await
     }
 
     // 写

@@ -14,14 +14,6 @@ pub fn map_branch_error(e: impl std::fmt::Display) -> DomainError {
     DomainError::QueryFailed(format!("分支查询失败: {e}"))
 }
 
-pub fn map_log_error(e: impl std::fmt::Display) -> DomainError {
-    DomainError::QueryFailed(format!("提交历史查询失败: {e}"))
-}
-
-pub fn map_diff_error(e: impl std::fmt::Display) -> DomainError {
-    DomainError::QueryFailed(format!("Diff 计算失败: {e}"))
-}
-
 /// 翻译 git subprocess stderr 为中文 + 操作建议；未命中模式时返回原文，不吞错
 pub fn friendly_git_error(args: &[&str], stderr: &str) -> String {
     let raw = stderr.trim();

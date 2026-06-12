@@ -3,7 +3,7 @@
 use gpui::{AppContext as _, Context, Entity, ParentElement, Styled, Window, px};
 use gpui_component::WindowExt as _;
 use ramag_domain::entities::{ConnectionConfig, ConnectionId, DriverKind};
-use tracing::{error, info};
+use tracing::error;
 
 use crate::views::connection_form::{self, ConnectionFormPanel, FormEvent};
 
@@ -71,7 +71,6 @@ impl DbClientView {
     ) {
         match event {
             FormEvent::Saved(conn) => {
-                info!("connection saved, refreshing picker");
                 window.close_dialog(cx);
                 self.picker.update(cx, |p, cx| p.refresh(cx));
                 // 失效 driver 内的连接池缓存：池按 ConnectionId 索引，旧 config 建的池

@@ -17,7 +17,6 @@ pub mod history_ops;
 pub mod log;
 pub mod merge;
 pub mod patch;
-pub mod rebase;
 pub mod rebase_interactive;
 pub mod reflog;
 pub mod remote;

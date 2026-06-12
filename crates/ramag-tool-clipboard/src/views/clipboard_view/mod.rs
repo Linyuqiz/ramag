@@ -1,4 +1,4 @@
-//! ClipboardView：剪贴板历史主视图。左卡片流 + 右详情，搜索 / 类型筛选 / 钉住。
+//! ClipboardView：剪贴板历史主视图。左卡片流 + 右详情，搜索 / 类型筛选。
 //! 历史由 App 级采集循环写入 storage；视图轮询 `service.revision()` 仅在变化时重载
 
 mod card;
@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::{
-    AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable, Subscription,
+    AppContext as _, Context, Entity, FocusHandle, Focusable, Subscription,
     UniformListScrollHandle, Window,
 };
 use gpui_component::input::{InputEvent, InputState};
@@ -20,13 +20,6 @@ use ramag_domain::entities::{ClipId, ClipItem, ClipKind, ClipboardSettings};
 
 /// 轮询间隔：采集循环写库后，视图最迟此间隔内刷新
 const POLL_INTERVAL: Duration = Duration::from_millis(600);
-
-/// 视图事件（预留：未来与悬浮抽屉联动）
-#[derive(Debug, Clone)]
-pub enum ClipboardEvent {
-    /// 条目已复制（可用于 toast）
-    Copied,
-}
 
 pub struct ClipboardView {
     pub(super) service: Arc<ClipboardService>,
@@ -48,8 +41,6 @@ pub struct ClipboardView {
     pub(super) img_cache: crate::views::image_cache::ImageCache,
     _subscriptions: Vec<Subscription>,
 }
-
-impl EventEmitter<ClipboardEvent> for ClipboardView {}
 
 impl Focusable for ClipboardView {
     fn focus_handle(&self, _: &gpui::App) -> FocusHandle {

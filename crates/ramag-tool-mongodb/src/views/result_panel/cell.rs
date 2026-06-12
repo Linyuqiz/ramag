@@ -33,7 +33,7 @@ pub(super) fn cell_for_value(v: &Value) -> Cell {
 
 /// 识别 Extended JSON 包装对象，返回内部值。
 /// 覆盖 MongoDB Extended JSON v2 全部 18 种 BSON 类型 + canonical/relaxed 两种形态。
-/// pub(super)：树视图（tree.rs）复用同一套类型识别，避免重写 18 种 BSON 分支
+/// pub(super)：flatten / filter 复用同一套类型识别，避免重写 18 种 BSON 分支
 pub(super) fn extjson_cell(map: &serde_json::Map<String, Value>) -> Option<Cell> {
     // ObjectId
     if let Some(v) = map.get("$oid").and_then(|x| x.as_str()) {
@@ -155,7 +155,7 @@ pub(super) fn extjson_cell(map: &serde_json::Map<String, Value>) -> Option<Cell>
     None
 }
 
-/// 标量值 → Cell；pub(super) 供 tree.rs 复用
+/// 标量值 → Cell
 pub(super) fn scalar_to_cell(v: &Value) -> Option<Cell> {
     match v {
         Value::Null => Some(Cell {

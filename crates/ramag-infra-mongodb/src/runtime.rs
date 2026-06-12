@@ -18,7 +18,7 @@ pub fn tokio_runtime() -> &'static Runtime {
             .thread_name("ramag-mongo-tokio")
             .enable_all()
             .build()
-            .expect("无法创建 mongodb 专用 tokio runtime")
+            .expect("failed to build mongodb tokio runtime")
     })
 }
 
@@ -37,7 +37,7 @@ where
     });
 
     rx.await
-        .expect("mongo tokio runtime 内任务未送回结果（异常情况）")
+        .expect("mongodb tokio task dropped before sending result")
 }
 
 #[cfg(test)]

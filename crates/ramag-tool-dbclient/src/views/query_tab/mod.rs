@@ -147,10 +147,6 @@ impl QueryTab {
         self.pinned_target = target;
     }
 
-    pub fn title(&self) -> &str {
-        &self.title
-    }
-
     /// 用于 TabBar 展示的标题：上次成功执行的 SQL 摘要 > 默认 Tab 名
     pub fn display_title(&self) -> &str {
         self.short_title.as_deref().unwrap_or(&self.title)
@@ -180,11 +176,6 @@ impl QueryTab {
             self.active_schema = normalized;
             cx.notify();
         }
-    }
-
-    /// 当前 active schema（UI 工具条展示）
-    pub fn active_schema(&self) -> Option<&str> {
-        self.active_schema.as_deref()
     }
 
     /// 把 SQL 写入编辑器（替换原有内容）

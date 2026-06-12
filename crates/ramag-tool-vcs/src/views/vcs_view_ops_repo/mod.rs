@@ -366,8 +366,8 @@ pub(super) async fn open_repo_async(
     });
 }
 
-/// 在 worker 线程同步读盘 + 二进制 / 截断检测 → 跨线程 Send 的 [`RawFileContent`]
 mod admin;
+/// 在 worker 线程同步读盘 + 二进制 / 截断检测 → 跨线程 Send 的 [`RawFileContent`]
 mod file_io;
 use file_io::finalize_file_snapshot;
 // untracked 伪 diff 预览（vcs_view_ops_file_tab）复用同一读盘函数

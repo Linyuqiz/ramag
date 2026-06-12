@@ -24,7 +24,7 @@ use super::helpers::{build_commit_lanes, render_commit_row};
 use super::vcs_view::VcsView;
 
 impl VcsView {
-    /// 历史视图：commit list / 详情视图（点击 [👁] 后）/ reflog（[📜] toggle 后）
+    /// 历史视图：commit list / 详情视图（点击 commit 行后）/ reflog（搜索行按钮 toggle 后）
     pub(super) fn render_history_view(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme();
         let fg = theme.foreground;

@@ -9,9 +9,7 @@ pub mod types;
 
 use async_trait::async_trait;
 
-use ramag_domain::entities::{
-    Column, ConnectionConfig, ConnectionId, ForeignKey, Index, Schema, Table, Value,
-};
+use ramag_domain::entities::{Column, ConnectionConfig, ForeignKey, Index, Schema, Table, Value};
 use ramag_domain::error::{DomainError, Result};
 use ramag_domain::traits::CancelHandle;
 use ramag_infra_sql_shared::PoolCache;
@@ -29,14 +27,6 @@ pub struct PostgresDriver {
 impl PostgresDriver {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    pub fn evict_pool(&self, id: &ConnectionId) {
-        self.pools.evict(id);
-    }
-
-    pub async fn shutdown(&self) {
-        self.pools.close_all().await;
     }
 }
 

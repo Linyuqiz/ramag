@@ -61,9 +61,9 @@ impl ZSetElementForm {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let (initial_member, _is_edit) = match &mode {
-            ZSetElementFormMode::Add => (String::new(), false),
-            ZSetElementFormMode::EditScore { member } => (member.clone(), true),
+        let initial_member = match &mode {
+            ZSetElementFormMode::Add => String::new(),
+            ZSetElementFormMode::EditScore { member } => member.clone(),
         };
         let score_input = cx.new(|cx| {
             InputState::new(window, cx)

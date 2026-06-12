@@ -19,7 +19,6 @@ sqlx = { workspace = true }
 
 # trait 上的 async fn
 async-trait = { workspace = true }
-tokio = { workspace = true }
 
 # 时间类型
 chrono = { workspace = true }

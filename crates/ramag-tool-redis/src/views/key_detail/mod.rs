@@ -89,7 +89,7 @@ pub struct KeyDetailPanel {
     /// 单 Key 字节估算（MEMORY USAGE，需用户主动点击触发）
     pub(super) key_size_bytes: Option<u64>,
     pub(super) estimating_size: bool,
-    /// Session 切到 Detail tab 时调 focus_panel，让 cmd-w 等 action 走焦点链路由到 Session
+    /// Session 调 focus_panel 聚焦后，cmd-w 等 action 走焦点链路由到 Session
     focus_handle: FocusHandle,
 }
 
@@ -225,7 +225,7 @@ impl KeyDetailPanel {
         cx.notify();
     }
 
-    /// 把整面板焦点拿到（Session 切到 Detail tab 时调）
+    /// 把整面板焦点拿到（Session 在初始化 / 选中 key 时调）
     pub fn focus_panel(&self, window: &mut Window, cx: &mut Context<Self>) {
         self.focus_handle.focus(window, cx);
         cx.notify();

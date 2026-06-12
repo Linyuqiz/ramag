@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use ramag_domain::entities::{
-    ConnectionConfig, ConnectionId, DriverKind, KeyMeta, RedisType, RedisValue, ScanResult,
+    ConnectionConfig, ConnectionId, DriverKind, KeyMeta, RedisType, RedisValue,
 };
 use ramag_domain::error::Result;
 use ramag_domain::traits::{KvDriver, Storage};
@@ -58,31 +58,7 @@ impl RedisService {
         self.driver.evict_pool(id);
     }
 
-    pub async fn test_and_save(&self, config: &ConnectionConfig) -> Result<()> {
-        self.driver.test_connection(config).await?;
-        self.storage.save_connection(config).await?;
-        Ok(())
-    }
-
     // KV 操作（按 db 索引）
-
-    pub async fn db_size(&self, config: &ConnectionConfig, db: u8) -> Result<u64> {
-        self.driver.db_size(config, db).await
-    }
-
-    pub async fn scan(
-        &self,
-        config: &ConnectionConfig,
-        db: u8,
-        cursor: u64,
-        pattern: Option<&str>,
-        type_filter: Option<RedisType>,
-        count: u32,
-    ) -> Result<ScanResult> {
-        self.driver
-            .scan(config, db, cursor, pattern, type_filter, count)
-            .await
-    }
 
     /// 一次性扫完整库；大库慎用
     pub async fn scan_all(
@@ -155,9 +131,5 @@ impl RedisService {
         argv: Vec<String>,
     ) -> Result<RedisValue> {
         self.driver.execute_command(config, db, argv).await
-    }
-
-    pub async fn info(&self, config: &ConnectionConfig, sections: &[&str]) -> Result<String> {
-        self.driver.info(config, sections).await
     }
 }

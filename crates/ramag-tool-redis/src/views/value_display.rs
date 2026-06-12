@@ -17,26 +17,6 @@ pub enum ViewMode {
     Base64,
 }
 
-impl ViewMode {
-    pub fn label(&self) -> &'static str {
-        match self {
-            ViewMode::Raw => "Raw",
-            ViewMode::Json => "JSON",
-            ViewMode::Hex => "Hex",
-            ViewMode::Base64 => "base64",
-        }
-    }
-
-    pub fn all() -> &'static [ViewMode] {
-        &[
-            ViewMode::Raw,
-            ViewMode::Json,
-            ViewMode::Hex,
-            ViewMode::Base64,
-        ]
-    }
-}
-
 /// Gzip magic：检测到 `1f 8b` 前缀就尝试解压；失败返回 None
 pub fn try_decompress_gzip(bytes: &[u8]) -> Option<Vec<u8>> {
     if bytes.len() < 2 || bytes[0] != 0x1f || bytes[1] != 0x8b {

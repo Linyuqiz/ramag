@@ -27,9 +27,3 @@ fn read_stage(repo_path: &Path, stage: u8, file_path: &str) -> Vec<String> {
         Err(_) => Vec::new(),
     }
 }
-
-/// 有 stage 2 即视为冲突
-pub fn is_conflicted(repo_path: &Path, file_path: &str) -> bool {
-    let spec = format!(":2:{file_path}");
-    run_git_bytes(repo_path, &["show", &spec]).is_ok()
-}

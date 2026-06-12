@@ -116,7 +116,7 @@ impl ConnectionFormPanel {
         })
     }
 
-    /// 渲染 driver 选择器：5 个按钮横排，仅可用 driver 可点
+    /// 渲染 driver 选择器：按钮横排，仅可用 driver 可点
     pub(super) fn render_driver_selector(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let muted_fg = theme.muted_foreground;
@@ -135,7 +135,7 @@ impl ConnectionFormPanel {
             let is_selected = self.driver_id == id;
             let btn_id = SharedString::from(format!("driver-btn-{id}"));
 
-            // 5 个按钮等分宽度（flex_1 + min_w_0），避免文字长的 PostgreSQL 撑破布局
+            // 按钮等分宽度（flex_1 + min_w_0），避免文字长的 PostgreSQL 撑破布局
             let mut btn = h_flex()
                 .id(btn_id)
                 .flex_1()
