@@ -1,112 +1,120 @@
 # Ramag
 
-macOS 原生桌面工具平台，定位为「自建版 Raycast / Alfred」。纯 Rust + GPUI 打造，当前内置数据库客户端、Git 客户端与剪贴板管理器三大工具。
+Rust + [GPUI](https://github.com/zed-industries/zed) 编写的 macOS 原生桌面工具平台：一个 App 聚合日常开发要用的多个小工具，全部本地运行、数据本地加密存储。
 
-> 状态：早期开发中（v0.0.1）。所有数据本地存储并加密，不联网、无遥测。
+当前内置三个工具，经左侧 ActivityBar 切换：
 
-## 功能
+| 工具 | 说明 |
+|---|---|
+| **数据库客户端** | MySQL / PostgreSQL / Redis / MongoDB 统一入口，driver 在连接表单内选择 |
+| **版本管理** | Git 可视化客户端：仓库管理 / diff / 提交 / 分支 / 推拉合并 |
+| **剪贴板** | 剪贴历史：采集 / 搜索筛选 / 全局热键悬浮抽屉快速粘贴，全本地加密 |
 
-| 工具 | 当前能力 |
-|------|---------|
-| **DB Client（SQL）** | MySQL / PostgreSQL：连接管理、Schema/Table 树、SQL 编辑器（关键字 + 表名 + 列名补全 / 语法高亮）、多语句执行、可中断查询、结果集分页（排序 / 过滤 / 行内 INSERT·UPDATE·DELETE / 导出 CSV·JSON·Markdown·SQL）、查询历史 |
-| **Redis** | 连接管理（与 DB Client 共享入口）、DB 切换、Key 树（Trie 命名空间分组 + 虚拟化）、6 种类型详情（String / List / Hash / Set / ZSet / Stream）+ 增删改、TTL 编辑、内存估算 |
-| **MongoDB** | Database/Collection 树、JSON 命令编辑器（语法高亮 + 命令/操作符补全）、文档结果表格（扁平化 + 列/行过滤）、文档 CRUD（新增 / 删除 / 单元格行内编辑 / 导出 JSON·CSV） |
-| **VCS（Git）** | IDEA 风格三栏布局、工作区（Changes / Project Files / Stash）、Diff（unified + split）、Commit / Branch / Tag / Stash / Remote 操作、History + 搜索、Commit 详情、Blame、Reflog、Cherry-pick、Merge、Rebase（含 Interactive）、冲突编辑器、Clone |
-| **剪贴板** | 后台采集（文本 / RTF / 图片 / 文件，链接·颜色自动识别，来源应用标注，连续去重）；历史卡片流 + 搜索 + 类型筛选 + 钉住 + 详情（浏览器打开 / Finder 显示 / 纯文本复制）；全局热键 `cmd-shift-V` 唤起底部悬浮抽屉（仿 Paste，横向大卡片墙 + 中文搜索，双击 / `cmd-1~9` / 回车直接粘贴回原应用，支持全屏 Space）；图片缩略图加速、全本地 AES 加密、密码管理器内容自动跳过、暂停 / 清空 |
+## 功能一览
 
-## 技术栈
+### 数据库客户端
 
-- **语言**：Rust nightly（`rust-toolchain.toml` 钉版）
-- **UI**：[GPUI](https://github.com/zed-industries/zed)（来自 Zed）+ [gpui-component](https://github.com/longbridge/gpui-component)
-- **数据库**：sqlx（MySQL / PostgreSQL）+ redis-rs + mongodb（官方驱动）
-- **Git**：[gitoxide](https://github.com/Byron/gitoxide)
-- **剪贴板 / 系统集成**：NSPasteboard / NSWorkspace / CGEvent / Carbon（FFI）+ image（缩略图）
-- **本地存储**：redb + aes-gcm + macOS 钥匙串
+- **连接管理**：连接配置加密落盘（密码 AES-GCM 加密，主密钥存 macOS 钥匙串）、连接测试、颜色标签
+- **SQL（MySQL / PostgreSQL）**：库表树（右键重命名 / 清空 / 删除，二次确认）、SQL 编辑器（语法高亮、补全、`⌘⇧F` 格式化、`⌘⇧E` EXPLAIN）、多语句执行、运行中取消、结果集分页 / 单元格编辑 / 导出、DDL 查看、查询历史
+- **Redis**：key 树按 `:` 折叠命名空间（5 万+ key 行级虚拟化）、String / Hash / List / Set / ZSet / Stream 全类型查看与编辑、TTL 管理、key 与前缀级删除
+- **MongoDB**：database → collection 树、文档表格（嵌套字段扁平化、钻取、编辑、导出）、find / aggregate 等原始命令执行、常用命令示例
+
+### 版本管理（Git）
+
+- 工作区状态自动刷新（文件监听 + 窗口激活触发）、untracked 预览
+- diff 分屏对照，按文件后缀全量语法高亮（tree-sitter，35 种语法）
+- 提交（amend 保留原 message）、分支 / 标签 / stash、push / pull、merge / rebase / cherry-pick、reflog、blame、冲突三栏编辑、commit graph
+
+### 剪贴板
+
+- 后台采集独立于窗口生死，文本 / 图片（缩略图）历史全本地 AES-GCM 加密存储
+- 搜索、按类型筛选、来源应用黑名单、条数 / 天数自动清理
+- 全局热键 `⌘⇧V` 唤起屏幕底部悬浮抽屉，选中即粘贴回原应用
 
 ## 快速开始
 
-### 环境要求
-
-- macOS 12+
-- Xcode Command Line Tools（`xcode-select --install`）
-- Rust（按 `rust-toolchain.toml` 自动安装 nightly）
-
-### 编译运行
+要求：macOS（Apple Silicon / Intel）。Rust 工具链由 `rust-toolchain.toml` 钉死（GPUI 依赖 nightly 特性），首次构建自动安装。
 
 ```bash
-make develop        # debug 模式（编译快，运行慢）
-make release        # release 模式（首次 ~2-3 分钟）
+git clone https://github.com/axemc/ramag.git
+cd ramag
+
+make develop        # debug 运行（编译快）
+make release        # release 运行（首次 ~2-3 分钟）
+
+make dmg            # 打包当前架构：svg → icns → build → Ramag.app → Ramag.dmg
+make dmg-universal  # Intel + Apple Silicon 通用二进制（约 2 倍编译时间）
 ```
 
-> ⚠️ 首次 `cargo build` 会拉取并编译 GPUI 全家桶，耗时 30-60 分钟，正常现象。
+所有常用任务封装在 `Makefile`，直接 `make` 查看完整列表。
 
-### 常用命令
+## 常用快捷键
 
-```bash
-make help            # 列出全部命令
-make check           # cargo check
-make clippy          # 严格 lint（-D warnings）
-make test            # 单元测试
-make dmg             # 打包 .dmg（含 svg→icns）
-make dmg-universal   # Intel + Apple Silicon 通用二进制
-```
-
-### 全局快捷键
-
-| 快捷键 | 作用 |
-|--------|------|
-| `cmd-shift-V` | 唤起剪贴板悬浮抽屉（全局，全屏应用内也可弹出） |
-
-> 剪贴板抽屉的「自动粘贴回原应用」需要在 **系统设置 › 隐私与安全性 › 辅助功能** 中授权 Ramag；未授权时内容仍会写入剪贴板，可手动 `cmd-V`。
+| 场景 | 快捷键 |
+|---|---|
+| SQL / Mongo 查询 | `⌘Enter` 运行 · `⌘⇧Enter` 运行光标处语句 · `⌘T` 新查询 Tab · `⌘W` 关 Tab |
+| SQL 编辑 | `⌘⇧F` 格式化 · `⌘⇧E` EXPLAIN · `⌘S` 保存 SQL · `⌘⇧H` 查询历史 · `⌘E` 收起编辑器 |
+| VCS | `⌘K` 聚焦提交信息 · `⌘Enter` 提交 · `⌘⇧K` push · `⌘T` pull · `⌘R` 刷新 |
+| 剪贴板 | `⌘⇧V` 全局唤起抽屉 · `⌘F` 搜索 · `Enter` 复制 · `↑↓` 选择 |
 
 ## 架构
 
-17 个 crate 的 Cargo Workspace，Clean Architecture 务实版，依赖方向严格自上而下。详见 [`docs/architecture.md`](docs/architecture.md)。
+Clean Architecture 务实版，Cargo Workspace 共 17 个 crate，依赖方向严格向内：
 
 ```
-ramag-bin                                  ← 入口：依赖注入 + 启动 GPUI
-  ├── ramag-tool-{dbclient,redis,mongodb,vcs,clipboard}  ← UI 视图
-  ├── ramag-ui                                         ← Shell + ActivityBar + 主题
-  ├── ramag-infra-{mysql,postgres}                     ← impl SqlBackend
-  ├── ramag-infra-sql-shared                           ← SqlBackend trait + 模板 + tokio runtime
-  ├── ramag-infra-{redis,mongodb,git,clipboard,storage}← KvDriver / DocDriver / GitDriver / ClipboardDriver / Storage
-  └── ramag-app                                        ← Use Cases + ToolRegistry
-        └── ramag-domain                               ← 实体 + traits（无 UI / 具体技术依赖）
+ramag-bin                 入口：依赖注入 + 启动 GPUI
+  ├─ ramag-ui             Shell / ActivityBar / 主题 / 通用对话框
+  ├─ ramag-tool-*         工具视图（dbclient / redis / mongodb / vcs / clipboard）
+  ├─ ramag-app            Use Cases（ConnectionService / RedisService / MongoService / ClipboardService / ToolRegistry）
+  ├─ ramag-infra-*        驱动实现（mysql / postgres / sql-shared / redis / mongodb / git / clipboard / storage）
+  └─ ramag-domain         实体 + traits，零 UI / 框架 / 具体技术依赖
 ```
 
-**核心抽象**（均定义在 `ramag-domain/src/traits/`，实现在 `infra-*`）：
+关键设计：
 
-- `Driver` / `SqlBackend` — SQL 类数据库（MySQL / PostgreSQL，宏生成 Driver）
-- `KvDriver` — KV 类数据库（Redis）
-- `DocDriver` — 文档类数据库（MongoDB）
-- `GitDriver` — Git 操作
-- `ClipboardDriver` — 剪贴板采集 / 写回 / 来源应用 / 自动粘贴
-- `Storage` — 本地持久化（redb，密码与剪贴图片 AES 加密）
+- **SQL 共享层**（`ramag-infra-sql-shared`）：关系型数据库只需 impl `SqlBackend`（方言 + 解码 + 元数据 SQL），`impl_driver_for!` 宏一行生成 `Driver` 实现；多语句切分、LIMIT 注入、连接池缓存、取消句柄均在共享层，新增 SQLite 等不必重写模板
+- **双 runtime 桥接**：GPUI 用 smol，sqlx / redis-rs / mongodb 强依赖 tokio；driver 经 `run_in_tokio` 把 future 派发到独立 tokio runtime，结果用 oneshot 送回
+- **凭证安全**：连接配置存 redb，密码字段单独 AES-GCM 加密，主密钥存 macOS 钥匙串，全程不落明文
 
-## 集成测试
+完整分层说明与「新增数据库 / 新增工具」标准流程见 [docs/architecture.md](docs/architecture.md)。
 
-数据库类集成测试缺环境变量会自动 skip，不影响 `make test`；Git 集成测试对临时仓库跑端到端，随 `make test` 自动执行（机器需装 `git`）。
+## 开发
 
 ```bash
-# MySQL
-export RAMAG_TEST_MYSQL_HOST=... RAMAG_TEST_MYSQL_PORT=3306 \
-       RAMAG_TEST_MYSQL_USER=... RAMAG_TEST_MYSQL_PASSWORD=... RAMAG_TEST_MYSQL_DB=...
-cargo test -p ramag-infra-mysql --test integration -- --nocapture
-
-# PostgreSQL（DB 必填）
-export RAMAG_TEST_PG_HOST=127.0.0.1 RAMAG_TEST_PG_PORT=5432 \
-       RAMAG_TEST_PG_USER=postgres RAMAG_TEST_PG_PASSWORD=... RAMAG_TEST_PG_DB=postgres
-cargo test -p ramag-infra-postgres --test integration -- --nocapture
-
-# Redis（USERNAME / PASSWORD 可选；测试用 db 15，结尾 FLUSHDB 清场）
-export RAMAG_TEST_REDIS_HOST=127.0.0.1 RAMAG_TEST_REDIS_PORT=6379
-cargo test -p ramag-infra-redis --test integration -- --nocapture
-
-# MongoDB（USER / PASSWORD 可选）
-export RAMAG_TEST_MONGO_HOST=127.0.0.1 RAMAG_TEST_MONGO_PORT=27017 RAMAG_TEST_MONGO_DB=ramag_demo
-cargo test -p ramag-infra-mongodb --test integration -- --nocapture
+make check          # cargo check --all-targets（最快的类型检查）
+make fmt            # cargo fmt --all
+make clippy         # cargo clippy --all-targets -- -D warnings
+make test           # cargo test --all
 ```
+
+工程约束：clippy 将 `unwrap / expect / panic` 标为 warn 且 CI 以 `-D warnings` 门禁；CI 另设单文件 600 行红线。
+
+### 数据库集成测试
+
+`crates/ramag-infra-{mysql,postgres,redis,mongodb}/tests/integration.rs` 连接真实数据库跑端到端流程；对应的一组环境变量缺任一字段即自动 skip，不影响 CI：
+
+```bash
+# 以 MySQL 为例（PG / Redis / Mongo 同款前缀：RAMAG_TEST_PG_* / RAMAG_TEST_REDIS_* / RAMAG_TEST_MONGO_*）
+export RAMAG_TEST_MYSQL_HOST=127.0.0.1
+export RAMAG_TEST_MYSQL_PORT=3306
+export RAMAG_TEST_MYSQL_USER=root
+export RAMAG_TEST_MYSQL_PASSWORD=...
+export RAMAG_TEST_MYSQL_DB=test
+cargo test -p ramag-infra-mysql --test integration -- --nocapture
+```
+
+### 升级 GPUI
+
+`gpui` 与 `gpui-component` 故意不钉 rev（两者共享 zed 源码，钉版会让 cargo 编译两份 zed、类型不互通），版本锁定靠入库的 `Cargo.lock`。升级用 `cargo update -p gpui`，并同步核对 `lsp-types` / `ropey` 版本与 `gpui-component` 内部一致。
+
+## 数据与日志位置
+
+| 内容 | 路径 |
+|---|---|
+| 连接配置 / 剪贴板历史（加密 redb） | `~/Library/Application Support/com.ramag.ramag/ramag.redb` |
+| 运行日志 | `~/Library/Application Support/com.ramag.ramag/logs/ramag.log` |
+| 加密主密钥 | macOS 钥匙串 |
 
 ## License
 
-Apache-2.0
+[Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0)
