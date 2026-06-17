@@ -1,4 +1,4 @@
-//! 设置面板：采集开关 / 图片采集 / 自动粘贴 / 条数上限 / 保留天数 / 清空
+//! 设置面板：采集开关 / 图片采集 / 自动粘贴 / 清空
 
 use gpui::{ClickEvent, Context, IntoElement, ParentElement, Styled, Window, div, prelude::*, px};
 use gpui_component::{
@@ -67,38 +67,6 @@ impl ClipboardView {
                     this.save_settings(next, cx);
                 }),
             ))
-            .child(self.stepper_row(
-                "count",
-                "条数上限",
-                &format!("{} 条", s.max_items),
-                // 数量级步长：小值小步、大值大步，几下即可调到 50 万
-                cx.listener(|this, _: &ClickEvent, _, cx| {
-                    let mut next = this.settings.clone();
-                    let step = count_step(next.max_items.saturating_sub(1));
-                    next.max_items = next.max_items.saturating_sub(step).max(100);
-                    this.save_settings(next, cx);
-                }),
-                cx.listener(|this, _: &ClickEvent, _, cx| {
-                    let mut next = this.settings.clone();
-                    next.max_items = (next.max_items + count_step(next.max_items)).min(500_000);
-                    this.save_settings(next, cx);
-                }),
-            ))
-            .child(self.stepper_row(
-                "age",
-                "保留天数",
-                &format!("{} 天", s.max_age_days),
-                cx.listener(|this, _: &ClickEvent, _, cx| {
-                    let mut next = this.settings.clone();
-                    next.max_age_days = next.max_age_days.saturating_sub(7).max(1);
-                    this.save_settings(next, cx);
-                }),
-                cx.listener(|this, _: &ClickEvent, _, cx| {
-                    let mut next = this.settings.clone();
-                    next.max_age_days = (next.max_age_days + 7).min(3650);
-                    this.save_settings(next, cx);
-                }),
-            ))
             .child(div().h(px(1.0)).bg(border))
             // 清空历史（移入设置，避免顶栏误触）
             .child(
@@ -142,48 +110,6 @@ impl ClipboardView {
             .child(Switch::new(id).checked(checked).on_click(on_click))
     }
 
-    fn stepper_row(
-        &self,
-        id: &str,
-        title: &str,
-        value: &str,
-        on_dec: impl Fn(&ClickEvent, &mut Window, &mut gpui::App) + 'static,
-        on_inc: impl Fn(&ClickEvent, &mut Window, &mut gpui::App) + 'static,
-    ) -> impl IntoElement {
-        // 两个 stepper 的按钮 id 必须唯一，否则 gpui 交互冲突导致点击无响应
-        h_flex()
-            .w_full()
-            .items_center()
-            .justify_between()
-            .child(div().text_sm().child(title.to_string()))
-            .child(
-                h_flex()
-                    .items_center()
-                    .gap(px(8.0))
-                    .child(
-                        Button::new(format!("{id}-dec"))
-                            .ghost()
-                            .xsmall()
-                            .label("−")
-                            .on_click(on_dec),
-                    )
-                    .child(
-                        div()
-                            .min_w(px(56.0))
-                            .text_sm()
-                            .text_center()
-                            .child(value.to_string()),
-                    )
-                    .child(
-                        Button::new(format!("{id}-inc"))
-                            .ghost()
-                            .xsmall()
-                            .label("+")
-                            .on_click(on_inc),
-                    ),
-            )
-    }
-
     /// 清空历史二次确认（复用 ramag-ui 通用确认弹窗）
     pub(super) fn confirm_clear(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let entity = cx.entity().clone();
@@ -198,15 +124,5 @@ impl ClipboardView {
             window,
             cx,
         );
-    }
-}
-
-/// 条数上限的数量级步长：当前值越大步进越大，几下即可从两千调到五十万
-fn count_step(v: u32) -> u32 {
-    match v {
-        0..=4_999 => 1_000,
-        5_000..=49_999 => 5_000,
-        50_000..=199_999 => 50_000,
-        _ => 100_000,
     }
 }

@@ -68,13 +68,17 @@ impl RedbStorage {
             .commit()
             .map_err(|e| DomainError::Storage(format!("提交事务失败：{e}")))?;
 
-        let cipher = Cipher::new(master_key);
+        let db = Arc::new(db);
+        let cipher = Arc::new(RwLock::new(Cipher::new(master_key)));
+
+        // 首启迁移：为存量历史构建时间 / 去重索引（空库或已建则瞬时返回）
+        repos::clip_repo::migrate_indexes(db.clone(), cipher.clone())?;
 
         info!(path = %path.display(), "redb storage opened");
 
         Ok(Self {
-            db: Arc::new(db),
-            cipher: Arc::new(RwLock::new(cipher)),
+            db,
+            cipher,
             path: path.to_path_buf(),
         })
     }
@@ -214,6 +218,19 @@ impl Storage for RedbStorage {
         let db = self.db.clone();
         let cipher = self.cipher.clone();
         run_blocking(move || repos::clip_repo::list(db, cipher)).await
+    }
+
+    async fn clip_list_recent(&self, limit: usize) -> Result<Vec<ClipItem>> {
+        let db = self.db.clone();
+        let cipher = self.cipher.clone();
+        run_blocking(move || repos::clip_repo::list_recent(db, cipher, limit)).await
+    }
+
+    async fn clip_search(&self, query: &str, limit: usize) -> Result<Vec<ClipItem>> {
+        let db = self.db.clone();
+        let cipher = self.cipher.clone();
+        let query = query.to_string();
+        run_blocking(move || repos::clip_repo::search(db, cipher, query, limit)).await
     }
 
     async fn clip_delete(&self, id: &ClipId) -> Result<()> {
@@ -424,5 +441,104 @@ mod tests {
         let rest = storage.clip_list().await.unwrap();
         assert_eq!(rest.len(), 1);
         assert_eq!(rest[0].text.as_deref(), Some("kept-2"));
+    }
+
+    #[tokio::test]
+    async fn clip_list_recent_order_and_limit() {
+        let (storage, _tmp) = make_test_storage();
+        storage.clip_save(&sample_clip("oldest", 3)).await.unwrap();
+        storage.clip_save(&sample_clip("mid", 2)).await.unwrap();
+        storage.clip_save(&sample_clip("newest", 0)).await.unwrap();
+
+        // limit 截断 + 最近优先
+        let recent = storage.clip_list_recent(2).await.unwrap();
+        assert_eq!(recent.len(), 2);
+        assert_eq!(recent[0].text.as_deref(), Some("newest"));
+        assert_eq!(recent[1].text.as_deref(), Some("mid"));
+
+        // limit 超总数 → 全部返回
+        let all = storage.clip_list_recent(100).await.unwrap();
+        assert_eq!(all.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn clip_update_refreshes_recency_without_dup() {
+        let (storage, _tmp) = make_test_storage();
+        let mut a = sample_clip("a", 5);
+        let b = sample_clip("b", 0);
+        storage.clip_save(&a).await.unwrap();
+        storage.clip_save(&b).await.unwrap();
+        assert_eq!(
+            storage.clip_list_recent(10).await.unwrap()[0]
+                .text
+                .as_deref(),
+            Some("b")
+        );
+
+        // 提升 a（同 id 更新 last_used）→ 旧时间索引项须清除，不得产生重复
+        a.last_used_at = Utc::now();
+        storage.clip_save(&a).await.unwrap();
+        let r = storage.clip_list_recent(10).await.unwrap();
+        assert_eq!(r.len(), 2, "更新不应产生重复条目");
+        assert_eq!(r[0].text.as_deref(), Some("a"));
+        assert_eq!(r[1].text.as_deref(), Some("b"));
+    }
+
+    #[tokio::test]
+    async fn clip_migrate_rebuilds_indexes_from_main_table() {
+        let (storage, _tmp) = make_test_storage();
+        let c1 = sample_clip("alpha", 2);
+        let c2 = sample_clip("beta", 0);
+        storage.clip_save(&c1).await.unwrap();
+        storage.clip_save(&c2).await.unwrap();
+
+        // 模拟索引丢失：删时间索引表后重建空表（主表保留），mirror open 时 ensure→migrate 流程
+        {
+            let txn = storage.db.begin_write().unwrap();
+            txn.delete_table(repos::clip_repo::CLIP_BY_TIME).unwrap();
+            repos::clip_repo::ensure_table(&txn).unwrap();
+            txn.commit().unwrap();
+        }
+        repos::clip_repo::migrate_indexes(storage.db.clone(), storage.cipher.clone()).unwrap();
+
+        let recent = storage.clip_list_recent(10).await.unwrap();
+        assert_eq!(recent.len(), 2);
+        assert_eq!(recent[0].text.as_deref(), Some("beta"));
+        assert!(
+            storage
+                .clip_find_by_hash(&c1.content_hash)
+                .await
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn clip_search_matches_recent_first_and_limit() {
+        let (storage, _tmp) = make_test_storage();
+        storage
+            .clip_save(&sample_clip("hello world", 2))
+            .await
+            .unwrap();
+        storage.clip_save(&sample_clip("foo bar", 1)).await.unwrap();
+        storage
+            .clip_save(&sample_clip("hello rust", 0))
+            .await
+            .unwrap();
+
+        // 匹配 + 最近优先
+        let r = storage.clip_search("hello", 10).await.unwrap();
+        assert_eq!(r.len(), 2);
+        assert_eq!(r[0].text.as_deref(), Some("hello rust"));
+        assert_eq!(r[1].text.as_deref(), Some("hello world"));
+
+        // limit 早停
+        let r = storage.clip_search("hello", 1).await.unwrap();
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].text.as_deref(), Some("hello rust"));
+
+        // 空 query / 无匹配 → 空
+        assert!(storage.clip_search("", 10).await.unwrap().is_empty());
+        assert!(storage.clip_search("zzz", 10).await.unwrap().is_empty());
     }
 }

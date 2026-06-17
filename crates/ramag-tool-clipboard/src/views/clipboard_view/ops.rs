@@ -8,29 +8,23 @@ use tracing::error;
 use super::ClipboardView;
 use crate::views::helpers::filter_items;
 
+/// 全量搜索去抖：输入停顿此间隔后才触发后台扫描
+const SEARCH_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(250);
+/// 全量搜索结果上限
+const SEARCH_LIMIT: usize = 500;
+
 impl ClipboardView {
-    /// 从 storage 重载全量历史（异步解密）
+    /// 同步从 service 缓存重载最近窗口快照（无 IO、无解密；旧版异步全表解密已废弃）
     pub(super) fn reload(&mut self, cx: &mut Context<Self>) {
-        let svc = self.service.clone();
-        let target_rev = svc.revision();
-        cx.spawn(async move |this, cx| {
-            let result = svc.list().await;
-            let _ = this.update(cx, |this, cx| match result {
-                Ok(items) => {
-                    this.items = items;
-                    this.loaded_revision = target_rev;
-                    // 选中项若已被删除则清空
-                    if let Some(sel) = &this.selected
-                        && !this.items.iter().any(|i| &i.id == sel)
-                    {
-                        this.selected = None;
-                    }
-                    cx.notify();
-                }
-                Err(e) => error!(error = %e, "reload clips failed"),
-            });
-        })
-        .detach();
+        self.loaded_revision = self.service.revision();
+        self.items = self.service.cached_snapshot();
+        // 选中项若已被删除则清空
+        if let Some(sel) = &self.selected
+            && !self.items.iter().any(|i| &i.id == sel)
+        {
+            self.selected = None;
+        }
+        cx.notify();
     }
 
     pub(super) fn load_settings(&mut self, cx: &mut Context<Self>) {
@@ -60,10 +54,55 @@ impl ClipboardView {
     /// 当前过滤+排序后的可见条目（clone 出 owned 列表供渲染与键盘导航共用）
     pub(super) fn visible_items(&self, cx: &gpui::App) -> Vec<ClipItem> {
         let query = self.search.read(cx).value().to_string();
-        filter_items(&self.items, &query, self.filter)
-            .into_iter()
-            .cloned()
-            .collect()
+        if query.trim().is_empty() {
+            return filter_items(&self.items, "", self.filter)
+                .into_iter()
+                .cloned()
+                .collect();
+        }
+        // 即时层：缓存窗口匹配（输入即显示）；补充层：后台全量结果（去重，缓存优先）
+        let mut seen = std::collections::HashSet::new();
+        let mut out: Vec<ClipItem> = Vec::new();
+        for it in filter_items(&self.items, &query, self.filter) {
+            seen.insert(it.id.clone());
+            out.push(it.clone());
+        }
+        for it in &self.search_results {
+            if self.filter.is_none_or(|k| it.kind == k) && !seen.contains(&it.id) {
+                out.push(it.clone());
+            }
+        }
+        out
+    }
+
+    /// 搜索框变化：去抖后台全量搜索，补充缓存窗口之外的匹配
+    pub(super) fn schedule_search(&mut self, cx: &mut Context<Self>) {
+        self.search_gen = self.search_gen.wrapping_add(1);
+        let generation = self.search_gen;
+        let query = self.search.read(cx).value().to_string();
+        if query.trim().is_empty() {
+            self.search_results.clear();
+            return;
+        }
+        let svc = self.service.clone();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(SEARCH_DEBOUNCE).await;
+            // 去抖：期间又有输入则代号已变，放弃本次
+            if this
+                .update(cx, |this, _| this.search_gen != generation)
+                .unwrap_or(true)
+            {
+                return;
+            }
+            let result = svc.search(&query, SEARCH_LIMIT).await.unwrap_or_default();
+            let _ = this.update(cx, |this, cx| {
+                if this.search_gen == generation {
+                    this.search_results = result;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     pub(super) fn copy_clip(&mut self, item: ClipItem, cx: &mut Context<Self>) {

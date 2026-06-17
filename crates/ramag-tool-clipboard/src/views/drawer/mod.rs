@@ -71,9 +71,11 @@ impl ClipboardDrawer {
         // 搜索框默认聚焦，唤起即可打字过滤
         search.update(cx, |s, cx| s.focus(window, cx));
 
+        // 同步从缓存取最近窗口快照：首帧即满内容，无异步 list 的"先空后填"
+        let items = service.cached_snapshot();
         let view = Self {
             service: service.clone(),
-            items: Vec::new(),
+            items,
             selected: 0,
             search,
             target_bundle,
@@ -83,11 +85,10 @@ impl ClipboardDrawer {
             img_cache: crate::views::image_cache::ImageCache::new(),
             _subscriptions: subs,
         };
+        // 仅异步补 auto_paste 设置；列表已在构造时由缓存同步填充
         cx.spawn(async move |this, cx| {
             let settings = service.load_settings().await;
-            let items = service.list().await.unwrap_or_default();
             let _ = this.update(cx, |this, cx| {
-                this.items = items;
                 this.auto_paste = settings.auto_paste;
                 cx.notify();
             });
@@ -167,12 +168,41 @@ impl ClipboardDrawer {
         window.remove_window();
     }
 
-    /// 键盘：Esc 关闭，cmd-1..9 直贴第 N 张（裸数字 / 方向键留给搜索框，回车由搜索框 PressEnter 处理）
+    /// 方向键移动选中：过滤后可见列表内边界 clamp，并滚动到可见
+    fn move_selection(&mut self, delta: i32, cx: &mut Context<Self>) {
+        let n = self.visible_items(cx).len();
+        if n == 0 {
+            return;
+        }
+        let cur = self.selected.min(n - 1) as i32;
+        let next = (cur + delta).clamp(0, n as i32 - 1) as usize;
+        if next != self.selected {
+            self.selected = next;
+            self.scroll.scroll_to_item(next);
+            cx.notify();
+        }
+    }
+
+    /// 键盘：Esc 关闭；↑/↓ 选卡片；cmd-1..9 直贴第 N 张（回车由搜索框 PressEnter 处理）。
+    /// ←/→ 被搜索框占作光标移动——GPUI 中 action 派发先于按键监听器、拦不住，故选择用上下
     fn on_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let key = ev.keystroke.key.as_str();
         if key == "escape" {
             window.remove_window();
             return;
+        }
+        if !ev.keystroke.modifiers.modified() {
+            match key {
+                "up" => {
+                    self.move_selection(-1, cx);
+                    return;
+                }
+                "down" => {
+                    self.move_selection(1, cx);
+                    return;
+                }
+                _ => {}
+            }
         }
         if ev.keystroke.modifiers.platform
             && key.len() == 1

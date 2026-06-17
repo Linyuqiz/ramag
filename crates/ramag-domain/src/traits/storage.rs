@@ -79,10 +79,24 @@ pub trait Storage: Send + Sync {
         ))
     }
 
-    /// 按 last_used_at desc 返回全部
+    /// 按 last_used_at desc 返回全部（全量解密，仅孤儿清理 / 导出等低频场景用）
     async fn clip_list(&self) -> Result<Vec<ClipItem>> {
         Err(crate::error::DomainError::NotImplemented(
             "clip_list".into(),
+        ))
+    }
+
+    /// 取最近 limit 条（最近优先）。窗口缓存预加载用，走时间索引只解密这 limit 条
+    async fn clip_list_recent(&self, _limit: usize) -> Result<Vec<ClipItem>> {
+        Err(crate::error::DomainError::NotImplemented(
+            "clip_list_recent".into(),
+        ))
+    }
+
+    /// 全量搜索（最近优先，匹配 preview/text，到 limit 停）。覆盖缓存窗口之外的历史
+    async fn clip_search(&self, _query: &str, _limit: usize) -> Result<Vec<ClipItem>> {
+        Err(crate::error::DomainError::NotImplemented(
+            "clip_search".into(),
         ))
     }
 

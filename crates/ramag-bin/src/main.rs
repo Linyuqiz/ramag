@@ -160,6 +160,11 @@ fn main() {
             })
             .detach();
         }
+        // 预热窗口缓存：解密最近 N 条入内存，让首次唤起抽屉即同步带满内容
+        {
+            let svc = clipboard_service.clone();
+            cx.spawn(async move |_| svc.preload().await).detach();
+        }
         // App 级剪贴板采集循环：独立于窗口生死，关窗后仍持续记录
         spawn_clipboard_capture(clipboard_service.clone(), cx);
         // 全局热键（cmd-shift-V）唤起底部悬浮抽屉

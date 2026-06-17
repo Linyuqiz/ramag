@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use chrono::Utc;
+use parking_lot::RwLock;
 use ramag_domain::entities::{
     CapturedClip, ClipId, ClipItem, ClipKind, ClipSource, ClipboardSettings, classify_text,
     fnv1a_hash, make_preview,
@@ -18,6 +19,13 @@ use crate::usecases::clip_thumb::{THUMB_MAX_W, make_thumbnail};
 
 /// 设置持久化 key（prefs 表，JSON）
 const SETTINGS_KEY: &str = "clipboard_settings";
+
+/// 历史清理上限（固定策略，不开放设置）：最多 100 万条 / 360 天，超出在每次入库后清理最旧
+const MAX_ITEMS: u32 = 1_000_000;
+const MAX_AGE_DAYS: u32 = 360;
+
+/// 内存缓存窗口：常驻最近 N 条（已解密），视图唤起 / 刷新同步读；内存与历史总量解耦
+const CACHE_WINDOW: usize = 10_000;
 
 /// 采集判定结果（纯逻辑产物，不触 IO）
 #[derive(Debug, PartialEq)]
@@ -34,6 +42,8 @@ pub struct ClipboardService {
     /// 历史变更版本号：任何写操作（采集 / 复制 / 删除）后自增。
     /// 视图轮询此值，仅在变化时才重载解密，避免每拍全表解密
     revision: Arc<AtomicU64>,
+    /// 已解密的最近 N 条窗口缓存（最近优先）。写操作增量维护，视图同步快照取
+    cache: Arc<RwLock<Vec<ClipItem>>>,
 }
 
 impl ClipboardService {
@@ -42,6 +52,7 @@ impl ClipboardService {
             driver,
             storage,
             revision: Arc::new(AtomicU64::new(0)),
+            cache: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
@@ -56,6 +67,44 @@ impl ClipboardService {
 
     fn bump(&self) {
         self.revision.fetch_add(1, Ordering::Relaxed);
+    }
+
+    // —— 内存窗口缓存 ——
+
+    /// 启动预热：解密最近 CACHE_WINDOW 条入缓存（仅启动调一次）
+    pub async fn preload(&self) {
+        match self.storage.clip_list_recent(CACHE_WINDOW).await {
+            Ok(items) => {
+                *self.cache.write() = items;
+                self.bump();
+            }
+            Err(e) => warn!(error = %e, "clip cache preload failed"),
+        }
+    }
+
+    /// 同步取缓存快照（已解密、最近优先）。视图唤起 / 刷新用，无 IO、无解密
+    pub fn cached_snapshot(&self) -> Vec<ClipItem> {
+        self.cache.read().clone()
+    }
+
+    /// 缓存增量更新：移除旧同 id → 插最前 → 去超龄 + 截窗口（全内存，不解密）
+    fn cache_upsert(&self, item: ClipItem) {
+        let cutoff = Utc::now() - chrono::Duration::days(i64::from(MAX_AGE_DAYS));
+        let mut c = self.cache.write();
+        c.retain(|i| i.id != item.id);
+        c.insert(0, item);
+        c.retain(|i| i.last_used_at >= cutoff);
+        if c.len() > CACHE_WINDOW {
+            c.truncate(CACHE_WINDOW);
+        }
+    }
+
+    fn cache_remove(&self, id: &ClipId) {
+        self.cache.write().retain(|i| &i.id != id);
+    }
+
+    fn cache_clear(&self) {
+        self.cache.write().clear();
     }
 
     // —— 设置 ——
@@ -118,6 +167,7 @@ impl ClipboardService {
                 existing.source = Some(src);
             }
             self.storage.clip_save(&existing).await?;
+            self.cache_upsert(existing);
             self.bump();
             return Ok(true);
         }
@@ -176,15 +226,17 @@ impl ClipboardService {
             last_used_at: now,
         };
         self.storage.clip_save(&item).await?;
-        self.prune(settings).await;
+        self.cache_upsert(item);
+        self.prune().await;
         self.bump();
         Ok(true)
     }
 
     // —— 历史读取 / 操作 ——
 
-    pub async fn list(&self) -> Result<Vec<ClipItem>> {
-        self.storage.clip_list().await
+    /// 全量搜索（覆盖缓存窗口之外的历史）。主视图后台去抖调用，匹配 preview/text
+    pub async fn search(&self, query: &str, limit: usize) -> Result<Vec<ClipItem>> {
+        self.storage.clip_search(query, limit).await
     }
 
     /// 复制条目回剪贴板（不自动粘贴）
@@ -212,6 +264,7 @@ impl ClipboardService {
         let mut latest = item.clone();
         latest.last_used_at = Utc::now();
         self.storage.clip_save(&latest).await?;
+        self.cache_upsert(latest);
         self.bump();
         Ok(())
     }
@@ -231,6 +284,7 @@ impl ClipboardService {
                 latest.rtf = None;
                 latest.last_used_at = Utc::now();
                 self.storage.clip_save(&latest).await?;
+                self.cache_upsert(latest);
                 self.bump();
                 Ok(())
             }
@@ -306,6 +360,7 @@ impl ClipboardService {
 
     pub async fn delete(&self, item: &ClipItem) -> Result<()> {
         self.storage.clip_delete(&item.id).await?;
+        self.cache_remove(&item.id);
         for path in [&item.image_path, &item.thumb_path].into_iter().flatten() {
             self.driver.remove_media(path)?;
         }
@@ -315,17 +370,14 @@ impl ClipboardService {
 
     pub async fn clear(&self) -> Result<()> {
         let images = self.storage.clip_clear().await?;
+        self.cache_clear();
         self.cleanup_media(images);
         self.bump();
         Ok(())
     }
 
-    async fn prune(&self, settings: &ClipboardSettings) {
-        match self
-            .storage
-            .clip_prune(settings.max_items, settings.max_age_days)
-            .await
-        {
+    async fn prune(&self) {
+        match self.storage.clip_prune(MAX_ITEMS, MAX_AGE_DAYS).await {
             Ok(images) => self.cleanup_media(images),
             Err(e) => warn!(error = %e, "clip prune failed"),
         }

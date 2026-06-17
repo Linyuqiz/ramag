@@ -23,7 +23,7 @@ const POLL_INTERVAL: Duration = Duration::from_millis(600);
 
 pub struct ClipboardView {
     pub(super) service: Arc<ClipboardService>,
-    /// 全量历史（storage 已按 last_used_at desc）
+    /// 最近窗口快照（来自 service 缓存，最近优先）
     pub(super) items: Vec<ClipItem>,
     pub(super) settings: ClipboardSettings,
     pub(super) search: Entity<InputState>,
@@ -32,6 +32,10 @@ pub struct ClipboardView {
     pub(super) selected: Option<ClipId>,
     /// 上次已加载的版本号，轮询时与 service.revision() 比对
     pub(super) loaded_revision: u64,
+    /// 后台全量搜索结果：补充缓存窗口之外的匹配（搜索词非空时与缓存即时结果合并）
+    pub(super) search_results: Vec<ClipItem>,
+    /// 搜索去抖代号：每次输入自增，异步任务到期比对以丢弃过期搜索
+    pub(super) search_gen: u64,
     /// 设置面板是否展开
     pub(super) show_settings: bool,
     pub(super) list_scroll: UniformListScrollHandle,
@@ -59,8 +63,9 @@ impl ClipboardView {
         let mut subscriptions = Vec::new();
         // 搜索框输入即重渲染（过滤是纯内存操作）
         subscriptions.push(
-            cx.subscribe(&search, |_this: &mut Self, _, e: &InputEvent, cx| {
+            cx.subscribe(&search, |this: &mut Self, _, e: &InputEvent, cx| {
                 if matches!(e, InputEvent::Change) {
+                    this.schedule_search(cx);
                     cx.notify();
                 }
             }),
@@ -74,6 +79,8 @@ impl ClipboardView {
             filter: None,
             selected: None,
             loaded_revision: 0,
+            search_results: Vec::new(),
+            search_gen: 0,
             show_settings: false,
             list_scroll: UniformListScrollHandle::new(),
             focus_handle: cx.focus_handle(),
@@ -87,7 +94,7 @@ impl ClipboardView {
         view
     }
 
-    /// 后台计时轮询：版本号变化才重载（重载会全表解密，故不每拍执行）
+    /// 后台计时轮询：版本号变化才重载（重载只同步拷贝缓存快照，不解密）
     fn start_polling(&self, cx: &mut Context<Self>) {
         cx.spawn(async move |this, cx| {
             loop {

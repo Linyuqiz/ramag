@@ -114,10 +114,6 @@ pub struct ClipboardSettings {
     /// 总开关：false 暂停记录
     pub enabled: bool,
     pub capture_images: bool,
-    /// 历史条数上限
-    pub max_items: u32,
-    /// 保留天数
-    pub max_age_days: u32,
     /// 单条内容字节上限，超出跳过不记录
     pub max_item_bytes: u64,
     /// 来源应用黑名单（bundle id）
@@ -131,8 +127,6 @@ impl Default for ClipboardSettings {
         Self {
             enabled: true,
             capture_images: true,
-            max_items: 10000000,
-            max_age_days: 360,
             max_item_bytes: 10 * 1024 * 1024,
             blacklist: Vec::new(),
             auto_paste: true,
