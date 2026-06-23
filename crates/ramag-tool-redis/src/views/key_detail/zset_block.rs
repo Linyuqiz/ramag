@@ -1,6 +1,8 @@
-//! ZSet 块：每行编辑 / 删除按钮 + score 短格式
+//! ZSet 块：双击行改 score + 删除按钮 + score 短格式
 
-use gpui::{ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div, px};
+use gpui::{
+    ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div, prelude::*, px,
+};
 use gpui_component::{
     Sizable as _,
     button::{Button, ButtonVariants as _},
@@ -39,16 +41,28 @@ pub(super) fn render_zset_block(
         let key_for_del = key.clone();
         let raw_for_edit = raw_member.clone();
         let raw_for_del = raw_member.clone();
-        let edit_id = SharedString::from(format!("zset-edit-{i}"));
+        let row_id = SharedString::from(format!("zset-row-{i}"));
         let del_id = SharedString::from(format!("zset-del-{i}"));
         rows = rows.child(
             h_flex()
+                .id(row_id)
                 .w_full()
                 .px(px(8.0))
                 .py(px(6.0))
                 .border_b_1()
                 .border_color(border)
                 .gap(px(8.0))
+                .cursor_pointer()
+                // 双击该行打开「改 score」窗口（与其它面板一致，去掉行内编辑图标）
+                .on_click(panel.listener(move |_, e: &ClickEvent, _, cx| {
+                    if e.click_count() >= 2 {
+                        cx.emit(KeyDetailEvent::RequestEditZSetScore(
+                            key_for_edit.clone(),
+                            raw_for_edit.clone(),
+                            score_for_edit.clone(),
+                        ));
+                    }
+                }))
                 .child(
                     div()
                         .w(px(320.0))
@@ -72,36 +86,17 @@ pub(super) fn render_zset_block(
                         .child(preview),
                 )
                 .child(
-                    h_flex()
-                        .gap(px(4.0))
-                        .flex_none()
-                        .child(
-                            Button::new(edit_id)
-                                .ghost()
-                                .small()
-                                .icon(ramag_ui::icons::pencil())
-                                .tooltip("改 score")
-                                .on_click(panel.listener(move |_, _: &ClickEvent, _, cx| {
-                                    cx.emit(KeyDetailEvent::RequestEditZSetScore(
-                                        key_for_edit.clone(),
-                                        raw_for_edit.clone(),
-                                        score_for_edit.clone(),
-                                    ));
-                                })),
-                        )
-                        .child(
-                            Button::new(del_id)
-                                .ghost()
-                                .small()
-                                .icon(ramag_ui::icons::trash())
-                                .tooltip("删除该成员")
-                                .on_click(panel.listener(move |_, _: &ClickEvent, _, cx| {
-                                    cx.emit(KeyDetailEvent::RequestDeleteZSetMember(
-                                        key_for_del.clone(),
-                                        raw_for_del.clone(),
-                                    ));
-                                })),
-                        ),
+                    Button::new(del_id)
+                        .ghost()
+                        .small()
+                        .icon(ramag_ui::icons::trash())
+                        .tooltip("删除该成员")
+                        .on_click(panel.listener(move |_, _: &ClickEvent, _, cx| {
+                            cx.emit(KeyDetailEvent::RequestDeleteZSetMember(
+                                key_for_del.clone(),
+                                raw_for_del.clone(),
+                            ));
+                        })),
                 ),
         );
     }

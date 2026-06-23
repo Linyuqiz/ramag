@@ -1,8 +1,9 @@
-//! 标量值（String / Bytes）渲染：Gzip 提示 + 内容区 + 编辑按钮（仅 Text，固定 Raw）
+//! 标量值（String / Bytes）渲染：视图模式切换（Raw/JSON/Hex/base64，按内容自动选默认）
+//! + Gzip 提示 + 内容区（双击编辑，仅 Text）
 
 use gpui::{ClickEvent, Context, IntoElement, ParentElement, Styled, Window, div, prelude::*, px};
 use gpui_component::{
-    Sizable as _,
+    Selectable as _, Sizable as _,
     button::{Button, ButtonVariants as _},
     h_flex, v_flex,
 };
@@ -15,6 +16,7 @@ use crate::views::value_display::{self, ViewMode};
 pub(super) fn render_scalar(
     key: &str,
     v: &RedisValue,
+    view_mode: Option<ViewMode>,
     fg: gpui::Hsla,
     muted_fg: gpui::Hsla,
     border: gpui::Hsla,
@@ -41,8 +43,8 @@ pub(super) fn render_scalar(
         None => (raw_bytes.clone(), None),
     };
 
-    // 固定 Raw 模式渲染
-    let mode = ViewMode::default();
+    // 视图模式：用户未手动选则按内容自动判定（JSON 美化 / Raw）
+    let mode = view_mode.unwrap_or_else(|| value_display::auto_view_mode(&display_bytes));
     let content_text = match v {
         RedisValue::Text(_) => match std::str::from_utf8(&display_bytes) {
             Ok(s) => value_display::render_text(s, mode),
@@ -51,7 +53,7 @@ pub(super) fn render_scalar(
         _ => value_display::render_bytes(&display_bytes, mode),
     };
 
-    // 编辑入口仅对 Text 类型开放（Bytes 二进制不支持文本编辑）
+    // 编辑入口仅对 Text 类型开放（Bytes 二进制不支持文本编辑）：双击内容区打开编辑窗口
     let edit_target: Option<(String, String)> = match v {
         RedisValue::Text(s) => Some((key.to_string(), s.clone())),
         _ => None,
@@ -68,31 +70,43 @@ pub(super) fn render_scalar(
         .text_sm()
         .text_color(fg)
         .font_family("monospace")
+        .when_some(edit_target, |this, (k, s)| {
+            this.cursor_pointer()
+                .on_click(cx.listener(move |_, e: &ClickEvent, _, cx| {
+                    if e.click_count() >= 2 {
+                        cx.emit(KeyDetailEvent::RequestEditValue(k.clone(), s.clone()));
+                    }
+                }))
+        })
         .child(content_text);
 
-    // 内容行：content 居左 flex_1 + 编辑按钮右上（仅 Text 类型显示）。
-    // 顶部对齐而非居中——超长 value 时按钮才不会浮到内容垂直中线
-    let mut content_row = h_flex()
-        .w_full()
-        .items_start()
-        .gap(px(6.0))
-        .child(content_div);
-    if let Some((k, s)) = edit_target {
-        content_row = content_row.child(
-            Button::new("scalar-edit")
+    let content_row = h_flex().w_full().child(content_div);
+
+    // 视图模式切换：Raw / JSON / Hex / base64，高亮当前生效模式；点击即固定为手动模式
+    let mode_row = h_flex().gap(px(4.0)).children(
+        [
+            (ViewMode::Raw, "Raw"),
+            (ViewMode::Json, "JSON"),
+            (ViewMode::Hex, "Hex"),
+            (ViewMode::Base64, "base64"),
+        ]
+        .into_iter()
+        .map(|(m, label)| {
+            Button::new(label)
+                .xsmall()
                 .ghost()
-                .small()
-                .icon(ramag_ui::icons::pencil())
-                .tooltip("编辑值")
-                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                    cx.emit(KeyDetailEvent::RequestEditValue(k.clone(), s.clone()));
-                })),
-        );
-    }
+                .selected(m == mode)
+                .label(label)
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.set_value_view_mode(m, cx);
+                }))
+        }),
+    );
 
     v_flex()
         .w_full()
         .gap(px(8.0))
+        .child(mode_row)
         // Gzip 自动解压提示
         .when_some(gzip_hint, |this, hint| {
             this.child(

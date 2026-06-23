@@ -22,6 +22,8 @@ use tracing::{error, info};
 
 use helpers::{futures_join, render_value};
 
+use crate::views::value_display::ViewMode;
+
 #[derive(Debug, Clone)]
 pub enum KeyDetailEvent {
     /// 详情面板触发 DEL 后通知 KeyTree 刷新
@@ -89,6 +91,8 @@ pub struct KeyDetailPanel {
     /// 单 Key 字节估算（MEMORY USAGE，需用户主动点击触发）
     pub(super) key_size_bytes: Option<u64>,
     pub(super) estimating_size: bool,
+    /// 标量值视图模式：None=按内容自动（JSON 美化 / Raw），Some=用户手动选定
+    value_view_mode: Option<ViewMode>,
     /// Session 调 focus_panel 聚焦后，cmd-w 等 action 走焦点链路由到 Session
     focus_handle: FocusHandle,
 }
@@ -113,6 +117,7 @@ impl KeyDetailPanel {
             loading: false,
             error: None,
             key_size_bytes: None,
+            value_view_mode: None,
             focus_handle: cx.focus_handle(),
             estimating_size: false,
         }
@@ -131,6 +136,7 @@ impl KeyDetailPanel {
         self.ttl_ms = None;
         self.error = None;
         self.key_size_bytes = None;
+        self.value_view_mode = None;
         cx.notify();
     }
 
@@ -145,6 +151,7 @@ impl KeyDetailPanel {
         self.loading = true;
         self.error = None;
         self.key_size_bytes = None;
+        self.value_view_mode = None;
         cx.notify();
 
         let svc = self.service.clone();
@@ -222,6 +229,7 @@ impl KeyDetailPanel {
         self.error = None;
         self.key_size_bytes = None;
         self.estimating_size = false;
+        self.value_view_mode = None;
         cx.notify();
     }
 
@@ -229,6 +237,14 @@ impl KeyDetailPanel {
     pub fn focus_panel(&self, window: &mut Window, cx: &mut Context<Self>) {
         self.focus_handle.focus(window, cx);
         cx.notify();
+    }
+
+    /// scalar 视图模式切换按钮调用：固定为用户选择的模式（覆盖按内容自动选择）
+    pub(super) fn set_value_view_mode(&mut self, mode: ViewMode, cx: &mut Context<Self>) {
+        if self.value_view_mode != Some(mode) {
+            self.value_view_mode = Some(mode);
+            cx.notify();
+        }
     }
 
     /// `MEMORY USAGE` 写入 self.key_size_bytes，由 header 估算按钮调用
@@ -401,6 +417,7 @@ impl Render for KeyDetailPanel {
         };
 
         let header = header::render_header(self, &key, fg, muted_fg, accent, border, cx);
+        let view_mode = self.value_view_mode;
 
         let body: gpui::AnyElement = if self.loading {
             div()
@@ -422,7 +439,7 @@ impl Render for KeyDetailPanel {
             // 其他容器类型走 helpers::render_value 分发
             match &v {
                 RedisValue::Text(_) | RedisValue::Bytes(_) => {
-                    scalar::render_scalar(&key, &v, fg, muted_fg, border, cx, window)
+                    scalar::render_scalar(&key, &v, view_mode, fg, muted_fg, border, cx, window)
                         .into_any_element()
                 }
                 _ => render_value(&v, &key, cx, fg, muted_fg, accent, border),

@@ -51,13 +51,61 @@ pub fn render_bytes(bytes: &[u8], mode: ViewMode) -> String {
     }
 }
 
-/// 解析 bytes 为 JSON 并 pretty 输出；失败时返回原文 + 提示
+/// 按内容判定默认视图：内容本身、或被编码成字符串的内容（兼容二次编码）解析后是 JSON
+/// 对象/数组 → JSON（美化），否则 Raw。超过 256KB 不自动解析（默认 Raw，仍可手动切 JSON）
+pub fn auto_view_mode(bytes: &[u8]) -> ViewMode {
+    const MAX_AUTO_PARSE: usize = 256 * 1024;
+    if bytes.len() > MAX_AUTO_PARSE {
+        return ViewMode::Raw;
+    }
+    // 廉价前缀过滤：只有 { [ " 开头才值得解析（覆盖普通 JSON 与被字符串编码的 JSON）
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return ViewMode::Raw;
+    };
+    if !matches!(
+        text.trim_start().as_bytes().first().copied(),
+        Some(b'{' | b'[' | b'"')
+    ) {
+        return ViewMode::Raw;
+    }
+    // 解析（并解开字符串编码）后是对象/数组才默认 JSON。matches! 作用于临时 Result，不移动绑定变量
+    let parsed =
+        serde_json::from_slice::<serde_json::Value>(bytes).map(|v| unwrap_encoded_json(v, 4));
+    if matches!(
+        parsed,
+        Ok(serde_json::Value::Object(_) | serde_json::Value::Array(_))
+    ) {
+        ViewMode::Json
+    } else {
+        ViewMode::Raw
+    }
+}
+
+/// 解开被编码成字符串的 JSON（兼容二次编码，如 `"{\"a\":1}"`）：某层是字符串且其内容能解析为
+/// JSON 对象/数组时继续解开，最多 depth 层防御。普通字符串/标量原样返回
+fn unwrap_encoded_json(v: serde_json::Value, depth: u8) -> serde_json::Value {
+    if depth == 0 {
+        return v;
+    }
+    if let serde_json::Value::String(s) = &v
+        && let Ok(inner) = serde_json::from_str::<serde_json::Value>(s)
+        && matches!(
+            inner,
+            serde_json::Value::Object(_) | serde_json::Value::Array(_)
+        )
+    {
+        return unwrap_encoded_json(inner, depth - 1);
+    }
+    v
+}
+
+/// 解析 bytes 为 JSON 并 pretty 输出（先解开被字符串编码的 JSON）；失败时返回原文 + 提示
 fn pretty_json(bytes: &[u8]) -> String {
     match serde_json::from_slice::<serde_json::Value>(bytes) {
-        Ok(v) => match serde_json::to_string_pretty(&v) {
-            Ok(s) => s,
-            Err(_) => "(JSON 序列化失败)".to_string(),
-        },
+        Ok(v) => {
+            let v = unwrap_encoded_json(v, 4);
+            serde_json::to_string_pretty(&v).unwrap_or_else(|_| "(JSON 序列化失败)".to_string())
+        }
         Err(e) => {
             let preview = std::str::from_utf8(bytes).unwrap_or("（非 UTF-8）");
             format!("(无法解析为 JSON：{e})\n\n{preview}")
@@ -154,5 +202,32 @@ mod tests {
     fn render_bytes_non_utf8_raw() {
         let s = render_bytes(&[0xff, 0xfe], ViewMode::Raw);
         assert!(s.contains("非 UTF-8"));
+    }
+
+    #[test]
+    fn auto_view_mode_detects_json_else_raw() {
+        assert_eq!(auto_view_mode(br#"{"a":1}"#), ViewMode::Json);
+        assert_eq!(auto_view_mode(b"[1,2,3]"), ViewMode::Json);
+        // 前导空白也应识别为 JSON
+        assert_eq!(auto_view_mode(b"  \n {\"a\":1}"), ViewMode::Json);
+        // 被字符串编码的 JSON（二次编码）也应识别为 JSON
+        let encoded = serde_json::to_string(r#"{"a":1}"#).unwrap();
+        assert_eq!(auto_view_mode(encoded.as_bytes()), ViewMode::Json);
+        // 纯文本 / 普通带引号字符串 / 非 UTF-8 / 空 → Raw
+        assert_eq!(auto_view_mode(b"hello world"), ViewMode::Raw);
+        assert_eq!(auto_view_mode(br#""hello""#), ViewMode::Raw);
+        assert_eq!(auto_view_mode(&[0xff, 0xfe]), ViewMode::Raw);
+        assert_eq!(auto_view_mode(b""), ViewMode::Raw);
+    }
+
+    #[test]
+    fn pretty_json_unwraps_string_encoded() {
+        // 值本身是 JSON 字符串，内容又是 JSON 对象（二次编码）→ 应解开并美化内层
+        let encoded = serde_json::to_string(r#"{"a":1}"#).unwrap();
+        let out = pretty_json(encoded.as_bytes());
+        assert!(out.contains("\n  \"a\": 1"), "got: {out}");
+        // 普通带引号字符串内容非 JSON → 原样（仍是带引号字符串，不强行展开）
+        let plain = serde_json::to_string("hello").unwrap();
+        assert_eq!(pretty_json(plain.as_bytes()), "\"hello\"");
     }
 }

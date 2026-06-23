@@ -1,6 +1,8 @@
-//! Hash 块：每行编辑 / 删除按钮
+//! Hash 块：双击行编辑字段 + 删除按钮
 
-use gpui::{ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div, px};
+use gpui::{
+    ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div, prelude::*, px,
+};
 use gpui_component::{
     Sizable as _,
     button::{Button, ButtonVariants as _},
@@ -41,17 +43,29 @@ pub(super) fn render_hash_block(
         let key_for_del = key.clone();
         let field_for_del = field_name.clone();
 
-        let edit_id = SharedString::from(format!("hash-edit-{idx}"));
+        let row_id = SharedString::from(format!("hash-row-{idx}"));
         let del_id = SharedString::from(format!("hash-del-{idx}"));
 
         rows = rows.child(
             h_flex()
+                .id(row_id)
                 .w_full()
                 .px(px(8.0))
                 .py(px(6.0))
                 .border_b_1()
                 .border_color(border)
                 .gap(px(8.0))
+                .cursor_pointer()
+                // 双击该行打开编辑窗口（与其它面板一致，去掉行内编辑图标）
+                .on_click(panel.listener(move |_, e: &ClickEvent, _, cx| {
+                    if e.click_count() >= 2 {
+                        cx.emit(KeyDetailEvent::RequestEditHashField(
+                            key_for_edit.clone(),
+                            field_for_edit.clone(),
+                            value_for_edit_clone.clone(),
+                        ));
+                    }
+                }))
                 .child(
                     div()
                         .w(px(160.0))
@@ -72,36 +86,17 @@ pub(super) fn render_hash_block(
                         .child(value_preview),
                 )
                 .child(
-                    h_flex()
-                        .gap(px(4.0))
-                        .flex_none()
-                        .child(
-                            Button::new(edit_id)
-                                .ghost()
-                                .small()
-                                .icon(ramag_ui::icons::pencil())
-                                .tooltip("编辑该字段")
-                                .on_click(panel.listener(move |_, _: &ClickEvent, _, cx| {
-                                    cx.emit(KeyDetailEvent::RequestEditHashField(
-                                        key_for_edit.clone(),
-                                        field_for_edit.clone(),
-                                        value_for_edit_clone.clone(),
-                                    ));
-                                })),
-                        )
-                        .child(
-                            Button::new(del_id)
-                                .ghost()
-                                .small()
-                                .icon(ramag_ui::icons::trash())
-                                .tooltip("删除该字段")
-                                .on_click(panel.listener(move |_, _: &ClickEvent, _, cx| {
-                                    cx.emit(KeyDetailEvent::RequestDeleteHashField(
-                                        key_for_del.clone(),
-                                        field_for_del.clone(),
-                                    ));
-                                })),
-                        ),
+                    Button::new(del_id)
+                        .ghost()
+                        .small()
+                        .icon(ramag_ui::icons::trash())
+                        .tooltip("删除该字段")
+                        .on_click(panel.listener(move |_, _: &ClickEvent, _, cx| {
+                            cx.emit(KeyDetailEvent::RequestDeleteHashField(
+                                key_for_del.clone(),
+                                field_for_del.clone(),
+                            ));
+                        })),
                 ),
         );
     }
