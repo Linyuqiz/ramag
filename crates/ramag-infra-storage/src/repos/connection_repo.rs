@@ -28,6 +28,8 @@ struct EncryptedConnection {
     /// 加密密码（hex）；明文不入库
     password_enc: String,
     database: Option<String>,
+    #[serde(default)]
+    auth_source: Option<String>,
     remark: Option<String>,
     #[serde(default)]
     color: ramag_domain::entities::ConnectionColor,
@@ -44,6 +46,7 @@ impl EncryptedConnection {
             username: plain.username.clone(),
             password_enc: cipher.encrypt(&plain.password)?,
             database: plain.database.clone(),
+            auth_source: plain.auth_source.clone(),
             remark: plain.remark.clone(),
             color: plain.color,
         })
@@ -59,6 +62,7 @@ impl EncryptedConnection {
             username: self.username,
             password: cipher.decrypt(&self.password_enc)?,
             database: self.database,
+            auth_source: self.auth_source,
             remark: self.remark,
             color: self.color,
         })

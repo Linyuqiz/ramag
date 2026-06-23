@@ -96,6 +96,9 @@ pub struct ConnectionConfig {
     pub username: String,
     pub password: String,
     pub database: Option<String>,
+    /// MongoDB 认证库（authSource）：用户凭证所在库，留空 = admin；其它 driver 不使用
+    #[serde(default)]
+    pub auth_source: Option<String>,
     pub remark: Option<String>,
     #[serde(default)]
     pub color: ConnectionColor,
@@ -117,6 +120,7 @@ impl ConnectionConfig {
             username: user.into(),
             password: String::new(),
             database: None,
+            auth_source: None,
             remark: None,
             color: ConnectionColor::default(),
         }
@@ -133,6 +137,7 @@ impl ConnectionConfig {
             username: String::new(),
             password: String::new(),
             database: None,
+            auth_source: None,
             remark: None,
             color: ConnectionColor::default(),
         }
@@ -149,6 +154,7 @@ impl ConnectionConfig {
             username: String::new(),
             password: String::new(),
             database: None,
+            auth_source: None,
             remark: None,
             color: ConnectionColor::default(),
         }

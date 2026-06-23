@@ -109,7 +109,7 @@ impl Render for ConnectionFormPanel {
         let database_label = match self.driver_id {
             "redis" => "DB（0-15）",
             "postgres" => "默认库（必填）",
-            "mongodb" => "默认库（可选，留空=admin）",
+            "mongodb" => "默认打开的库（可选）",
             _ => "默认库（可选）",
         };
         let username_label = if is_redis {
@@ -156,7 +156,14 @@ impl Render for ConnectionFormPanel {
                     .gap(px(12.0))
                     .child(section_title("认证", muted_fg))
                     .child(field_row(username_label, Input::new(&self.username)))
-                    .child(field_row("密码", Input::new(&self.password))),
+                    .child(field_row("密码", Input::new(&self.password)))
+                    // MongoDB 专属：认证库 authSource（独立于"默认打开的库"）
+                    .when(self.driver_id == "mongodb", |this| {
+                        this.child(field_row(
+                            "认证库 authSource（可选，留空 = admin）",
+                            Input::new(&self.auth_source),
+                        ))
+                    }),
             )
             // —— 分隔 + 按钮区 ——
             .child(div().h(px(1.0)).bg(border).my(px(2.0)))

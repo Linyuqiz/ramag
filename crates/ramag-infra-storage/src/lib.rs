@@ -284,6 +284,7 @@ mod tests {
             username: "root".into(),
             password: "secret-password".into(),
             database: Some("test".into()),
+            auth_source: None,
             remark: None,
             color: Default::default(),
         }

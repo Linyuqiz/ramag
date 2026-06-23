@@ -86,6 +86,13 @@ impl ConnectionFormPanel {
             let v = self.database.read(cx).value().trim().to_string();
             if v.is_empty() { None } else { Some(v) }
         };
+        // authSource 仅 MongoDB 有意义（用户凭证所在库）；其它 driver 不存
+        let auth_source = if matches!(driver, DriverKind::Mongodb) {
+            let v = self.auth_source.read(cx).value().trim().to_string();
+            if v.is_empty() { None } else { Some(v) }
+        } else {
+            None
+        };
         // Redis 的 DB 字段限制 0-255 数字
         if matches!(driver, DriverKind::Redis)
             && let Some(ref s) = database
@@ -111,6 +118,7 @@ impl ConnectionFormPanel {
             username,
             password,
             database,
+            auth_source,
             remark: None,
             color: self.color,
         })

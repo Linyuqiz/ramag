@@ -23,6 +23,7 @@ fn config_from_env() -> Option<ConnectionConfig> {
         username: user,
         password,
         database,
+        auth_source: None,
         remark: None,
         color: Default::default(),
     })

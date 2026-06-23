@@ -63,6 +63,8 @@ pub struct ConnectionFormPanel {
     pub(super) username: Entity<InputState>,
     pub(super) password: Entity<InputState>,
     pub(super) database: Entity<InputState>,
+    /// MongoDB 认证库（authSource）输入框；仅 MongoDB 渲染，留空 = admin
+    pub(super) auth_source: Entity<InputState>,
     /// 颜色标签（环境提示）
     pub(super) color: ConnectionColor,
     pub(super) test_state: TestState,
@@ -134,6 +136,7 @@ impl ConnectionFormPanel {
             username: String::new(),
             password: String::new(),
             database: None,
+            auth_source: None,
             remark: None,
             color: Default::default(),
         });
@@ -180,6 +183,12 @@ impl ConnectionFormPanel {
                 .placeholder(defaults::database_placeholder(driver_id))
                 .default_value(p.database.unwrap_or_default())
         });
+        // 认证库（authSource）：仅 MongoDB 渲染，虚影提示默认 admin
+        let auth_source = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("admin")
+                .default_value(p.auth_source.unwrap_or_default())
+        });
 
         // host 变化 → 名称虚影跟随（名称始终留给用户输入，不写入真实值）
         let mut subscriptions = Vec::new();
@@ -200,7 +209,7 @@ impl ConnectionFormPanel {
         ));
 
         // 连接参数变化 → 重置已显示的测试结论（旧结论对新参数不成立）；名称/颜色不影响连通性
-        for input in [&host, &port, &username, &password, &database] {
+        for input in [&host, &port, &username, &password, &database, &auth_source] {
             subscriptions.push(cx.subscribe_in(
                 input,
                 window,
@@ -226,6 +235,7 @@ impl ConnectionFormPanel {
             username,
             password,
             database,
+            auth_source,
             color: initial_color,
             test_state: TestState::Idle,
             test_epoch: 0,

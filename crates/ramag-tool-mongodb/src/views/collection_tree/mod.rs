@@ -188,8 +188,19 @@ impl CollectionTreePanel {
             let _ = this.update(cx, |this, cx| {
                 this.loading = false;
                 match r {
-                    Ok(dbs) => {
+                    Ok(mut dbs) => {
                         info!(count = dbs.len(), "mongo databases loaded");
+                        // 配置指定了库但 MongoDB listDatabases 不返回它（库内无任何集合/数据）→
+                        // 仍补一行展示，便于直接在其下建集合，不必先绕开再回来
+                        if let Some(cfg_db) = conf.database.clone().filter(|s| !s.is_empty())
+                            && !dbs.iter().any(|d| d.name == cfg_db)
+                        {
+                            dbs.push(MongoDatabase {
+                                name: cfg_db,
+                                size_on_disk: None,
+                                empty: true,
+                            });
+                        }
                         this.databases = dbs;
                         // 首次加载：自动展开并激活默认库（config.database 优先，否则首个非系统库）
                         if this.auto_expand_pending {

@@ -71,10 +71,11 @@ async fn build_client(config: &ConnectionConfig) -> Result<Client> {
             Credential::builder()
                 .username(Some(config.username.clone()))
                 .password(Some(config.password.clone()))
-                // 缺省 authSource 为 admin；若用户填了 database 则作为 authSource
+                // authSource = 用户凭证所在库，独立于「浏览库」database；留空默认 admin。
+                // 不再拿 database 顶替——否则指定浏览库就会把认证库指错而登不上
                 .source(Some(
                     config
-                        .database
+                        .auth_source
                         .clone()
                         .filter(|s| !s.is_empty())
                         .unwrap_or_else(|| "admin".to_string()),

@@ -34,7 +34,7 @@ pub(super) fn username_placeholder(driver_id: &str) -> &'static str {
 pub(super) fn database_placeholder(driver_id: &str) -> &'static str {
     match driver_id {
         "redis" => "0",
-        "mongodb" => "admin",
+        "mongodb" => "如：mydb",
         "postgres" => "如：postgres / mydb",
         _ => "如：mydb",
     }
@@ -65,6 +65,6 @@ mod tests {
     #[test]
     fn database_placeholder_per_driver() {
         assert_eq!(database_placeholder("redis"), "0");
-        assert_eq!(database_placeholder("mongodb"), "admin");
+        assert_eq!(database_placeholder("mongodb"), "如：mydb");
     }
 }
