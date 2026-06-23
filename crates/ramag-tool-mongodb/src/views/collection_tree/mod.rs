@@ -201,6 +201,8 @@ impl CollectionTreePanel {
                                 empty: true,
                             });
                         }
+                        // listDatabases 返回服务端顺序，按库名字典序排（含上面补的空库），左侧列表稳定有序
+                        dbs.sort_by(|a, b| a.name.cmp(&b.name));
                         this.databases = dbs;
                         // 首次加载：自动展开并激活默认库（config.database 优先，否则首个非系统库）
                         if this.auto_expand_pending {

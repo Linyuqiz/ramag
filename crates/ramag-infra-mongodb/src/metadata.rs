@@ -37,6 +37,8 @@ pub async fn list_collections(client: &Client, db: &str) -> Result<Vec<MongoColl
             is_view,
         });
     }
+    // listCollections 返回服务端顺序，按集合名字典序排，左侧列表稳定有序（与 SQL 的 ORDER BY 一致）
+    out.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(out)
 }
 
