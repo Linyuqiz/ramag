@@ -12,12 +12,14 @@ use gpui::{
     prelude::*, px,
 };
 use gpui_component::{
-    ActiveTheme,
+    ActiveTheme, WindowExt as _,
     input::{Input, InputState},
+    notification::Notification,
     v_flex,
 };
 use ramag_app::MongoService;
 use ramag_domain::entities::{ConnectionConfig, MongoQueryResult};
+use ramag_domain::error::DomainError;
 use serde_json::Value;
 use tracing::{info, warn};
 
@@ -38,6 +40,8 @@ pub struct MongoQueryTab {
     /// 结果展示
     pub(crate) result: Entity<ResultPanel>,
     pub(crate) running: bool,
+    /// 待弹出的 toast（生产模式只读拦截等，render 时 push，不覆盖结果区）
+    pending_notification: Option<Notification>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -85,6 +89,7 @@ impl MongoQueryTab {
             show_editor: false,
             result,
             running: false,
+            pending_notification: None,
             _subscriptions: vec![refresh_sub],
         }
     }
@@ -200,7 +205,13 @@ impl MongoQueryTab {
                     }
                     Err(e) => {
                         warn!(error = %e, "mongo command failed");
-                        result_handle.update(cx, |p, cx| p.set_error(e.to_string(), cx));
+                        // 生产模式只读拦截：弹 toast 保留结果区原有内容；其余错误仍进结果区便于排查
+                        if matches!(e, DomainError::Forbidden(_)) {
+                            this.pending_notification =
+                                Some(Notification::warning(e.to_string()).autohide(true));
+                        } else {
+                            result_handle.update(cx, |p, cx| p.set_error(e.to_string(), cx));
+                        }
                     }
                 }
                 cx.notify();
@@ -238,7 +249,10 @@ impl MongoQueryTab {
 }
 
 impl Render for MongoQueryTab {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some(n) = self.pending_notification.take() {
+            window.push_notification(n, cx);
+        }
         let bg = cx.theme().background;
         let fg = cx.theme().foreground;
         let border = cx.theme().border;

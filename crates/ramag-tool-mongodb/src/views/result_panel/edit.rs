@@ -135,7 +135,7 @@ impl ResultPanel {
                     }
                     Err(e) => {
                         this.pending_notification =
-                            Some(Notification::error(format!("更新失败：{e}")).autohide(true));
+                            Some(Notification::error(e.write_hint("更新失败")).autohide(true));
                     }
                 }
                 cx.notify();

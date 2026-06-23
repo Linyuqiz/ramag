@@ -120,7 +120,7 @@ impl ConnectionFormPanel {
             database,
             auth_source,
             remark: None,
-            color: self.color,
+            production: self.production,
         })
     }
 

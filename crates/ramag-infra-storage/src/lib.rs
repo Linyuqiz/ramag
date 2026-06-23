@@ -286,7 +286,7 @@ mod tests {
             database: Some("test".into()),
             auth_source: None,
             remark: None,
-            color: Default::default(),
+            production: false,
         }
     }
 

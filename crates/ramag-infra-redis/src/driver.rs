@@ -2,12 +2,13 @@
 
 use async_trait::async_trait;
 use ramag_domain::entities::{ConnectionConfig, KeyMeta, RedisType, RedisValue, ScanResult};
-use ramag_domain::error::{DomainError, Result};
+use ramag_domain::error::{DomainError, READ_ONLY_MESSAGE, Result};
 use ramag_domain::traits::KvDriver;
 use redis::aio::ConnectionManager;
 use redis::{AsyncCommands, Cmd, Value as RV};
-use tracing::debug;
+use tracing::{debug, warn};
 
+use crate::command::is_write_command;
 use crate::errors::map_redis_error;
 use crate::pool::PoolCache;
 use crate::runtime::run_in_tokio;
@@ -164,6 +165,10 @@ impl KvDriver for RedisDriver {
     }
 
     async fn delete_key(&self, config: &ConnectionConfig, db: u8, key: &str) -> Result<bool> {
+        if config.production {
+            warn!(conn = %config.name, key, "read-only mode: blocked DEL");
+            return Err(DomainError::Forbidden(READ_ONLY_MESSAGE.into()));
+        }
         let config = config.clone();
         let pools = self.pools.clone_handle();
         let key = key.to_owned();
@@ -182,6 +187,10 @@ impl KvDriver for RedisDriver {
         key: &str,
         ttl_secs: Option<i64>,
     ) -> Result<bool> {
+        if config.production {
+            warn!(conn = %config.name, key, "read-only mode: blocked TTL change");
+            return Err(DomainError::Forbidden(READ_ONLY_MESSAGE.into()));
+        }
         let config = config.clone();
         let pools = self.pools.clone_handle();
         let key = key.to_owned();
@@ -215,6 +224,10 @@ impl KvDriver for RedisDriver {
             return Err(DomainError::InvalidConfig(
                 "命令为空，至少需要命令名".into(),
             ));
+        }
+        if config.production && is_write_command(&argv[0]) {
+            warn!(conn = %config.name, cmd = %argv[0], "read-only mode: blocked write command");
+            return Err(DomainError::Forbidden(READ_ONLY_MESSAGE.into()));
         }
         let config = config.clone();
         let pools = self.pools.clone_handle();

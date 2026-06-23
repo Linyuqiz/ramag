@@ -7,6 +7,7 @@ use gpui::{AppContext as _, Context, Window};
 use gpui_component::WindowExt as _;
 use gpui_component::notification::Notification;
 use ramag_domain::entities::Query;
+use ramag_domain::error::DomainError;
 use tracing::{error, info};
 
 use super::QueryTab;
@@ -216,10 +217,16 @@ impl QueryTab {
                     Err(e) => {
                         error!(error = %e, "query failed");
                         let err_msg = e.to_string();
-                        this.highlight_sql_error(&err_msg, cx);
-                        result_handle.update(cx, |r, cx| {
-                            r.set_state(ResultState::Error(err_msg), cx);
-                        });
+                        // 生产模式只读拦截：弹 toast 保留结果区原有内容；其余错误仍进结果区便于排查 / 复制
+                        if matches!(e, DomainError::Forbidden(_)) {
+                            this.pending_notification =
+                                Some(Notification::warning(err_msg).autohide(true));
+                        } else {
+                            this.highlight_sql_error(&err_msg, cx);
+                            result_handle.update(cx, |r, cx| {
+                                r.set_state(ResultState::Error(err_msg), cx);
+                            });
+                        }
                     }
                 }
                 cx.notify();

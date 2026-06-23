@@ -119,7 +119,7 @@ impl HashFieldForm {
                 }
                 Err(e) => {
                     error!(error = %e, "save hash field failed");
-                    this.state = SubmitState::Failed(format!("保存失败：{e}"));
+                    this.state = SubmitState::Failed(e.write_hint("保存失败"));
                     cx.notify();
                 }
             });

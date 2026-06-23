@@ -141,7 +141,7 @@ impl CollectionTreePanel {
                     Err(e) => {
                         tracing::error!(error = %e, db = %db, coll = %coll, "clear collection failed");
                         this.pending_notification =
-                            Some(Notification::error(format!("清空失败：{e}")).autohide(true));
+                            Some(Notification::error(e.write_hint("清空失败")).autohide(true));
                     }
                 }
                 cx.notify();
@@ -190,7 +190,7 @@ impl CollectionTreePanel {
                     Err(e) => {
                         tracing::error!(error = %e, db = %db, coll = %old, "rename collection failed");
                         this.pending_notification =
-                            Some(Notification::error(format!("重命名失败：{e}")).autohide(true));
+                            Some(Notification::error(e.write_hint("重命名失败")).autohide(true));
                     }
                 }
                 cx.notify();
@@ -225,7 +225,7 @@ impl CollectionTreePanel {
                     Err(e) => {
                         tracing::error!(error = %e, db = %db, coll = %coll, "drop collection failed");
                         this.pending_notification =
-                            Some(Notification::error(format!("删除失败：{e}")).autohide(true));
+                            Some(Notification::error(e.write_hint("删除失败")).autohide(true));
                     }
                 }
                 cx.notify();
@@ -260,7 +260,7 @@ impl CollectionTreePanel {
                     Err(e) => {
                         tracing::error!(error = %e, db = %db, "drop database failed");
                         this.pending_notification =
-                            Some(Notification::error(format!("删除失败：{e}")).autohide(true));
+                            Some(Notification::error(e.write_hint("删除失败")).autohide(true));
                     }
                 }
                 cx.notify();

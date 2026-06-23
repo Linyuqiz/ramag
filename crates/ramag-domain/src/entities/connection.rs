@@ -48,43 +48,6 @@ impl DriverKind {
     }
 }
 
-/// 连接环境色标（dev / staging / prod 视觉区分）
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum ConnectionColor {
-    #[default]
-    None,
-    Gray,
-    Green,
-    Blue,
-    Yellow,
-    Red,
-}
-
-impl ConnectionColor {
-    pub fn label(&self) -> &'static str {
-        match self {
-            ConnectionColor::None => "无",
-            ConnectionColor::Gray => "灰",
-            ConnectionColor::Green => "绿（开发）",
-            ConnectionColor::Blue => "蓝（预发）",
-            ConnectionColor::Yellow => "黄（QA）",
-            ConnectionColor::Red => "红（生产）",
-        }
-    }
-
-    /// 全部枚举值（UI 选择器用）
-    pub fn all() -> &'static [ConnectionColor] {
-        &[
-            ConnectionColor::None,
-            ConnectionColor::Gray,
-            ConnectionColor::Green,
-            ConnectionColor::Blue,
-            ConnectionColor::Yellow,
-            ConnectionColor::Red,
-        ]
-    }
-}
-
 /// 连接配置。密码运行时明文，落盘前由 storage 层 AES-GCM 加密
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectionConfig {
@@ -100,8 +63,9 @@ pub struct ConnectionConfig {
     #[serde(default)]
     pub auth_source: Option<String>,
     pub remark: Option<String>,
+    /// 生产模式：开启后由 driver 层拦截一切写 / 改 / 删操作（只读保护）
     #[serde(default)]
-    pub color: ConnectionColor,
+    pub production: bool,
 }
 
 impl ConnectionConfig {
@@ -122,7 +86,7 @@ impl ConnectionConfig {
             database: None,
             auth_source: None,
             remark: None,
-            color: ConnectionColor::default(),
+            production: false,
         }
     }
 
@@ -139,7 +103,7 @@ impl ConnectionConfig {
             database: None,
             auth_source: None,
             remark: None,
-            color: ConnectionColor::default(),
+            production: false,
         }
     }
 
@@ -156,7 +120,7 @@ impl ConnectionConfig {
             database: None,
             auth_source: None,
             remark: None,
-            color: ConnectionColor::default(),
+            production: false,
         }
     }
 }

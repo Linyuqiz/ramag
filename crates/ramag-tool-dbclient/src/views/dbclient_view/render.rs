@@ -10,8 +10,6 @@ use gpui_component::{
     h_flex, v_flex,
 };
 
-use crate::views::connection_form;
-
 use super::{CenterMode, DbClientView};
 
 impl Render for DbClientView {
@@ -27,14 +25,8 @@ impl Render for DbClientView {
 
         let active = self.active_session;
 
-        // (idx, 连接名, 类型, 选中, 色标)
-        let session_titles: Vec<(
-            usize,
-            String,
-            &'static str,
-            bool,
-            ramag_domain::entities::ConnectionColor,
-        )> = self
+        // (idx, 连接名, 类型, 选中)
+        let session_titles: Vec<(usize, String, &'static str, bool)> = self
             .sessions
             .iter()
             .enumerate()
@@ -44,7 +36,6 @@ impl Render for DbClientView {
                     s.title(cx).to_string(),
                     s.kind_label(cx),
                     Some(i) == active,
-                    s.config(cx).color,
                 )
             })
             .collect::<Vec<_>>();
@@ -101,17 +92,12 @@ impl Render for DbClientView {
             .overflow_x_scroll()
             .track_scroll(&self.sessions_scroll);
 
-        for (idx, title, kind_label, is_active, color_tag) in session_titles {
+        for (idx, title, kind_label, is_active) in session_titles {
             let tab_id = SharedString::from(format!("conn-tab-{idx}"));
             let close_id = SharedString::from(format!("conn-tab-close-{idx}"));
 
-            // 状态点：连接 color 优先，未设回退绿
-            use ramag_domain::entities::ConnectionColor;
-            let dot_color = if color_tag != ConnectionColor::None {
-                connection_form::color_to_hsla(color_tag, cx.theme())
-            } else {
-                gpui::hsla(120.0 / 360.0, 0.5, 0.5, 1.0)
-            };
+            // 连接指示点（固定绿）
+            let dot_color = gpui::hsla(120.0 / 360.0, 0.5, 0.5, 1.0);
 
             let mut tab = h_flex()
                 .id(tab_id)

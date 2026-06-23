@@ -159,7 +159,7 @@ impl KeyTreePanel {
                     Err(e) => {
                         tracing::error!(error = %e, "rename key failed");
                         this.pending_notification =
-                            Some(Notification::error(format!("重命名失败：{e}")).autohide(true));
+                            Some(Notification::error(e.write_hint("重命名失败")).autohide(true));
                     }
                 }
                 cx.notify();
@@ -197,7 +197,7 @@ impl KeyTreePanel {
                     Err(e) => {
                         tracing::error!(error = %e, "delete key from tree failed");
                         this.pending_notification =
-                            Some(Notification::error(format!("删除失败：{e}")).autohide(true));
+                            Some(Notification::error(e.write_hint("删除失败")).autohide(true));
                     }
                 }
                 cx.notify();
@@ -241,7 +241,7 @@ impl KeyTreePanel {
                     Err(e) => {
                         tracing::error!(error = %e, pattern = %pattern, "delete by prefix failed");
                         this.pending_notification =
-                            Some(Notification::error(format!("删除失败：{e}")).autohide(true));
+                            Some(Notification::error(e.write_hint("删除失败")).autohide(true));
                     }
                 }
                 cx.notify();
@@ -272,7 +272,7 @@ impl KeyTreePanel {
                     Err(e) => {
                         tracing::error!(error = %e, db, "flushdb failed");
                         this.pending_notification =
-                            Some(Notification::error(format!("清空失败：{e}")).autohide(true));
+                            Some(Notification::error(e.write_hint("清空失败")).autohide(true));
                     }
                 }
                 cx.notify();

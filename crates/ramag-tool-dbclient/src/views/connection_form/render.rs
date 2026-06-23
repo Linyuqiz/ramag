@@ -11,66 +11,31 @@ use gpui_component::{
     v_flex,
 };
 
-use ramag_domain::entities::ConnectionColor;
-
-use super::{ConnectionFormPanel, FormMode, TestState, color_to_hsla, field_row, section_title};
+use super::{ConnectionFormPanel, FormMode, TestState, field_row, section_title};
 
 impl ConnectionFormPanel {
-    /// 颜色标签选择器：一排色点单选，选中项右侧显示环境说明
-    fn render_color_picker(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// 生产模式开关：track + thumb 拨动样式，开启呈红色警示。
+    /// 开启后由 driver 层拦截该连接的一切写 / 改 / 删操作，与颜色标签相互独立
+    fn render_production_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let muted_fg = theme.muted_foreground;
-        let accent = theme.accent;
-        let swatches: Vec<(ConnectionColor, gpui::Hsla)> = ConnectionColor::all()
-            .iter()
-            .map(|&c| (c, color_to_hsla(c, theme)))
-            .collect();
-        let mut hover_border = accent;
-        hover_border.a = 0.45;
+        let muted = theme.muted;
+        let on = self.production;
+        let danger = gpui::hsla(0.0, 0.7, 0.55, 1.0);
 
-        let mut row = h_flex().items_center().gap(px(8.0));
-        for (ix, (color, dot_color)) in swatches.into_iter().enumerate() {
-            let selected = self.color == color;
-            // 「无」画空心圈，其余画实心点
-            let dot = if color == ConnectionColor::None {
-                div()
-                    .size(px(14.0))
-                    .rounded_full()
-                    .border_1()
-                    .border_color(muted_fg)
-            } else {
-                div().size(px(14.0)).rounded_full().bg(dot_color)
-            };
-            let mut swatch = div()
-                .id(("conn-color", ix))
-                .size(px(22.0))
-                .rounded_full()
-                .border_2()
-                .border_color(if selected {
-                    accent
-                } else {
-                    gpui::transparent_black()
-                })
-                .flex()
-                .items_center()
-                .justify_center()
-                .cursor_pointer()
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.color = color;
-                    cx.notify();
-                }))
-                .child(dot);
-            if !selected {
-                swatch = swatch.hover(move |s| s.border_color(hover_border));
-            }
-            row = row.child(swatch);
-        }
-        row = row.child(
-            div()
-                .text_xs()
-                .text_color(muted_fg)
-                .child(self.color.label()),
-        );
+        let track = h_flex()
+            .w(px(36.0))
+            .h(px(20.0))
+            .rounded(px(10.0))
+            .bg(if on { danger } else { muted })
+            .items_center()
+            .px(px(2.0))
+            .child(div().size(px(16.0)).rounded_full().bg(gpui::white()));
+        let track = if on {
+            track.justify_end()
+        } else {
+            track.justify_start()
+        };
 
         v_flex()
             .gap(px(6.0))
@@ -78,9 +43,26 @@ impl ConnectionFormPanel {
                 div()
                     .text_xs()
                     .font_weight(gpui::FontWeight::MEDIUM)
-                    .child("颜色标签（环境提示）"),
+                    .child("生产模式（只读保护）"),
             )
-            .child(row)
+            .child(
+                h_flex()
+                    .id("production-toggle")
+                    .items_center()
+                    .gap(px(8.0))
+                    .cursor_pointer()
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.production = !this.production;
+                        cx.notify();
+                    }))
+                    .child(track)
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(muted_fg)
+                            .child("开启后该连接禁止一切写 / 改 / 删操作"),
+                    ),
+            )
     }
 }
 
@@ -148,7 +130,7 @@ impl Render for ConnectionFormPanel {
                             ),
                     )
                     .child(field_row(database_label, Input::new(&self.database)))
-                    .child(self.render_color_picker(cx)),
+                    .child(self.render_production_toggle(cx)),
             )
             // —— 认证 ——
             .child(

@@ -104,7 +104,7 @@ impl TtlEditForm {
                 }
                 Err(e) => {
                     error!(error = %e, "ttl update failed");
-                    this.state = SubmitState::Failed(format!("更新失败：{e}"));
+                    this.state = SubmitState::Failed(e.write_hint("更新失败"));
                     cx.notify();
                 }
             });

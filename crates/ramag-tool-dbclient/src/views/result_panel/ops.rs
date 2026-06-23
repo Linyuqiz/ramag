@@ -128,7 +128,7 @@ impl ResultPanel {
 
         cx.spawn(async move |this, cx| {
             let mut deleted: Vec<usize> = Vec::new();
-            let mut last_err: Option<String> = None;
+            let mut last_err: Option<ramag_domain::error::DomainError> = None;
             for (ri, sql) in plans {
                 let q = Query::new(sql);
                 match svc.execute_with_history(&conn, &q).await {
@@ -136,7 +136,7 @@ impl ResultPanel {
                     Ok(_) => {}
                     Err(e) => {
                         error!(error = %e, "delete row failed (in batch)");
-                        last_err = Some(e.to_string());
+                        last_err = Some(e);
                         break;
                     }
                 }
@@ -154,7 +154,7 @@ impl ResultPanel {
                 this.selected_rows.clear();
                 this.selected_cell = None;
                 this.pending_notification = Some(if let Some(e) = last_err {
-                    Notification::error(format!("已删除 {} 行后出错：{e}", deleted.len()))
+                    Notification::error(e.write_hint(&format!("已删除 {} 行后出错", deleted.len())))
                         .autohide(true)
                 } else {
                     Notification::success(format!("已删除 {} 行（{strategy}匹配）", deleted.len()))
@@ -253,7 +253,7 @@ impl ResultPanel {
                     Err(e) => {
                         error!(error = %e, "insert row failed");
                         this.pending_notification =
-                            Some(Notification::error(format!("新增失败：{e}")).autohide(true));
+                            Some(Notification::error(e.write_hint("新增失败")).autohide(true));
                     }
                 }
                 cx.notify();
@@ -337,7 +337,7 @@ impl ResultPanel {
                     Err(e) => {
                         error!(error = %e, "delete row failed");
                         this.pending_notification =
-                            Some(Notification::error(format!("删除失败：{e}")).autohide(true));
+                            Some(Notification::error(e.write_hint("删除失败")).autohide(true));
                     }
                 }
                 cx.notify();
@@ -438,7 +438,7 @@ impl ResultPanel {
                     Err(e) => {
                         error!(error = %e, "apply cell update failed");
                         this.pending_notification =
-                            Some(Notification::error(format!("更新失败：{e}")).autohide(true));
+                            Some(Notification::error(e.write_hint("更新失败")).autohide(true));
                     }
                 }
                 cx.notify();

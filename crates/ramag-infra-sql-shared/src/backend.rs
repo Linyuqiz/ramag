@@ -8,17 +8,17 @@ use ramag_domain::entities::{
     Column, ConnectionConfig, ForeignKey, Index, Query, QueryResult, Row, Schema, Table, Value,
     Warning,
 };
-use ramag_domain::error::{DomainError, Result};
+use ramag_domain::error::{DomainError, READ_ONLY_MESSAGE, Result};
 use ramag_domain::traits::CancelHandle;
 use sqlx::pool::PoolConnection;
 use sqlx::{Database, Executor, IntoArguments, Pool};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::errors::map_sqlx_common;
 use crate::pool::PoolCache;
 use crate::sql::{
-    SplitOptions, inject_limit_if_needed, is_query_returning_rows, split_statements,
-    sql_has_no_limit_marker,
+    SplitOptions, first_keyword, inject_limit_if_needed, is_query_returning_rows,
+    is_write_statement, split_statements, sql_has_no_limit_marker,
 };
 
 /// SQL 类 driver 抽象。`Db` 绑到 sqlx Database（MySql/Postgres/Sqlite 等）。
@@ -309,6 +309,19 @@ where
             elapsed_ms: start.elapsed().as_millis() as u64,
             warnings: Vec::new(),
         });
+    }
+
+    // 生产模式只读保护：任一语句为写即整批拒绝，不执行其中任何一条。
+    // 详细拦截信息进日志，页面只回统一文案
+    if config.production
+        && let Some(stmt) = statements.iter().find(|s| is_write_statement(s))
+    {
+        warn!(
+            conn = %config.name,
+            keyword = first_keyword(stmt).as_deref().unwrap_or("?"),
+            "read-only mode: blocked write statement"
+        );
+        return Err(DomainError::Forbidden(READ_ONLY_MESSAGE.into()));
     }
 
     let last_idx = statements.len() - 1;

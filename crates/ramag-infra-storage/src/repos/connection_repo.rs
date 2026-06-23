@@ -32,7 +32,7 @@ struct EncryptedConnection {
     auth_source: Option<String>,
     remark: Option<String>,
     #[serde(default)]
-    color: ramag_domain::entities::ConnectionColor,
+    production: bool,
 }
 
 impl EncryptedConnection {
@@ -48,7 +48,7 @@ impl EncryptedConnection {
             database: plain.database.clone(),
             auth_source: plain.auth_source.clone(),
             remark: plain.remark.clone(),
-            color: plain.color,
+            production: plain.production,
         })
     }
 
@@ -64,7 +64,7 @@ impl EncryptedConnection {
             database: self.database,
             auth_source: self.auth_source,
             remark: self.remark,
-            color: self.color,
+            production: self.production,
         })
     }
 }

@@ -310,7 +310,7 @@ impl TableTreePanel {
                     Err(e) => {
                         tracing::error!(error = %e, sql = %sql, "tree ddl failed");
                         this.pending_notification =
-                            Some(Notification::error(format!("执行失败：{e}")).autohide(true));
+                            Some(Notification::error(e.write_hint("执行失败")).autohide(true));
                     }
                 }
                 cx.notify();

@@ -5,9 +5,11 @@ use ramag_domain::entities::{
     ConnectionConfig, ConnectionId, MongoCollection, MongoCollectionStats, MongoDatabase,
     MongoDocument, MongoIndex, MongoQueryResult, MongoQuerySpec,
 };
-use ramag_domain::error::Result;
+use ramag_domain::error::{DomainError, READ_ONLY_MESSAGE, Result};
 use ramag_domain::traits::DocDriver;
+use tracing::warn;
 
+use crate::command::{command_is_write, pipeline_has_write_stage};
 use crate::metadata;
 use crate::pool::PoolCache;
 use crate::query;
@@ -161,6 +163,10 @@ impl DocDriver for MongoDriver {
         coll: &str,
         pipeline: Vec<MongoDocument>,
     ) -> Result<MongoQueryResult> {
+        if config.production && pipeline_has_write_stage(&pipeline) {
+            warn!(conn = %config.name, %db, %coll, "read-only mode: blocked aggregate $out/$merge");
+            return Err(DomainError::Forbidden(READ_ONLY_MESSAGE.into()));
+        }
         let config = config.clone();
         let db = db.to_string();
         let coll = coll.to_string();
@@ -179,6 +185,10 @@ impl DocDriver for MongoDriver {
         coll: &str,
         document: MongoDocument,
     ) -> Result<String> {
+        if config.production {
+            warn!(conn = %config.name, %db, %coll, "read-only mode: blocked insert");
+            return Err(DomainError::Forbidden(READ_ONLY_MESSAGE.into()));
+        }
         let config = config.clone();
         let db = db.to_string();
         let coll = coll.to_string();
@@ -198,6 +208,10 @@ impl DocDriver for MongoDriver {
         filter: &MongoDocument,
         update: &MongoDocument,
     ) -> Result<MongoQueryResult> {
+        if config.production {
+            warn!(conn = %config.name, %db, %coll, "read-only mode: blocked update");
+            return Err(DomainError::Forbidden(READ_ONLY_MESSAGE.into()));
+        }
         let config = config.clone();
         let db = db.to_string();
         let coll = coll.to_string();
@@ -218,6 +232,10 @@ impl DocDriver for MongoDriver {
         coll: &str,
         filter: &MongoDocument,
     ) -> Result<MongoQueryResult> {
+        if config.production {
+            warn!(conn = %config.name, %db, %coll, "read-only mode: blocked delete");
+            return Err(DomainError::Forbidden(READ_ONLY_MESSAGE.into()));
+        }
         let config = config.clone();
         let db = db.to_string();
         let coll = coll.to_string();
@@ -236,6 +254,10 @@ impl DocDriver for MongoDriver {
         db: &str,
         command: MongoDocument,
     ) -> Result<MongoDocument> {
+        if config.production && command_is_write(&command) {
+            warn!(conn = %config.name, %db, "read-only mode: blocked write command");
+            return Err(DomainError::Forbidden(READ_ONLY_MESSAGE.into()));
+        }
         let config = config.clone();
         let db = db.to_string();
         let pools = self.pools.clone_handle();

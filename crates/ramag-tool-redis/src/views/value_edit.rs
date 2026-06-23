@@ -86,7 +86,7 @@ impl ValueEditForm {
                 }
                 Err(e) => {
                     error!(error = %e, "save string value failed");
-                    this.state = SubmitState::Failed(format!("保存失败：{e}"));
+                    this.state = SubmitState::Failed(e.write_hint("保存失败"));
                     cx.notify();
                 }
             });

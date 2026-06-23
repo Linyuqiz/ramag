@@ -125,6 +125,68 @@ pub fn is_query_returning_rows(sql: &str) -> bool {
         || upper.starts_with("VALUES")
 }
 
+/// 取语句首关键字（大写）：跳过前导空白 / 行注释 / 块注释，取第一段连续字母。
+/// 纯注释或非字母开头（如 `(SELECT ...)`）返回 None
+pub fn first_keyword(stmt: &str) -> Option<String> {
+    let bytes = stmt.as_bytes();
+    let mut i = 0usize;
+    loop {
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        // 行注释 --... 到行尾
+        if i + 1 < bytes.len() && bytes[i] == b'-' && bytes[i + 1] == b'-' {
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+        // 块注释 /* ... */
+        if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            i = (i + 2).min(bytes.len());
+            continue;
+        }
+        break;
+    }
+    let start = i;
+    while i < bytes.len() && bytes[i].is_ascii_alphabetic() {
+        i += 1;
+    }
+    (i > start).then(|| stmt[start..i].to_ascii_uppercase())
+}
+
+/// 单条语句是否为写操作（黑名单）：生产模式只读保护用。
+/// 首关键字命中写动词即写；CTE（WITH）/ EXPLAIN 进一步扫描语句体内的写动词
+/// （覆盖 PG `WITH ... DELETE` 与 `EXPLAIN ANALYZE INSERT` 两个陷阱）
+pub fn is_write_statement(stmt: &str) -> bool {
+    // 首词即写动词。COPY/LOCK/VACUUM 等保守归写（生产只读不应执行）
+    const WRITE_LEADING: &[&str] = &[
+        "INSERT", "UPDATE", "DELETE", "REPLACE", "MERGE", "UPSERT", "TRUNCATE", "DROP", "CREATE",
+        "ALTER", "RENAME", "GRANT", "REVOKE", "CALL", "EXEC", "EXECUTE", "LOAD", "COPY", "IMPORT",
+        "REINDEX", "VACUUM", "CLUSTER", "REFRESH", "COMMENT", "LOCK",
+    ];
+    // CTE / EXPLAIN 语句体内若含这些动词则视为写
+    const WRITE_INNER: &[&str] = &[
+        "INSERT", "UPDATE", "DELETE", "MERGE", "REPLACE", "CREATE", "DROP", "ALTER", "TRUNCATE",
+        "CALL",
+    ];
+    let Some(kw) = first_keyword(stmt) else {
+        return false;
+    };
+    if WRITE_LEADING.contains(&kw.as_str()) {
+        return true;
+    }
+    if kw == "WITH" || kw == "EXPLAIN" {
+        let upper = stmt.to_ascii_uppercase();
+        return WRITE_INNER.iter().any(|w| contains_word(&upper, w));
+    }
+    false
+}
+
 /// 仅对未带 LIMIT 的 SELECT/WITH 注入 ` LIMIT n`；其他语句返回 None
 pub fn inject_limit_if_needed(stmt: &str, limit: Option<u32>) -> Option<String> {
     let n = limit?;
@@ -286,5 +348,61 @@ mod tests {
     fn no_limit_marker() {
         assert!(sql_has_no_limit_marker("-- ramag:no-limit\nSELECT 1"));
         assert!(!sql_has_no_limit_marker("SELECT 'ramag:no-limit'"));
+    }
+
+    #[test]
+    fn write_statement_dml_vs_select() {
+        assert!(is_write_statement("INSERT INTO t VALUES (1)"));
+        assert!(is_write_statement("  update t set x=1"));
+        assert!(is_write_statement("DELETE FROM t"));
+        assert!(!is_write_statement("SELECT 1"));
+        assert!(!is_write_statement("select * from t"));
+        assert!(!is_write_statement("SHOW TABLES"));
+    }
+
+    #[test]
+    fn write_statement_ddl() {
+        assert!(is_write_statement("DROP TABLE t"));
+        assert!(is_write_statement("TRUNCATE TABLE t"));
+        assert!(is_write_statement("create table t(id int)"));
+        assert!(is_write_statement("ALTER TABLE t ADD c int"));
+        assert!(is_write_statement("CALL proc()"));
+    }
+
+    #[test]
+    fn write_statement_skips_leading_comment() {
+        assert!(is_write_statement("-- danger\nDELETE FROM t"));
+        assert!(is_write_statement("/* x */ DROP TABLE t"));
+        assert!(!is_write_statement("-- just a select\nSELECT 1"));
+    }
+
+    #[test]
+    fn write_statement_returning_is_write() {
+        // PG：INSERT/UPDATE/DELETE ... RETURNING 会返回行但仍是写
+        assert!(is_write_statement("INSERT INTO t VALUES (1) RETURNING id"));
+        assert!(is_write_statement("UPDATE t SET x=1 RETURNING *"));
+    }
+
+    #[test]
+    fn write_statement_cte_and_explain() {
+        // 纯读 CTE / EXPLAIN 放行；CTE 内含写、EXPLAIN ANALYZE 真执行写则拦
+        assert!(!is_write_statement("WITH x AS (SELECT 1) SELECT * FROM x"));
+        assert!(is_write_statement(
+            "WITH x AS (DELETE FROM t RETURNING *) SELECT * FROM x"
+        ));
+        assert!(!is_write_statement("EXPLAIN SELECT 1"));
+        assert!(!is_write_statement("EXPLAIN ANALYZE SELECT 1"));
+        assert!(is_write_statement(
+            "EXPLAIN ANALYZE INSERT INTO t VALUES (1)"
+        ));
+    }
+
+    #[test]
+    fn write_statement_session_and_empty_are_readonly() {
+        assert!(!is_write_statement("SET names utf8"));
+        assert!(!is_write_statement("USE mydb"));
+        assert!(!is_write_statement("BEGIN"));
+        assert!(!is_write_statement(""));
+        assert!(!is_write_statement("   "));
     }
 }

@@ -145,7 +145,7 @@ impl ResultPanel {
                     }
                     Err(e) => {
                         this.pending_notification =
-                            Some(Notification::error(format!("插入失败：{e}")).autohide(true));
+                            Some(Notification::error(e.write_hint("插入失败")).autohide(true));
                     }
                 }
                 cx.notify();
@@ -230,13 +230,13 @@ impl ResultPanel {
         let db = self.database.clone();
         cx.spawn(async move |this, cx| {
             let mut ok = 0usize;
-            let mut failed: Option<String> = None;
+            let mut failed: Option<ramag_domain::error::DomainError> = None;
             for id in ids {
                 let filter = serde_json::json!({ "_id": id });
                 match svc.delete_one(&conf, &db, &coll, &filter).await {
                     Ok(_) => ok += 1,
                     Err(e) => {
-                        failed = Some(e.to_string());
+                        failed = Some(e);
                         break;
                     }
                 }
@@ -245,7 +245,7 @@ impl ResultPanel {
                 match failed {
                     Some(e) => {
                         this.pending_notification = Some(
-                            Notification::error(format!("删除失败（已删 {ok} 个）：{e}"))
+                            Notification::error(e.write_hint(&format!("删除失败（已删 {ok} 个）")))
                                 .autohide(true),
                         )
                     }

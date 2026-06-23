@@ -93,7 +93,7 @@ impl SetElementForm {
                 }
                 Err(e) => {
                     error!(error = %e, "sadd failed");
-                    this.state = SubmitState::Failed(format!("写入失败：{e}"));
+                    this.state = SubmitState::Failed(e.write_hint("写入失败"));
                     cx.notify();
                 }
             });

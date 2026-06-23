@@ -12,7 +12,7 @@ use gpui_component::{
     v_flex,
 };
 use ramag_app::{ConnectionService, MongoService, RedisService};
-use ramag_domain::entities::{ConnectionColor, ConnectionConfig, ConnectionId, DriverKind};
+use ramag_domain::entities::{ConnectionConfig, ConnectionId, DriverKind};
 
 /// 表单模式：新增 or 编辑
 #[derive(Debug, Clone)]
@@ -65,8 +65,8 @@ pub struct ConnectionFormPanel {
     pub(super) database: Entity<InputState>,
     /// MongoDB 认证库（authSource）输入框；仅 MongoDB 渲染，留空 = admin
     pub(super) auth_source: Entity<InputState>,
-    /// 颜色标签（环境提示）
-    pub(super) color: ConnectionColor,
+    /// 生产模式：开启后该连接由 driver 层拦截一切写 / 改 / 删操作（只读保护）
+    pub(super) production: bool,
     pub(super) test_state: TestState,
     /// 测试结果代次：连接参数变更即递增，在途测试结果代次不符则丢弃
     pub(super) test_epoch: u64,
@@ -138,7 +138,7 @@ impl ConnectionFormPanel {
             database: None,
             auth_source: None,
             remark: None,
-            color: Default::default(),
+            production: false,
         });
         let driver_id = driver_kind_to_id(p.driver);
         let port_text = if is_create {
@@ -221,7 +221,7 @@ impl ConnectionFormPanel {
             ));
         }
 
-        let initial_color = p.color;
+        let initial_production = p.production;
 
         Self {
             service,
@@ -236,7 +236,7 @@ impl ConnectionFormPanel {
             password,
             database,
             auth_source,
-            color: initial_color,
+            production: initial_production,
             test_state: TestState::Idle,
             test_epoch: 0,
             saving: false,
@@ -304,19 +304,6 @@ fn id_to_driver_kind(id: &str) -> Option<DriverKind> {
         "redis" => Some(DriverKind::Redis),
         "mongodb" => Some(DriverKind::Mongodb),
         _ => None,
-    }
-}
-
-/// ConnectionColor → 实际颜色（连接列表 / Tab Bar / 表单选择器共用）
-pub fn color_to_hsla(color: ConnectionColor, theme: &gpui_component::Theme) -> gpui::Hsla {
-    use gpui::hsla;
-    match color {
-        ConnectionColor::None => theme.muted,
-        ConnectionColor::Gray => hsla(0.0 / 360.0, 0.0, 0.55, 1.0),
-        ConnectionColor::Green => hsla(140.0 / 360.0, 0.55, 0.45, 1.0),
-        ConnectionColor::Blue => hsla(210.0 / 360.0, 0.65, 0.55, 1.0),
-        ConnectionColor::Yellow => hsla(45.0 / 360.0, 0.85, 0.55, 1.0),
-        ConnectionColor::Red => hsla(0.0 / 360.0, 0.7, 0.55, 1.0),
     }
 }
 

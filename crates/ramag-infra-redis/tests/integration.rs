@@ -27,7 +27,7 @@ fn config_from_env() -> Option<ConnectionConfig> {
         database: None,
         auth_source: None,
         remark: None,
-        color: Default::default(),
+        production: false,
     })
 }
 

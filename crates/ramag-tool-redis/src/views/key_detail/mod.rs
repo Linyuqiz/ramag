@@ -15,7 +15,9 @@ use gpui::{
     Context, EventEmitter, FocusHandle, Focusable, IntoElement, ParentElement, Render, Styled,
     Window, div, prelude::*, px,
 };
-use gpui_component::{ActiveTheme, scroll::ScrollableElement as _, v_flex};
+use gpui_component::{
+    ActiveTheme, WindowExt as _, notification::Notification, scroll::ScrollableElement as _, v_flex,
+};
 use ramag_app::RedisService;
 use ramag_domain::entities::{ConnectionConfig, RedisValue};
 use tracing::{error, info};
@@ -88,6 +90,8 @@ pub struct KeyDetailPanel {
     /// 加载状态
     loading: bool,
     error: Option<String>,
+    /// 写操作的 toast（只读拦截 / 删除失败等，render 时 push，不覆盖内容区）
+    pending_notification: Option<Notification>,
     /// 单 Key 字节估算（MEMORY USAGE，需用户主动点击触发）
     pub(super) key_size_bytes: Option<u64>,
     pub(super) estimating_size: bool,
@@ -116,6 +120,7 @@ impl KeyDetailPanel {
             ttl_ms: None,
             loading: false,
             error: None,
+            pending_notification: None,
             key_size_bytes: None,
             value_view_mode: None,
             focus_handle: cx.focus_handle(),
@@ -200,7 +205,8 @@ impl KeyDetailPanel {
                 }
                 Err(e) => {
                     error!(error = %e, "delete hash field failed");
-                    this.error = Some(format!("删除字段失败：{e}"));
+                    this.pending_notification =
+                        Some(Notification::error(e.write_hint("删除字段失败")).autohide(true));
                     cx.notify();
                 }
             });
@@ -313,7 +319,8 @@ impl KeyDetailPanel {
                 }
                 Err(e) => {
                     error!(error = %e, label = log_label, "delete element failed");
-                    this.error = Some(format!("删除元素失败：{e}"));
+                    this.pending_notification =
+                        Some(Notification::error(e.write_hint("删除元素失败")).autohide(true));
                     cx.notify();
                 }
             });
@@ -381,7 +388,8 @@ impl KeyDetailPanel {
                 }
                 Err(e) => {
                     error!(error = %e, "delete key failed");
-                    this.error = Some(format!("删除失败：{e}"));
+                    this.pending_notification =
+                        Some(Notification::error(e.write_hint("删除失败")).autohide(true));
                     cx.notify();
                 }
             });
@@ -392,6 +400,9 @@ impl KeyDetailPanel {
 
 impl Render for KeyDetailPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some(n) = self.pending_notification.take() {
+            window.push_notification(n, cx);
+        }
         let theme = cx.theme();
         let muted_fg = theme.muted_foreground;
         let fg = theme.foreground;
