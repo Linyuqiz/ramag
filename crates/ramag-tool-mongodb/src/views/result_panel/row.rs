@@ -65,6 +65,8 @@ pub(super) fn render_row(
 
     // 文档 _id：双击单元格编辑时用它作 update_one 的定位条件
     let row_id = doc.get("_id").cloned();
+    // 下钻前导列展示用的行标识：优先 _id，没有就用 id（很多集合用 id 而非 _id）
+    let row_ident = doc.get("_id").or_else(|| doc.get("id")).cloned();
     for &ci in visible_cols {
         let cell = &cells[ci];
         let column = &columns[ci];
@@ -99,17 +101,19 @@ pub(super) fn render_row(
                 .cursor_pointer()
                 .on_click({
                     let id_for_click = row_id.clone();
+                    let ident_for_click = row_ident.clone();
                     cx.listener(move |panel, e: &gpui::ClickEvent, window, cx| {
                         if e.click_count() < 2 {
                             return;
                         }
                         // 嵌套对象/数组：下钻查看（对象层进去可编辑，数组层只读），
-                        // 传当前行 _id 让下钻层记录回写定位上下文
+                        // 传当前行 _id 作回写定位上下文 + 行标识作下钻层前导列
                         if is_nested {
                             if let Some(v) = nested_for_click.clone() {
                                 panel.drill_into(
                                     path_for_click.clone(),
                                     id_for_click.clone(),
+                                    ident_for_click.clone(),
                                     v,
                                     window,
                                     cx,

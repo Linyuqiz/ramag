@@ -29,6 +29,30 @@ pub struct FlatTable {
     pub rows: Vec<Vec<Cell>>,
 }
 
+impl FlatTable {
+    /// 在最左插入前导列（下钻时展示祖先文档 id）。`lead_rows[i]` 与第 i 行对齐、
+    /// 长度与 `lead` 一致；行数不足处补空。lead 为空则不动
+    pub fn prepend_lead(&mut self, lead: Vec<Column>, lead_rows: Vec<Vec<Cell>>) {
+        if lead.is_empty() {
+            return;
+        }
+        let n = lead.len();
+        let empty = Cell {
+            text: String::new(),
+            kind: "null",
+        };
+        let mut cols = lead;
+        cols.append(&mut self.columns);
+        self.columns = cols;
+        for (i, row) in self.rows.iter_mut().enumerate() {
+            let mut head = lead_rows.get(i).cloned().unwrap_or_default();
+            head.resize(n, empty.clone());
+            head.append(row);
+            *row = head;
+        }
+    }
+}
+
 /// 测试便捷入口：不展开（等价 build_flat_table_with 传空集）
 #[cfg(test)]
 fn build_flat_table(docs: &[Value]) -> FlatTable {
@@ -401,5 +425,32 @@ mod tests {
         for want in ["jobs", "jobs.connectors", "jobs.cover", "jobs.connectors.x"] {
             assert!(paths.contains(&want.to_string()), "missing {want}");
         }
+    }
+
+    #[test]
+    fn prepend_lead_inserts_leading_columns() {
+        let mut t = build_flat_table(&[json!({"a": 1}), json!({"a": 2})]);
+        let lead = vec![Column {
+            path: "‹父1›".to_string(),
+            kind: "text",
+        }];
+        let lead_rows = vec![
+            vec![Cell {
+                text: "p1".to_string(),
+                kind: "text",
+            }],
+            vec![Cell {
+                text: "p2".to_string(),
+                kind: "text",
+            }],
+        ];
+        t.prepend_lead(lead, lead_rows);
+        // 前导列在最左，原列保留在后
+        assert_eq!(t.columns[0].path, "‹父1›");
+        assert!(t.columns.iter().any(|c| c.path == "a"));
+        assert_eq!(t.rows[0][0].text, "p1");
+        assert_eq!(t.rows[1][0].text, "p2");
+        // 每行列数 = 前导 1 + 原 1
+        assert_eq!(t.rows[0].len(), t.columns.len());
     }
 }

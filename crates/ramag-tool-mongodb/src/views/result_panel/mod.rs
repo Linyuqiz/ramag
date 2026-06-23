@@ -245,18 +245,27 @@ impl ResultPanel {
 
     /// 重建基础表格（不钻取）与补全源；钻取/投影在 render 时按过滤框派生
     pub(crate) fn rebuild_table(&mut self) {
-        let docs = self
-            .drill_stack
-            .last()
-            .map(|l| l.documents.clone())
-            .unwrap_or_default();
+        let level = self.drill_stack.last();
+        let docs = level.map(|l| l.documents.clone()).unwrap_or_default();
+        let ancestors = level.map(|l| l.ancestors.clone()).unwrap_or_default();
         self.table = if docs.is_empty() {
             None
         } else {
-            Some(Arc::new(flatten::build_flat_table_with(
-                &docs,
-                &BTreeSet::new(),
-            )))
+            let mut ft = flatten::build_flat_table_with(&docs, &BTreeSet::new());
+            // 下钻层：祖先链为常量（该层所有行同一父），作前导列，根→深保序，列名即对象名
+            if !ancestors.is_empty() {
+                let lead_cols: Vec<flatten::Column> = ancestors
+                    .iter()
+                    .map(|(label, c)| flatten::Column {
+                        path: label.clone(),
+                        kind: if c.kind == "null" { "text" } else { c.kind },
+                    })
+                    .collect();
+                let lead_cells: Vec<_> = ancestors.iter().map(|(_, c)| c.clone()).collect();
+                let lead_rows = vec![lead_cells; ft.rows.len()];
+                ft.prepend_lead(lead_cols, lead_rows);
+            }
+            Some(Arc::new(ft))
         };
         *self.column_completion_source.write() =
             flatten::collect_paths(&docs, PATH_COMPLETION_DEPTH);
