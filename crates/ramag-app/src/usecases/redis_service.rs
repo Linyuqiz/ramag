@@ -58,7 +58,7 @@ impl RedisService {
         self.driver.evict_pool(id);
     }
 
-    // KV 操作（按 db 索引）
+    // KV 操作（按 db 索引）。只读操作用 retry_idempotent_read! 兜底闲置断连后的首次读
 
     /// 一次性扫完整库；大库慎用
     pub async fn scan_all(
@@ -72,10 +72,13 @@ impl RedisService {
         let mut cursor = 0u64;
         let mut out: Vec<KeyMeta> = Vec::new();
         loop {
-            let r = self
-                .driver
-                .scan(config, db, cursor, pattern, type_filter, 200)
-                .await?;
+            let r = retry_idempotent_read!(
+                config.id,
+                self.driver.evict_pool(&config.id),
+                self.driver
+                    .scan(config, db, cursor, pattern, type_filter, 200)
+                    .await
+            )?;
             out.extend(r.keys);
             cursor = r.cursor;
             if cursor == 0 || out.len() >= max_keys {
@@ -94,11 +97,19 @@ impl RedisService {
         db: u8,
         key: &str,
     ) -> Result<RedisType> {
-        self.driver.key_type(config, db, key).await
+        retry_idempotent_read!(
+            config.id,
+            self.driver.evict_pool(&config.id),
+            self.driver.key_type(config, db, key).await
+        )
     }
 
     pub async fn key_ttl(&self, config: &ConnectionConfig, db: u8, key: &str) -> Result<i64> {
-        self.driver.key_ttl(config, db, key).await
+        retry_idempotent_read!(
+            config.id,
+            self.driver.evict_pool(&config.id),
+            self.driver.key_ttl(config, db, key).await
+        )
     }
 
     pub async fn get_value(
@@ -107,7 +118,11 @@ impl RedisService {
         db: u8,
         key: &str,
     ) -> Result<RedisValue> {
-        self.driver.get_value(config, db, key).await
+        retry_idempotent_read!(
+            config.id,
+            self.driver.evict_pool(&config.id),
+            self.driver.get_value(config, db, key).await
+        )
     }
 
     pub async fn delete_key(&self, config: &ConnectionConfig, db: u8, key: &str) -> Result<bool> {

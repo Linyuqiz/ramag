@@ -70,10 +70,11 @@ pub(super) fn render_scalar(
         .font_family("monospace")
         .child(content_text);
 
-    // 内容行：content 居左 flex_1 + 编辑按钮居右（仅 Text 类型显示）
+    // 内容行：content 居左 flex_1 + 编辑按钮右上（仅 Text 类型显示）。
+    // 顶部对齐而非居中——超长 value 时按钮才不会浮到内容垂直中线
     let mut content_row = h_flex()
         .w_full()
-        .items_center()
+        .items_start()
         .gap(px(6.0))
         .child(content_div);
     if let Some((k, s)) = edit_target {

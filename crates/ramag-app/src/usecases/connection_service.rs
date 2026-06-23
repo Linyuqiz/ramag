@@ -60,14 +60,23 @@ impl ConnectionService {
         }
     }
 
-    // 元数据查询（走 driver）
+    // 元数据查询（走 driver）。只读，故用 retry_idempotent_read! 兜底「查询执行到一半断连」
+    // （sqlx test_before_acquire 已能在取连接时换掉死连接，这里再加一层重连重试）
 
     pub async fn list_schemas(&self, config: &ConnectionConfig) -> Result<Vec<Schema>> {
-        self.driver_for(config)?.list_schemas(config).await
+        retry_idempotent_read!(
+            config.id,
+            self.evict_pool(config),
+            self.driver_for(config)?.list_schemas(config).await
+        )
     }
 
     pub async fn list_tables(&self, config: &ConnectionConfig, schema: &str) -> Result<Vec<Table>> {
-        self.driver_for(config)?.list_tables(config, schema).await
+        retry_idempotent_read!(
+            config.id,
+            self.evict_pool(config),
+            self.driver_for(config)?.list_tables(config, schema).await
+        )
     }
 
     pub async fn list_columns(
@@ -76,9 +85,13 @@ impl ConnectionService {
         schema: &str,
         table: &str,
     ) -> Result<Vec<Column>> {
-        self.driver_for(config)?
-            .list_columns(config, schema, table)
-            .await
+        retry_idempotent_read!(
+            config.id,
+            self.evict_pool(config),
+            self.driver_for(config)?
+                .list_columns(config, schema, table)
+                .await
+        )
     }
 
     pub async fn list_indexes(
@@ -87,9 +100,13 @@ impl ConnectionService {
         schema: &str,
         table: &str,
     ) -> Result<Vec<Index>> {
-        self.driver_for(config)?
-            .list_indexes(config, schema, table)
-            .await
+        retry_idempotent_read!(
+            config.id,
+            self.evict_pool(config),
+            self.driver_for(config)?
+                .list_indexes(config, schema, table)
+                .await
+        )
     }
 
     pub async fn list_foreign_keys(
@@ -98,9 +115,13 @@ impl ConnectionService {
         schema: &str,
         table: &str,
     ) -> Result<Vec<ForeignKey>> {
-        self.driver_for(config)?
-            .list_foreign_keys(config, schema, table)
-            .await
+        retry_idempotent_read!(
+            config.id,
+            self.evict_pool(config),
+            self.driver_for(config)?
+                .list_foreign_keys(config, schema, table)
+                .await
+        )
     }
 
     // 查询执行

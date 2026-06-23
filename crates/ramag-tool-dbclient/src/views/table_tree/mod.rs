@@ -148,6 +148,14 @@ impl TableTreePanel {
         self.load_schemas(cx);
     }
 
+    /// 会话 Tab 被（重新）激活时调用：仅当从未成功加载（无 schema 且非加载中）才补拉，
+    /// 避免每次切 Tab 都清空已展开状态。首次加载失败留下的空状态会在下次激活时自动重试
+    pub fn ensure_loaded(&mut self, cx: &mut Context<Self>) {
+        if self.connection.is_some() && self.schemas.is_empty() && !self.loading_schemas {
+            self.load_schemas(cx);
+        }
+    }
+
     pub fn set_connection(&mut self, conn: Option<ConnectionConfig>, cx: &mut Context<Self>) {
         self.connection = conn;
         self.schemas.clear();

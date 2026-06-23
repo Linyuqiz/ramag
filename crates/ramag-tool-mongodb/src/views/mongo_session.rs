@@ -95,6 +95,11 @@ impl MongoSessionPanel {
     pub fn title(&self) -> &str {
         &self.config.name
     }
+
+    /// Tab 被（重新）激活时调用：collection 树为空才补拉，避免空面板（连接放久后切回也会重新请求）
+    pub fn ensure_loaded(&self, cx: &mut Context<Self>) {
+        self.tree.update(cx, |t, cx| t.ensure_loaded(cx));
+    }
 }
 
 impl Render for MongoSessionPanel {

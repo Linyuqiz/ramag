@@ -441,12 +441,17 @@ impl Render for KeyDetailPanel {
             .bg(bg)
             .track_focus(&self.focus_handle)
             .child(header)
+            // 滚动区分两层：外层 flex_1 + min_h_0 给出「减去 header 后的确定高度」，
+            // 内层 overflow_y_scrollbar 在该确定高度内滚动。
+            // 不能直接 .flex_1().min_h_0().overflow_y_scrollbar()——该包装器只继承 size 样式且会给
+            // 内容元素重新加 flex_1，min_h_0 落到内容上会把它压扁到视口高度，从而永不溢出、无法滚动
             .child(
-                v_flex()
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scrollbar()
-                    .child(div().w_full().p(px(14.0)).child(body)),
+                div().flex_1().min_h_0().child(
+                    div()
+                        .size_full()
+                        .overflow_y_scrollbar()
+                        .child(div().w_full().p(px(14.0)).child(body)),
+                ),
             )
             .into_any_element()
     }

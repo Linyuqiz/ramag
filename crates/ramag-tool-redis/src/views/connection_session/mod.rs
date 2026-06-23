@@ -284,6 +284,11 @@ impl RedisSessionPanel {
         &self.config.name
     }
 
+    /// Tab 被（重新）激活时调用：key 树为空才补拉，避免空面板（连接放久后切回也会重新 SCAN）
+    pub fn ensure_loaded(&self, cx: &mut Context<Self>) {
+        self.tree.update(cx, |t, cx| t.ensure_loaded(cx));
+    }
+
     /// 让 dialogs.rs 内的方法把 subscription 推进 Vec（保持字段私有）
     pub(super) fn push_subscription(&mut self, sub: Subscription) {
         self.subscriptions.push(sub);

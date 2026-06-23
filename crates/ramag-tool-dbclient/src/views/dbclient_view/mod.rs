@@ -62,6 +62,15 @@ impl SessionEntity {
             SessionEntity::Mongo(e) => e.clone().into(),
         }
     }
+    /// Tab 被激活时触发：各 session 内部按「树为空才补拉」决定是否真正加载，
+    /// 既保证「打开就能用」，连接放久后切回也会重新请求（驱动层在取连接时自愈死连接）
+    pub(super) fn ensure_loaded(&self, cx: &mut App) {
+        match self {
+            SessionEntity::Sql(e) => e.update(cx, |s, cx| s.ensure_loaded(cx)),
+            SessionEntity::Redis(e) => e.update(cx, |s, cx| s.ensure_loaded(cx)),
+            SessionEntity::Mongo(e) => e.update(cx, |s, cx| s.ensure_loaded(cx)),
+        }
+    }
 }
 
 pub struct DbClientView {
@@ -154,6 +163,8 @@ impl DbClientView {
         {
             self.active_session = Some(idx);
             self.center = CenterMode::Session;
+            // 重新激活已打开的连接：树为空则补拉（含首次加载失败后的重试）
+            self.sessions[idx].ensure_loaded(cx);
             cx.notify();
             return;
         }
@@ -216,6 +227,8 @@ impl DbClientView {
         if idx < self.sessions.len() {
             self.active_session = Some(idx);
             self.center = CenterMode::Session;
+            // 切到该 Tab：树为空则补拉（含首次加载失败后的重试）
+            self.sessions[idx].ensure_loaded(cx);
             cx.notify();
         }
     }

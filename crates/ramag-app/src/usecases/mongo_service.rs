@@ -34,10 +34,14 @@ impl MongoService {
         self.driver.evict_pool(id);
     }
 
-    // 元数据
+    // 元数据。只读操作用 retry_idempotent_read! 兜底闲置断连后的首次读
 
     pub async fn list_databases(&self, config: &ConnectionConfig) -> Result<Vec<MongoDatabase>> {
-        self.driver.list_databases(config).await
+        retry_idempotent_read!(
+            config.id,
+            self.driver.evict_pool(&config.id),
+            self.driver.list_databases(config).await
+        )
     }
 
     pub async fn list_collections(
@@ -45,7 +49,11 @@ impl MongoService {
         config: &ConnectionConfig,
         db: &str,
     ) -> Result<Vec<MongoCollection>> {
-        self.driver.list_collections(config, db).await
+        retry_idempotent_read!(
+            config.id,
+            self.driver.evict_pool(&config.id),
+            self.driver.list_collections(config, db).await
+        )
     }
 
     // 写

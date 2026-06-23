@@ -167,6 +167,14 @@ impl CollectionTreePanel {
         }
     }
 
+    /// 会话 Tab 被（重新）激活时调用：仅当从未成功加载（无 db 且非加载中）才拉库列表，
+    /// 避免每次切 Tab 都重置展开。首次加载失败留下的空状态会在下次激活时自动重试
+    pub fn ensure_loaded(&mut self, cx: &mut Context<Self>) {
+        if self.connection.is_some() && self.databases.is_empty() && !self.loading {
+            self.refresh_databases(cx);
+        }
+    }
+
     fn refresh_databases(&mut self, cx: &mut Context<Self>) {
         let Some(conf) = self.connection.clone() else {
             return;

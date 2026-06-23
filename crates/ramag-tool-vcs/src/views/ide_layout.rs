@@ -93,14 +93,18 @@ impl VcsView {
         v_flex()
             .size_full()
             .child(self.render_files_toolbar(cx))
+            // 滚动区分两层：外层 flex_1 + min_h_0 定高，内层 size_full + overflow_y_scrollbar 滚动。
+            // 直接在一个元素上 .flex_1().min_h_0().overflow_y_scrollbar() 会让内容被压扁到视口高度、
+            // 文件列表很长时滚不动（同 Redis key_detail 的修法）
             .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .px(px(10.0))
-                    .py(px(6.0))
-                    .overflow_y_scrollbar()
-                    .child(self.render_files_content(cx)),
+                div().flex_1().min_h_0().child(
+                    div()
+                        .size_full()
+                        .px(px(10.0))
+                        .py(px(6.0))
+                        .overflow_y_scrollbar()
+                        .child(self.render_files_content(cx)),
+                ),
             )
             // commit 面板仅在 Changes 视图下显示（其他模式下隐藏）
             .when(
