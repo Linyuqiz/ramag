@@ -16,6 +16,10 @@ use crate::errors::map_mongo_error;
 #[derive(Clone, Default)]
 pub struct PoolCache {
     clients: Arc<DashMap<ConnectionId, Client>>,
+    /// 建连串行化锁：首次打开同一连接时 prefetch_version 与 list_databases 会并发 miss，
+    /// 各建一个 Client、各跑一轮 SDAM 拓扑发现，远端 prod 上表现为首开卡顿。
+    /// 锁 + 双检确保每连接只建一次（再开命中缓存，无此开销）
+    build_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl PoolCache {
@@ -37,6 +41,13 @@ impl PoolCache {
 
         if let Some(entry) = self.clients.get(&config.id) {
             debug!(connection_id = %config.id, "mongo client cache hit");
+            return Ok(entry.clone());
+        }
+
+        // 串行化建连 + 双检：避免并发重复建连（各触发一轮 SDAM 发现 → 首开卡顿）
+        let _guard = self.build_lock.lock().await;
+        if let Some(entry) = self.clients.get(&config.id) {
+            debug!(connection_id = %config.id, "mongo client cache hit (after lock)");
             return Ok(entry.clone());
         }
 
