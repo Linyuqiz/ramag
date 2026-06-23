@@ -18,16 +18,11 @@ use super::QueryTab;
 use super::sql_utils::{AUTO_LIMIT, format_elapsed};
 use crate::actions::{
     ExplainQuery, ExportCsv, ExportJson, ExportMarkdown, FormatSql, RunQuery, RunStatementAtCursor,
-    SaveSqlFile,
 };
 use crate::views::result_panel::ResultState;
 
 impl Render for QueryTab {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // 把异步完成挂起的 toast 推送出来（如 SQL 保存结果）
-        if let Some(n) = self.pending_notification.take() {
-            window.push_notification(n, cx);
-        }
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let muted_fg = theme.muted_foreground;
         let border = theme.border;
@@ -99,9 +94,6 @@ impl Render for QueryTab {
             }))
             .on_action(cx.listener(|this, _: &ExplainQuery, _, cx| {
                 this.handle_explain(cx);
-            }))
-            .on_action(cx.listener(|this, _: &SaveSqlFile, window, cx| {
-                this.handle_save_file(window, cx);
             }))
             .when(self.show_editor, |this| {
                 this.child(

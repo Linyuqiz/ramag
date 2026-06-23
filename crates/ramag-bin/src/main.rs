@@ -24,7 +24,7 @@ use ramag_tool_clipboard::{
 };
 use ramag_tool_dbclient::{
     DbClientTool, ExplainQuery, FindInResults, FormatSql, NewQueryTab, RunQuery,
-    RunStatementAtCursor, SaveSqlFile, ToggleHistory, ToggleSqlEditor, create_dbclient_view,
+    RunStatementAtCursor, ToggleSqlEditor, create_dbclient_view,
 };
 use ramag_tool_mongodb::{FormatMongoJson, NewMongoQueryTab, RunMongoQuery, ToggleMongoEditor};
 use ramag_tool_vcs::{
@@ -109,11 +109,19 @@ fn main() {
         // 必须先 bind_keys 把 cmd-q 绑到 Quit，NSMenuItem 才会显示快捷键
         cx.on_action(|_: &Quit, cx| cx.quit());
 
-        // cmd-w 全局 fallback：视图层先消费（关 tab），没消费就关窗
+        // cmd-w 全局 fallback：视图层先消费（关 tab），没消费就关窗。
+        // 关窗须 defer：此刻正处在该窗口的按键分发栈内（window 已被 take 出），
+        // 直接 handle.update 会重入 take 失败而静默不关；defer 到本次分发结束后再移除
         cx.on_action(|_: &CloseTab, cx: &mut App| {
-            if let Some(handle) = cx.active_window() {
+            let Some(handle) = cx
+                .active_window()
+                .or_else(|| cx.windows().into_iter().next())
+            else {
+                return;
+            };
+            cx.defer(move |cx| {
                 let _ = handle.update(cx, |_, window, _| window.remove_window());
-            }
+            });
         });
 
         cx.bind_keys([
@@ -126,8 +134,6 @@ fn main() {
             KeyBinding::new("cmd-f", FindInResults, None),
             KeyBinding::new("cmd-shift-f", FormatSql, None),
             KeyBinding::new("cmd-shift-e", ExplainQuery, None),
-            KeyBinding::new("cmd-s", SaveSqlFile, None),
-            KeyBinding::new("cmd-shift-h", ToggleHistory, None),
             KeyBinding::new("cmd-e", ToggleSqlEditor, None),
             // MongoDB 视图的快捷键，用 KeyContext 限定（焦点在 Mongo 视图时优先）
             KeyBinding::new("cmd-enter", RunMongoQuery, Some("MongoQueryTab")),
@@ -222,18 +228,48 @@ const DRAWER_HEIGHT: f32 = 280.0;
 const DRAWER_MARGIN: f32 = 5.0;
 
 /// 注册全局热键并轮询：触发切换抽屉；并在每拍检测失焦自动隐藏（点击外部即关）。
+/// 热键随"启用采集"开关动态注册/注销——关采集即释放 ⌘⇧V，不再与其他应用冲突。
 /// 注册失败（缺权限等）仅记日志，不影响其余功能
 fn spawn_clipboard_hotkey(service: Arc<ClipboardService>, cx: &mut App) {
-    let Some(listener) = HotkeyListener::register_cmd_shift_v() else {
-        error!("global hotkey register failed; clipboard drawer disabled");
-        return;
-    };
     cx.spawn(async move |cx| {
+        // 启动读持久化采集开关：关闭则不注册，避免抢占 ⌘⇧V
+        let mut enabled = service.prime_capture_enabled().await;
+        let mut listener = if enabled {
+            let l = HotkeyListener::register_cmd_shift_v();
+            if l.is_none() {
+                error!("global hotkey register failed; clipboard drawer disabled");
+            }
+            l
+        } else {
+            None
+        };
+
         let mut drawer: Option<gpui::AnyWindowHandle> = None;
         // 抽屉是否曾真正激活过：避免刚打开（尚未激活）就被失焦逻辑误关
         let mut was_active = false;
         loop {
             cx.background_executor().timer(HOTKEY_POLL_INTERVAL).await;
+
+            // 采集开关变化 → 动态注册/注销热键
+            let now_enabled = service.capture_enabled();
+            if now_enabled != enabled {
+                enabled = now_enabled;
+                if enabled {
+                    listener = HotkeyListener::register_cmd_shift_v();
+                    if listener.is_none() {
+                        error!("global hotkey re-register failed");
+                    }
+                } else {
+                    // 置 None 触发 Drop 注销热键并移除 handler，释放 ⌘⇧V
+                    listener = None;
+                    // 关闭残留抽屉：热键已注销，否则无法再 toggle 关闭
+                    if let Some(handle) = drawer.take() {
+                        let _ = cx
+                            .update(|cx| handle.update(cx, |_, window, _| window.remove_window()));
+                        was_active = false;
+                    }
+                }
+            }
 
             // 失焦自动隐藏：曾激活过又失去激活态 = 用户点了别处
             if let Some(handle) = &drawer {
@@ -252,6 +288,10 @@ fn spawn_clipboard_hotkey(service: Arc<ClipboardService>, cx: &mut App) {
                 }
             }
 
+            // 采集关闭（无 listener）→ 跳过热键轮询
+            let Some(listener) = &listener else {
+                continue;
+            };
             if !listener.poll() {
                 continue;
             }

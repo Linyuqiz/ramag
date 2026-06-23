@@ -45,11 +45,13 @@ impl ClipboardView {
         let mut card = v_flex()
             .id(row_id)
             .w_full()
-            .h(px(76.0))
+            .h(px(72.0))
             .flex_none()
             .px(px(12.0))
             .py(px(8.0))
-            .gap(px(4.0))
+            .gap(px(5.0))
+            // 内容居中：文本卡留白均匀，图片缩略图卡不顶边
+            .justify_center()
             .border_b_1()
             .border_color(border)
             .cursor_pointer()
@@ -61,22 +63,25 @@ impl ClipboardView {
                     this.select_id(id.clone(), cx);
                 }
             }))
+            // 元信息行：类型角标 + 来源 + 时间，整体弱化
             .child(
                 h_flex()
                     .items_center()
                     .gap(px(6.0))
+                    .text_xs()
+                    .text_color(muted)
                     .child(kind_badge)
-                    .child(div().flex_1())
-                    .child(div().text_xs().text_color(muted).child(time)),
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .child(source),
+                    )
+                    .child(div().flex_none().child(time)),
             )
-            .child(
-                div()
-                    .w_full()
-                    .text_sm()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .child(preview),
-            )
+            // 内容行：预览为主，右侧复制/删除
             .child(
                 h_flex()
                     .items_center()
@@ -85,11 +90,10 @@ impl ClipboardView {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .text_xs()
-                            .text_color(muted)
+                            .text_sm()
                             .overflow_hidden()
                             .text_ellipsis()
-                            .child(source),
+                            .child(preview),
                     )
                     .child(card_action_btn(
                         "copy",

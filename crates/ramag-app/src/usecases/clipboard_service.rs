@@ -3,7 +3,7 @@
 //! `capture_tick` 仅做 driver/storage 编排
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use chrono::Utc;
 use parking_lot::RwLock;
@@ -44,6 +44,9 @@ pub struct ClipboardService {
     revision: Arc<AtomicU64>,
     /// 已解密的最近 N 条窗口缓存（最近优先）。写操作增量维护，视图同步快照取
     cache: Arc<RwLock<Vec<ClipItem>>>,
+    /// 采集开关内存镜像：save_settings 写、启动 prime 一次校正。
+    /// 供 App 级热键循环每拍读，避免每拍解密设置；关采集即据此释放全局热键
+    capture_enabled: Arc<AtomicBool>,
 }
 
 impl ClipboardService {
@@ -53,6 +56,8 @@ impl ClipboardService {
             storage,
             revision: Arc::new(AtomicU64::new(0)),
             cache: Arc::new(RwLock::new(Vec::new())),
+            // 默认开（同 ClipboardSettings::default）；启动由 prime_capture_enabled 校正
+            capture_enabled: Arc::new(AtomicBool::new(true)),
         }
     }
 
@@ -117,9 +122,25 @@ impl ClipboardService {
     }
 
     pub async fn save_settings(&self, settings: &ClipboardSettings) -> Result<()> {
+        // 先更新内存镜像（与 UI 乐观更新一致），热键循环最迟下一拍生效
+        self.capture_enabled
+            .store(settings.enabled, Ordering::Relaxed);
         let json = serde_json::to_string(settings)
             .map_err(|e| DomainError::Storage(format!("序列化剪贴设置失败：{e}")))?;
         self.storage.set_preference(SETTINGS_KEY, &json).await
+    }
+
+    /// 采集是否开启（内存镜像，热键循环每拍读）
+    pub fn capture_enabled(&self) -> bool {
+        self.capture_enabled.load(Ordering::Relaxed)
+    }
+
+    /// 启动时用持久化值校正内存镜像并返回。仅热键循环启动调一次——
+    /// 单独于 save_settings 之外的唯一写入点，避免与采集循环的 load_settings 竞争
+    pub async fn prime_capture_enabled(&self) -> bool {
+        let enabled = self.load_settings().await.enabled;
+        self.capture_enabled.store(enabled, Ordering::Relaxed);
+        enabled
     }
 
     // —— 采集 ——

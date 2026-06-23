@@ -14,7 +14,6 @@ use std::time::Instant;
 
 use gpui::{AppContext as _, Context, Entity, Task, Window};
 use gpui_component::input::{InputEvent, InputState};
-use gpui_component::notification::Notification;
 use parking_lot::RwLock;
 
 use ramag_app::ConnectionService;
@@ -48,8 +47,6 @@ pub struct QueryTab {
     pub(super) title: String,
     /// 上次执行的 SQL 摘要：成功执行后从 SQL 派生
     pub(super) short_title: Option<String>,
-    /// 异步任务（如保存文件）完成后挂这里，下次 render 在 window 上推送
-    pub(super) pending_notification: Option<Notification>,
     /// 上游显式指定的目标表 (schema, table)：表树点击触发的 SELECT 才有
     pub(super) pinned_target: Option<(String, String)>,
     /// 是否显示 SQL 编辑器
@@ -119,7 +116,6 @@ impl QueryTab {
             schema_cache,
             title: title.into(),
             short_title: None,
-            pending_notification: None,
             pinned_target: None,
             show_editor: true,
             // 默认开启 LIMIT 自动注入；用户可在工具条切换

@@ -1,4 +1,4 @@
-//! `impl QueryTab` 行为方法：运行 / 取消 / 格式化 / EXPLAIN / 保存 / 错误高亮
+//! `impl QueryTab` 行为方法：运行 / 取消 / 格式化 / EXPLAIN / 错误高亮
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -330,58 +330,6 @@ impl QueryTab {
                 cx.notify();
             }
         });
-    }
-
-    /// 保存编辑器内容为 .sql 文件：弹系统对话框，rfd 子线程，oneshot 回主
-    pub(super) fn handle_save_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let sql = self.current_sql(cx);
-        if sql.trim().is_empty() {
-            window.push_notification(
-                Notification::warning("SQL 为空，无需保存").autohide(true),
-                cx,
-            );
-            return;
-        }
-        let default_name = format!("ramag-{}.sql", chrono::Local::now().format("%Y%m%d-%H%M%S"));
-        let (tx, rx) = futures::channel::oneshot::channel::<Result<std::path::PathBuf, String>>();
-        std::thread::spawn(move || {
-            let dialog = rfd::FileDialog::new()
-                .add_filter("SQL", &["sql"])
-                .set_file_name(default_name);
-            let result = match dialog.save_file() {
-                Some(path) => match std::fs::write(&path, sql.as_bytes()) {
-                    Ok(_) => Ok(path),
-                    Err(e) => Err(format!("写入失败：{e}")),
-                },
-                None => Err("__cancel__".to_string()),
-            };
-            let _ = tx.send(result);
-        });
-
-        cx.spawn(async move |this, cx| {
-            let outcome = rx.await.unwrap_or_else(|_| Err("内部错误".into()));
-            let _ = this.update(cx, |this, cx| match outcome {
-                Ok(path) => {
-                    info!(?path, "sql saved");
-                    let name = path
-                        .file_name()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("文件")
-                        .to_string();
-                    this.pending_notification =
-                        Some(Notification::success(format!("已保存到 {name}")).autohide(true));
-                    cx.notify();
-                }
-                Err(e) if e == "__cancel__" => {}
-                Err(e) => {
-                    error!(error = %e, "save sql failed");
-                    this.pending_notification =
-                        Some(Notification::error(format!("保存失败：{e}")).autohide(true));
-                    cx.notify();
-                }
-            });
-        })
-        .detach();
     }
 
     /// 取消当前查询

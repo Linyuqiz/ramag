@@ -71,7 +71,7 @@ impl MongoSessionPanel {
                     queries_handle.update(cx, |q, cx| q.set_database(database.clone(), cx));
                 }
                 TreeEvent::ToggleEditor => {
-                    let visible = queries_handle.update(cx, |q, cx| q.toggle_editor(cx));
+                    let visible = queries_handle.update(cx, |q, cx| q.toggle_editor(window, cx));
                     // 同步给 tree，让按钮图标朝向匹配
                     tree_handle.update(cx, |t, cx| t.set_editor_visible(visible, cx));
                 }

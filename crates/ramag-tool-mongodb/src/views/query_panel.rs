@@ -7,8 +7,8 @@
 use std::sync::Arc;
 
 use gpui::{
-    ClickEvent, Context, Entity, IntoElement, ParentElement, Point, Render, ScrollHandle,
-    SharedString, Styled, Subscription, Window, div, prelude::*, px,
+    ClickEvent, Context, Entity, FocusHandle, IntoElement, ParentElement, Point, Render,
+    ScrollHandle, SharedString, Styled, Subscription, Window, div, prelude::*, px,
 };
 use gpui_component::{
     ActiveTheme, IconName, Sizable as _,
@@ -37,11 +37,13 @@ pub struct MongoQueryPanel {
     tabs_scroll: ScrollHandle,
     /// 命令编辑器显隐（默认 false 隐藏；cmd-e 切换；新 Tab 跟随）
     show_editor: bool,
+    /// 面板根焦点：隐藏编辑器后焦点收回这里，保证 cmd-e 仍能再次触发
+    focus_handle: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
 
 impl MongoQueryPanel {
-    pub fn new(service: Arc<MongoService>, _window: &mut Window, _cx: &mut Context<Self>) -> Self {
+    pub fn new(service: Arc<MongoService>, _window: &mut Window, cx: &mut Context<Self>) -> Self {
         Self {
             service,
             connection: None,
@@ -52,15 +54,22 @@ impl MongoQueryPanel {
             tabs_scroll: ScrollHandle::new(),
             // 隐藏编辑器，让结果区直接占满（与 dbclient 默认一致）
             show_editor: false,
+            focus_handle: cx.focus_handle(),
             _subscriptions: Vec::new(),
         }
     }
 
-    /// 切换编辑器显隐，同步给所有 tab；返回当前可见状态
-    pub fn toggle_editor(&mut self, cx: &mut Context<Self>) -> bool {
+    /// 切换编辑器显隐，同步给所有 tab；返回当前可见状态。
+    /// 显示→聚焦编辑器；隐藏→焦点收回面板根，保证 cmd-e 的 handler 仍在焦点链可反复触发
+    pub fn toggle_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         self.show_editor = !self.show_editor;
         for tab in &self.tabs {
             tab.update(cx, |t, cx| t.set_show_editor(self.show_editor, cx));
+        }
+        if self.show_editor {
+            self.focus_active_editor(window, cx);
+        } else {
+            window.focus(&self.focus_handle, cx);
         }
         cx.notify();
         self.show_editor
@@ -283,6 +292,7 @@ impl Render for MongoQueryPanel {
 
         v_flex()
             .size_full()
+            .track_focus(&self.focus_handle)
             .bg(theme.background)
             .key_context("MongoQueryPanel")
             .on_action(
@@ -298,8 +308,8 @@ impl Render for MongoQueryPanel {
                 }
             }))
             // cmd-e 切换编辑器显隐
-            .on_action(cx.listener(|this, _: &ToggleMongoEditor, _, cx| {
-                this.toggle_editor(cx);
+            .on_action(cx.listener(|this, _: &ToggleMongoEditor, window, cx| {
+                this.toggle_editor(window, cx);
             }))
             // Tab Bar 仅在 show_editor=true 时渲染（与 dbclient::QueryPanel 同款）
             .when(self.show_editor, |panel| {

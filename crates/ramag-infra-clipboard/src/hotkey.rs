@@ -48,6 +48,8 @@ unsafe extern "C" {
         options: u32,
         out_ref: *mut EventHotKeyRef,
     ) -> OsStatus;
+    fn UnregisterEventHotKey(hot_key: EventHotKeyRef) -> OsStatus;
+    fn RemoveEventHandler(handler: EventHandlerRef) -> OsStatus;
 }
 
 // kEventClassKeyboard = 'keyb'，kEventHotKeyPressed = 5
@@ -66,25 +68,27 @@ extern "C" fn hotkey_handler(
     user_data: *mut c_void,
 ) -> OsStatus {
     if !user_data.is_null() {
-        // user_data 指向 leak 的 Sender（app 生命周期常驻），仅借用不接管
+        // user_data 指向 Sender 裸指针，仅借用不接管（注销时由 Drop 回收）
         let tx = unsafe { &*(user_data as *const Sender<()>) };
         let _ = tx.send(());
     }
     0
 }
 
-/// 热键句柄：持有 Receiver，并让注册的 Carbon ref 保持存活（app 生命周期）
+/// 热键句柄：持有 Receiver 与 Carbon ref；Drop 时注销热键、移除 handler、回收 Sender。
+/// ref 以 usize 存（裸指针非 Send，须能随句柄移入异步轮询任务）
 pub struct HotkeyListener {
     rx: Receiver<()>,
-    _handler_ref: usize,
-    _hotkey_ref: usize,
+    handler_ref: usize,
+    hotkey_ref: usize,
+    tx_ptr: usize,
 }
 
 impl HotkeyListener {
     /// 注册 cmd-shift-V。须在主线程、NSApplication 事件循环就绪后调用
     pub fn register_cmd_shift_v() -> Option<Self> {
         let (tx, rx) = channel::<()>();
-        // Sender leak 成裸指针交给 Carbon 回调（单热键，app 生命周期常驻，不回收）
+        // Sender 转裸指针交给 Carbon 回调；句柄存活期间常驻，注销时由 Drop 回收
         let tx_ptr = Box::into_raw(Box::new(tx)) as *mut c_void;
 
         unsafe {
@@ -117,13 +121,17 @@ impl HotkeyListener {
             );
             if status != 0 {
                 warn!(status, "RegisterEventHotKey failed");
+                // 注册失败：回收已装的 handler 与 Sender，避免悬挂 handler 与内存泄漏
+                RemoveEventHandler(handler_ref);
+                drop(Box::from_raw(tx_ptr as *mut Sender<()>));
                 return None;
             }
             info!("global hotkey cmd-shift-v registered");
             Some(Self {
                 rx,
-                _handler_ref: handler_ref as usize,
-                _hotkey_ref: hotkey_ref as usize,
+                handler_ref: handler_ref as usize,
+                hotkey_ref: hotkey_ref as usize,
+                tx_ptr: tx_ptr as usize,
             })
         }
     }
@@ -135,5 +143,18 @@ impl HotkeyListener {
             fired = true;
         }
         fired
+    }
+}
+
+impl Drop for HotkeyListener {
+    /// 注销热键 → 移除 handler → 回收 Sender。须与注册同在主线程，避免与事件分发竞争。
+    /// 先移除 handler 阻断后续回调，再释放其借用的 Sender
+    fn drop(&mut self) {
+        unsafe {
+            UnregisterEventHotKey(self.hotkey_ref as EventHotKeyRef);
+            RemoveEventHandler(self.handler_ref as EventHandlerRef);
+            drop(Box::from_raw(self.tx_ptr as *mut Sender<()>));
+        }
+        info!("global hotkey cmd-shift-v unregistered");
     }
 }

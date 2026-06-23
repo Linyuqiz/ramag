@@ -44,16 +44,6 @@ pub struct FormatSql;
 #[action(namespace = ramag_dbclient)]
 pub struct ExplainQuery;
 
-/// 保存当前编辑器到 .sql 文件（默认 cmd-s）
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, JsonSchema, Action)]
-#[action(namespace = ramag_dbclient)]
-pub struct SaveSqlFile;
-
-/// 切换查询历史（默认 cmd-shift-h；cmd-h 在 macOS 是隐藏窗口，避开）
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, JsonSchema, Action)]
-#[action(namespace = ramag_dbclient)]
-pub struct ToggleHistory;
-
 /// 右键菜单：复制选中单元格的完整值
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, JsonSchema, Action)]
 #[action(namespace = ramag_dbclient)]

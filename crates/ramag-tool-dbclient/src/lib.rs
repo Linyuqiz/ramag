@@ -8,8 +8,7 @@ pub mod views;
 
 pub use actions::{
     CopyCellValue, CopySelectedColumn, ExplainQuery, ExportCsv, ExportJson, ExportMarkdown,
-    FindInResults, FormatSql, NewQueryTab, RunQuery, RunStatementAtCursor, SaveSqlFile,
-    ToggleHistory, ToggleSqlEditor,
+    FindInResults, FormatSql, NewQueryTab, RunQuery, RunStatementAtCursor, ToggleSqlEditor,
 };
 pub use views::DbClientView;
 

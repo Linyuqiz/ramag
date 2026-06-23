@@ -7,9 +7,9 @@ use gpui::{
     Render, ScrollHandle, SharedString, Styled, Window, div, prelude::*, px,
 };
 
-use crate::actions::{NewQueryTab, ToggleHistory};
+use crate::actions::NewQueryTab;
 use gpui_component::{
-    ActiveTheme, Disableable as _, IconName, Sizable as _, WindowExt as _,
+    ActiveTheme, Disableable as _, IconName, Sizable as _,
     button::{Button, ButtonVariants as _},
     h_flex,
     menu::{DropdownMenu as _, PopupMenuItem},
@@ -21,7 +21,6 @@ use ramag_domain::entities::ConnectionConfig;
 use ramag_ui::CloseTab;
 
 use crate::sql_completion::SchemaCache;
-use crate::views::history_panel::{HistoryEvent, HistoryPanel};
 use crate::views::query_tab::QueryTab;
 
 pub struct QueryPanel {
@@ -38,8 +37,6 @@ pub struct QueryPanel {
     connection: Option<ConnectionConfig>,
     /// 当前激活的默认库（点表树/schema 行后同步给所有 Tab）
     active_schema: Option<String>,
-    /// 历史面板。Dialog 弹框形式，cmd-shift-h 触发
-    history: Entity<HistoryPanel>,
     /// SQL 编辑器显隐（cmd-e 或表树按钮切换；全局生效，新 Tab 按此初始化）
     show_editor: bool,
     /// tab bar 横向滚动句柄：tab 多到溢出时，新建后滚到末尾让新 tab 可见
@@ -54,26 +51,6 @@ impl QueryPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let history = cx.new(|cx| HistoryPanel::new(service.clone(), None, window, cx));
-        let mut subs = Vec::new();
-        subs.push(cx.subscribe_in(
-            &history,
-            window,
-            |this, _, e: &HistoryEvent, window, cx| match e {
-                HistoryEvent::Selected(rec) => {
-                    let sql = rec.sql.clone();
-                    if let Some(tab) = this.tabs.get(this.active) {
-                        tab.update(cx, |t, cx| t.set_sql(sql, window, cx));
-                    }
-                    // 选中历史后关闭弹框（用户选完不期望弹框继续挡视线）
-                    if window.has_active_dialog(cx) {
-                        window.close_dialog(cx);
-                    }
-                    cx.notify();
-                }
-            },
-        ));
-
         let mut this = Self {
             service,
             schema_cache,
@@ -82,11 +59,10 @@ impl QueryPanel {
             active: 0,
             connection: None,
             active_schema: None,
-            history,
             // 数据浏览 / 导出是主场景，写 SQL 走 cmd-e 或表树按钮唤出
             show_editor: false,
             tabs_scroll: ScrollHandle::new(),
-            _subscriptions: subs,
+            _subscriptions: Vec::new(),
         };
         // 默认创建一个 Tab
         this.add_tab(window, cx);
@@ -104,9 +80,6 @@ impl QueryPanel {
         for tab in self.tabs.iter() {
             tab.update(cx, |t, cx| t.set_connection(conn.clone(), cx));
         }
-        let conn_id = conn.as_ref().map(|c| c.id.clone());
-        self.history
-            .update(cx, |h, cx| h.set_connection(conn_id, cx));
         cx.notify();
     }
 
@@ -121,28 +94,6 @@ impl QueryPanel {
             tab.update(cx, |t, cx| t.set_active_schema(normalized.clone(), cx));
         }
         cx.notify();
-    }
-
-    /// 切换查询历史弹框：已开则关、未开则刷新数据后弹出
-    /// 入参带 window 是因为 open_dialog/close_dialog 都依赖 window
-    fn toggle_history(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if window.has_active_dialog(cx) {
-            window.close_dialog(cx);
-            return;
-        }
-        // 弹之前刷新一次：避免显示陈旧数据
-        self.history.update(cx, |h, cx| h.refresh(cx));
-        let history = self.history.clone();
-        window.open_dialog(cx, move |dialog, _, _| {
-            let history = history.clone();
-            dialog
-                .title("查询历史")
-                .width(px(880.0))
-                .margin_top(px(80.0))
-                // 固定一个合理的内容高度：HistoryPanel 内部是 size_full，
-                // 必须给父容器明确高度，否则塌陷为 0
-                .content(move |c, _, _| c.child(div().h(px(560.0)).w_full().child(history.clone())))
-        });
     }
 
     /// 切换 SQL 编辑器显隐：所有 Tab 同步；返回切换后的可见状态供调用方更新 UI
@@ -220,7 +171,7 @@ impl QueryPanel {
     }
 
     /// 聚焦当前激活 Tab 的编辑器
-    fn focus_active_editor(&self, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn focus_active_editor(&self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(tab) = self.tabs.get(self.active) {
             tab.update(cx, |t, cx| t.focus_editor(window, cx));
         }
@@ -314,7 +265,7 @@ impl Render for QueryPanel {
             .collect();
         let only_one = titles.len() <= 1;
 
-        // 当前主区视图：始终是 active Tab（历史已迁移到 Dialog）
+        // 当前主区视图：始终是 active Tab
         let current_view: Option<AnyView> = self.tabs.get(active).map(|t| t.clone().into());
 
         // Tab Bar 渲染
@@ -382,10 +333,6 @@ impl Render for QueryPanel {
                 } else {
                     cx.propagate();
                 }
-            }))
-            // ToggleHistory 切换弹框开关
-            .on_action(cx.listener(|this, _: &ToggleHistory, window, cx| {
-                this.toggle_history(window, cx);
             }))
             // Tab Bar 仅在 SQL 编辑器可见时渲染
             .when(self.show_editor, |panel| {

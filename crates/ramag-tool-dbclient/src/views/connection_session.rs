@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::{
-    Context, Entity, IntoElement, ParentElement, Render, Styled, Subscription, Window, div,
-    prelude::*, px,
+    Context, Entity, FocusHandle, IntoElement, ParentElement, Render, Styled, Subscription, Window,
+    div, prelude::*, px,
 };
 use gpui_component::{
     ActiveTheme, h_flex,
@@ -36,6 +36,8 @@ pub struct ConnectionSession {
     queries: Entity<QueryPanel>,
     /// 表树 / 查询面板分隔条状态（拖拽改变两侧宽度）
     resize_state: Entity<ResizableState>,
+    /// 会话根焦点：隐藏 SQL 编辑器后把焦点收回这里，保证 cmd-e 仍能再次触发
+    focus_handle: FocusHandle,
     /// SQL 补全用的 schema 缓存（background 填充；持有 keep-alive，
     /// 实际由 QueryPanel 内部 Tab 通过 Arc 共享读取）
     _schema_cache: Arc<RwLock<SchemaCache>>,
@@ -74,13 +76,12 @@ impl ConnectionSession {
         // 订阅表树事件：填 SELECT 到当前 Tab 并自动执行；同时把 schema
         // 同步到所有 Tab（写裸表名 SQL 时不会再报 No database selected）
         let queries_clone = queries.clone();
-        let tree_for_sync = tree.clone();
         // 当前 session 的 driver（mysql/pg），订阅闭包内决定方言写法时用
         let driver_kind = config.driver;
         subs.push(cx.subscribe_in(
             &tree,
             window,
-            move |_this: &mut Self, _, e: &TreeEvent, window, cx| match e {
+            move |this: &mut Self, _, e: &TreeEvent, window, cx| match e {
                 TreeEvent::TableSelected { schema, table } => {
                     info!(schema = %schema, table = %table, "table selected, prefill + run");
                     queries_clone.update(cx, |q, cx| {
@@ -115,24 +116,38 @@ impl ConnectionSession {
                     });
                 }
                 TreeEvent::ToggleSqlEditor => {
-                    // 只切 QueryPanel 内的 SQL 编辑器；下方工具条/结果表格保留
-                    let visible = queries_clone.update(cx, |q, cx| q.toggle_editor(cx));
-                    info!(visible, "toggle sql editor");
-                    // 同步给 tree，让按钮图标朝向匹配
-                    tree_for_sync.update(cx, |t, cx| t.set_editor_visible(visible, cx));
+                    // 切 QueryPanel 的 SQL 编辑器（含焦点处理，保证 cmd-e 可反复触发）
+                    this.toggle_sql_editor(window, cx);
                 }
             },
         ));
 
         let resize_state = cx.new(|_| ResizableState::default());
+        let focus_handle = cx.focus_handle();
 
         Self {
             config,
             tree,
             queries,
             resize_state,
+            focus_handle,
             _schema_cache: schema_cache,
             _subscriptions: subs,
+        }
+    }
+
+    /// 切 SQL 编辑器并处理焦点：显示→聚焦编辑器；隐藏→焦点收回会话根。
+    /// 否则编辑器失焦后 cmd-e 的 handler 脱离焦点链，无法再次唤出编辑器
+    fn toggle_sql_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let visible = self.queries.update(cx, |q, cx| q.toggle_editor(cx));
+        info!(visible, "toggle sql editor");
+        self.tree
+            .update(cx, |t, cx| t.set_editor_visible(visible, cx));
+        if visible {
+            self.queries
+                .update(cx, |q, cx| q.focus_active_editor(window, cx));
+        } else {
+            window.focus(&self.focus_handle, cx);
         }
     }
 
@@ -203,13 +218,12 @@ impl Render for ConnectionSession {
         // 表树初始 280px，限制 [180, 600]；查询面板占剩余
         h_flex()
             .size_full()
+            .track_focus(&self.focus_handle)
             .bg(theme.background)
             // cmd-e 切 SQL 编辑器，dispatch 冒泡到此；与表树按钮的 ToggleSqlEditor 同路径
             .on_action(
-                cx.listener(|this, _: &crate::actions::ToggleSqlEditor, _, cx| {
-                    let visible = this.queries.update(cx, |q, cx| q.toggle_editor(cx));
-                    this.tree
-                        .update(cx, |t, cx| t.set_editor_visible(visible, cx));
+                cx.listener(|this, _: &crate::actions::ToggleSqlEditor, window, cx| {
+                    this.toggle_sql_editor(window, cx);
                 }),
             )
             .child(
