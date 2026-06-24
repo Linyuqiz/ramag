@@ -1,79 +1,118 @@
-//! List 块：每行带删除按钮
+//! List 块：uniform_list 行级虚拟化（等高行），每行带删除按钮
 
-use gpui::{ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div, px};
+use std::ops::Range;
+
+use gpui::{
+    ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, UniformListScrollHandle,
+    div, px, uniform_list,
+};
 use gpui_component::{
     Sizable as _,
     button::{Button, ButtonVariants as _},
-    h_flex, v_flex,
+    h_flex,
 };
 use ramag_domain::entities::RedisValue;
 
 use super::{KeyDetailEvent, KeyDetailPanel};
 
-#[allow(clippy::too_many_arguments)]
+/// 行高固定 32px：uniform_list 行级虚拟化要求等高
+const ROW_H: f32 = 32.0;
+
 pub(super) fn render_list_block(
     panel: &mut Context<KeyDetailPanel>,
     key: String,
-    items: &[RedisValue],
+    count: usize,
+    scroll: &UniformListScrollHandle,
     fg: gpui::Hsla,
     muted_fg: gpui::Hsla,
-    _accent: gpui::Hsla,
     border: gpui::Hsla,
 ) -> impl IntoElement + use<> {
-    let mut rows = v_flex()
-        .w_full()
-        .gap(px(0.0))
+    div()
+        .flex_1()
+        .min_h_0()
         .border_1()
         .border_color(border)
-        .rounded(px(4.0));
-    for (i, item) in items.iter().enumerate() {
-        let preview = item.display_preview(256);
-        let raw_value = match item {
-            RedisValue::Text(s) => s.clone(),
-            other => other.display_preview(8192),
-        };
-        let key_for_emit = key.clone();
-        let del_id = SharedString::from(format!("list-del-{i}"));
-        rows = rows.child(
-            h_flex()
-                .w_full()
-                .px(px(8.0))
-                .py(px(6.0))
-                .border_b_1()
-                .border_color(border)
-                .gap(px(8.0))
-                .child(
-                    div()
-                        .w(px(40.0))
-                        .text_xs()
-                        .text_color(muted_fg)
-                        .flex_none()
-                        .child(format!("{i}")),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .text_sm()
-                        .text_color(fg)
-                        .font_family("monospace")
-                        .child(preview),
-                )
-                .child(
-                    Button::new(del_id)
-                        .ghost()
-                        .small()
-                        .icon(ramag_ui::icons::trash())
-                        .tooltip("删除该元素")
-                        .on_click(panel.listener(move |_, _: &ClickEvent, _, cx| {
-                            cx.emit(KeyDetailEvent::RequestDeleteListElement(
-                                key_for_emit.clone(),
-                                raw_value.clone(),
-                                i,
-                            ));
-                        })),
-                ),
-        );
-    }
-    rows
+        .rounded(px(4.0))
+        .child(
+            uniform_list(
+                "list-rows",
+                count,
+                panel.processor(move |this, range: Range<usize>, _w, cx| {
+                    let Some(RedisValue::List(items)) = &this.value else {
+                        return Vec::new();
+                    };
+                    range
+                        .filter_map(|i| {
+                            let item = items.get(i)?;
+                            Some(
+                                list_row(&key, i, item, fg, muted_fg, border, cx)
+                                    .into_any_element(),
+                            )
+                        })
+                        .collect()
+                }),
+            )
+            .track_scroll(scroll)
+            .flex_1(),
+        )
+}
+
+fn list_row(
+    key: &str,
+    i: usize,
+    item: &RedisValue,
+    fg: gpui::Hsla,
+    muted_fg: gpui::Hsla,
+    border: gpui::Hsla,
+    cx: &mut Context<KeyDetailPanel>,
+) -> impl IntoElement + use<> {
+    let preview = item.display_preview(256);
+    let raw_value = match item {
+        RedisValue::Text(s) => s.clone(),
+        other => other.display_preview(8192),
+    };
+    let key_for_emit = key.to_string();
+    let del_id = SharedString::from(format!("list-del-{i}"));
+    h_flex()
+        .h(px(ROW_H))
+        .flex_none()
+        .w_full()
+        .px(px(8.0))
+        .border_b_1()
+        .border_color(border)
+        .gap(px(8.0))
+        .items_center()
+        .child(
+            div()
+                .w(px(40.0))
+                .text_xs()
+                .text_color(muted_fg)
+                .flex_none()
+                .child(format!("{i}")),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_sm()
+                .text_color(fg)
+                .font_family("monospace")
+                .overflow_hidden()
+                .text_ellipsis()
+                .child(preview),
+        )
+        .child(
+            Button::new(del_id)
+                .ghost()
+                .small()
+                .icon(ramag_ui::icons::trash())
+                .tooltip("删除该元素")
+                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                    cx.emit(KeyDetailEvent::RequestDeleteListElement(
+                        key_for_emit.clone(),
+                        raw_value.clone(),
+                        i,
+                    ));
+                })),
+        )
 }

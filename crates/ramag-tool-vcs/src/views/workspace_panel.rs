@@ -1,8 +1,12 @@
-//! 工作区文件分组渲染（IDE Files 内容）。主入口含 commit panel 与 diff 由 ide_layout 组合
+//! 工作区文件分组渲染（IDE Files 内容）。4 组（冲突/已暂存/未暂存/未跟踪）扁平为
+//! 单个 uniform_list（分组表头行 + 目录行 + 文件行，全 28px 等高），万级变更也只渲染可见行
+
+use std::ops::Range;
+use std::rc::Rc;
 
 use gpui::{
     AnyElement, ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div,
-    prelude::*, px,
+    prelude::*, px, uniform_list,
 };
 use gpui_component::{
     ActiveTheme, Disableable as _, IconName, Sizable as _,
@@ -15,8 +19,33 @@ use super::helpers::{FileOp, GroupKind, code_letter_color, code_to_letter, file_
 use super::vcs_view::VcsView;
 use super::workspace_conflict::conflict_buttons;
 
+/// 行高固定 28px：uniform_list 行级虚拟化要求所有行等高（表头 / 目录 / 文件同高）
+const ROW_H: f32 = 28.0;
+
+/// 扁平后的 Changes 行：分组表头 / 目录 / 文件
+enum ChangeRow {
+    Header {
+        title: &'static str,
+        color: gpui::Hsla,
+        kind: GroupKind,
+        paths: Vec<String>,
+    },
+    Dir {
+        display_name: String,
+        dir_path: String,
+        depth: usize,
+        is_collapsed: bool,
+        file_count: usize,
+    },
+    File {
+        file: FileStatus,
+        depth: usize,
+        kind: GroupKind,
+    },
+}
+
 impl VcsView {
-    /// 工作区文件分组：已暂存 / 未暂存 / 未跟踪 / 冲突
+    /// 工作区文件分组：4 组扁平为单 uniform_list（分组表头行 + 目录 / 文件行）
     pub(super) fn render_file_groups(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme();
         let muted_fg = theme.muted_foreground;
@@ -74,83 +103,183 @@ impl VcsView {
                 .into_any_element();
         }
 
+        // 4 组按固定顺序扁平为一个行序列
         let warm_orange = gpui::hsla(40.0 / 360.0, 0.7, 0.55, 1.0);
-        let mut col = v_flex().gap(px(12.0));
-        if !conflicted.is_empty() {
-            col = col.child(self.render_group("冲突", danger, conflicted, GroupKind::Conflict, cx));
-        }
-        if !staged.is_empty() {
-            col = col.child(self.render_group("已暂存", accent, staged, GroupKind::Staged, cx));
-        }
-        if !unstaged.is_empty() {
-            col = col.child(self.render_group(
-                "未暂存",
-                warm_orange,
-                unstaged,
-                GroupKind::Unstaged,
-                cx,
-            ));
-        }
-        if !untracked.is_empty() {
-            col = col.child(self.render_group(
-                "未跟踪",
-                muted_fg,
-                untracked,
-                GroupKind::Untracked,
-                cx,
-            ));
-        }
-        col.into_any_element()
+        let mut rows: Vec<ChangeRow> = Vec::new();
+        self.append_change_group("冲突", danger, GroupKind::Conflict, conflicted, &mut rows);
+        self.append_change_group("已暂存", accent, GroupKind::Staged, staged, &mut rows);
+        self.append_change_group(
+            "未暂存",
+            warm_orange,
+            GroupKind::Unstaged,
+            unstaged,
+            &mut rows,
+        );
+        self.append_change_group(
+            "未跟踪",
+            muted_fg,
+            GroupKind::Untracked,
+            untracked,
+            &mut rows,
+        );
+
+        let rows_rc: Rc<Vec<ChangeRow>> = Rc::new(rows);
+        let total = rows_rc.len();
+        let body = uniform_list(
+            "vcs-changes-rows",
+            total,
+            cx.processor({
+                let rows_rc = rows_rc.clone();
+                move |this, range: Range<usize>, _w, cx| {
+                    range
+                        .map(|i| this.render_change_row(i, &rows_rc[i], cx))
+                        .collect::<Vec<_>>()
+                }
+            }),
+        )
+        .track_scroll(&self.changes_scroll)
+        .flex_1();
+
+        // size_full + min_h_0：在外层 overflow_y_scrollbar 容器内拿到确定高度（同 project_files）
+        v_flex()
+            .size_full()
+            .min_h_0()
+            .child(body)
+            .into_any_element()
     }
 
-    /// 一组文件（如「已暂存」「未暂存」），含 header 计数 + 全组操作 + 文件行
-    pub(super) fn render_group(
+    /// 把一组文件（build_tree → flatten）追加成 Header + Dir/File 行
+    fn append_change_group(
+        &self,
+        title: &'static str,
+        color: gpui::Hsla,
+        kind: GroupKind,
+        files: Vec<FileStatus>,
+        out: &mut Vec<ChangeRow>,
+    ) {
+        if files.is_empty() {
+            return;
+        }
+        let paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
+        out.push(ChangeRow::Header {
+            title,
+            color,
+            kind,
+            paths,
+        });
+        let tree = super::file_tree::build_tree(&files);
+        let mut trows: Vec<super::file_tree::Row> = Vec::with_capacity(files.len() * 2);
+        super::file_tree::flatten(&tree, 0, "", &self.changes_collapsed_dirs, &mut trows);
+        for r in trows {
+            match r {
+                super::file_tree::Row::Dir {
+                    display_name,
+                    dir_path,
+                    depth,
+                    is_collapsed,
+                    file_count,
+                } => out.push(ChangeRow::Dir {
+                    display_name,
+                    dir_path,
+                    depth,
+                    is_collapsed,
+                    file_count,
+                }),
+                super::file_tree::Row::File { idx, depth } => out.push(ChangeRow::File {
+                    file: files[idx].clone(),
+                    depth,
+                    kind,
+                }),
+            }
+        }
+    }
+
+    /// uniform_list 单行分发：表头 / 目录 / 文件
+    fn render_change_row(&self, i: usize, row: &ChangeRow, cx: &mut Context<Self>) -> AnyElement {
+        match row {
+            ChangeRow::Header {
+                title,
+                color,
+                kind,
+                paths,
+            } => self.render_change_header_row(title, *color, *kind, paths, cx),
+            ChangeRow::Dir {
+                display_name,
+                dir_path,
+                depth,
+                is_collapsed,
+                file_count,
+            } => self.render_change_dir_row(
+                i,
+                display_name,
+                dir_path,
+                *depth,
+                *is_collapsed,
+                *file_count,
+                cx,
+            ),
+            ChangeRow::File { file, depth, kind } => div()
+                .w_full()
+                .h(px(ROW_H))
+                .flex_none()
+                .pl(px((*depth as f32) * 12.0))
+                .child(self.render_file_row(i, file.clone(), *kind, cx))
+                .into_any_element(),
+        }
+    }
+
+    /// 分组表头行：色块徽标 + 计数 + 全组批量按钮（顶边线分隔相邻组）
+    fn render_change_header_row(
         &self,
         title: &'static str,
         badge_color: gpui::Hsla,
-        files: Vec<FileStatus>,
         kind: GroupKind,
+        paths: &[String],
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme();
         let muted_fg = theme.muted_foreground;
-        let count = files.len();
+        let border = theme.border;
         let busy = self.busy;
-
+        let count = paths.len();
         let mut badge_bg = badge_color;
         badge_bg.a = 0.14;
 
-        // 按组提供"全部 stage / unstage"按钮——批量操作不再要求逐个点击
-        let group_paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
+        // 按组提供"全部 stage / unstage"批量操作
         let bulk_btn: Option<AnyElement> = match kind {
-            GroupKind::Unstaged | GroupKind::Untracked if !group_paths.is_empty() => {
+            GroupKind::Unstaged | GroupKind::Untracked if !paths.is_empty() => {
                 Some(bulk_op_button(
                     "stage-all",
                     title,
                     "全部 Stage",
                     FileOp::Stage,
                     IconName::Plus,
-                    group_paths,
+                    paths.to_vec(),
                     busy,
                     cx,
                 ))
             }
-            GroupKind::Staged if !group_paths.is_empty() => Some(bulk_op_button(
+            GroupKind::Staged if !paths.is_empty() => Some(bulk_op_button(
                 "unstage-all",
                 title,
                 "全部 Unstage",
                 FileOp::Unstage,
                 IconName::Minus,
-                group_paths,
+                paths.to_vec(),
                 busy,
                 cx,
             )),
             _ => None,
         };
 
-        let mut header = h_flex()
+        let mut row = h_flex()
+            .h(px(ROW_H))
+            .flex_none()
+            .w_full()
             .gap(px(8.0))
             .items_center()
+            .border_t_1()
+            .border_color(border)
             .child(
                 div()
                     .px(px(8.0))
@@ -171,98 +300,71 @@ impl VcsView {
                     .child(format!("{count} 个文件")),
             );
         if let Some(btn) = bulk_btn {
-            header = header.child(btn);
+            row = row.child(btn);
         }
-
-        // 文件按目录树展示（中间空目录压缩，IDEA 风格）：build_tree → flatten → 渲染 dir/file
-        let tree = super::file_tree::build_tree(&files);
-        let mut tree_rows: Vec<super::file_tree::Row> = Vec::with_capacity(files.len() * 2);
-        super::file_tree::flatten(&tree, 0, "", &self.changes_collapsed_dirs, &mut tree_rows);
-        let mut body = v_flex().pl(px(2.0));
-        for (i, r) in tree_rows.into_iter().enumerate() {
-            body = body.child(self.render_changes_tree_row(i, &r, &files, kind, cx));
-        }
-
-        v_flex()
-            .gap(px(6.0))
-            .child(header)
-            .child(body)
-            .into_any_element()
+        row.into_any_element()
     }
 
-    /// Changes 树行：dir（折叠图标 + 名 + 计数）/ file（复用 render_file_row + 缩进）
-    fn render_changes_tree_row(
+    /// 目录行：折叠图标 + 名 + 文件计数（整行可点切换折叠）
+    #[allow(clippy::too_many_arguments)]
+    fn render_change_dir_row(
         &self,
-        idx: usize,
-        row: &super::file_tree::Row,
-        files: &[FileStatus],
-        kind: GroupKind,
+        i: usize,
+        display_name: &str,
+        dir_path: &str,
+        depth: usize,
+        is_collapsed: bool,
+        file_count: usize,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme();
         let fg = theme.foreground;
         let muted_fg = theme.muted_foreground;
         let hover_bg = theme.muted;
-        match row {
-            super::file_tree::Row::Dir {
-                display_name,
-                dir_path,
-                depth,
-                is_collapsed,
-                file_count,
-            } => {
-                let id = SharedString::from(format!("vcs-ch-dir-{idx}-{dir_path}"));
-                let icon = if *is_collapsed { "▸" } else { "▾" };
-                let dir_clone = dir_path.clone();
-                h_flex()
-                    .id(id)
-                    .gap(px(4.0))
-                    .items_center()
-                    .py(px(2.0))
-                    .pr(px(6.0))
-                    .pl(px((4 + depth * 12) as f32))
-                    .rounded(px(3.0))
-                    .cursor_pointer()
-                    .hover(move |this| this.bg(hover_bg))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.toggle_changes_dir(dir_clone.clone(), cx);
-                    }))
-                    .child(
-                        div()
-                            .flex_none()
-                            .w(px(12.0))
-                            .text_xs()
-                            .text_color(muted_fg)
-                            .child(icon),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_xs()
-                            .text_color(fg)
-                            .overflow_hidden()
-                            .text_ellipsis()
-                            .child(display_name.clone()),
-                    )
-                    .child(
-                        div()
-                            .flex_none()
-                            .text_xs()
-                            .text_color(muted_fg)
-                            .child(format!("{file_count}")),
-                    )
-                    .into_any_element()
-            }
-            super::file_tree::Row::File { idx: f_idx, depth } => {
-                let f = files[*f_idx].clone();
-                let inner = self.render_file_row(idx, f, kind, cx).into_any_element();
+        let id = SharedString::from(format!("vcs-ch-dir-{i}-{dir_path}"));
+        let icon = if is_collapsed { "▸" } else { "▾" };
+        let dir_clone = dir_path.to_string();
+        h_flex()
+            .id(id)
+            .h(px(ROW_H))
+            .flex_none()
+            .w_full()
+            .gap(px(4.0))
+            .items_center()
+            .pr(px(6.0))
+            .pl(px((4 + depth * 12) as f32))
+            .rounded(px(3.0))
+            .cursor_pointer()
+            .hover(move |this| this.bg(hover_bg))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.toggle_changes_dir(dir_clone.clone(), cx);
+            }))
+            .child(
                 div()
-                    .pl(px((depth * 12) as f32))
-                    .child(inner)
-                    .into_any_element()
-            }
-        }
+                    .flex_none()
+                    .w(px(12.0))
+                    .text_xs()
+                    .text_color(muted_fg)
+                    .child(icon),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_xs()
+                    .text_color(fg)
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .child(display_name.to_string()),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .text_xs()
+                    .text_color(muted_fg)
+                    .child(format!("{file_count}")),
+            )
+            .into_any_element()
     }
 
     /// 切换 Changes 文件树某目录的折叠状态
@@ -273,7 +375,7 @@ impl VcsView {
         cx.notify();
     }
 
-    /// 单文件行：变更字母 + 路径 + 行尾按钮；整行可点击查看 diff
+    /// 单文件行：变更字母 + 路径 + 行尾按钮；整行可点击查看 diff（固定 28px 高，适配虚拟列表）
     pub(super) fn render_file_row(
         &self,
         idx: usize,
@@ -374,9 +476,11 @@ impl VcsView {
         let row_id = SharedString::from(format!("vcs-file-{}-{}-{:?}", idx, f.path, kind));
         let mut row = h_flex()
             .id(row_id)
+            .h(px(ROW_H))
+            .flex_none()
+            .w_full()
             .gap(px(8.0))
             .items_center()
-            .py(px(2.0))
             .px(px(4.0))
             .rounded(px(3.0))
             .cursor_pointer()

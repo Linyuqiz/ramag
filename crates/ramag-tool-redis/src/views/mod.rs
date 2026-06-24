@@ -1,6 +1,7 @@
 //! Redis 视图：dbclient 装载，driver 选 Redis 时进入 connection_session
 
 pub mod connection_session;
+pub mod form_shell;
 pub mod hash_field_form;
 pub mod key_create;
 pub mod key_detail;

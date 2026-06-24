@@ -1,24 +1,19 @@
 //! PG SQLSTATE → DomainError 映射。仅识别 Database 变体，其余走 sql-shared 兜底
 
 use ramag_domain::error::DomainError;
-use ramag_infra_sql_shared::errors::map_sqlx_common;
+use ramag_infra_sql_shared::errors::{map_database_error, map_sqlx_common};
 
 pub fn map_postgres_error(err: &sqlx::Error) -> DomainError {
     map_postgres_database_error(err).unwrap_or_else(|| map_sqlx_common(err))
 }
 
 pub fn map_postgres_database_error(err: &sqlx::Error) -> Option<DomainError> {
-    let db_err = err.as_database_error()?;
-    let code = db_err.code().map(|c| c.to_string()).unwrap_or_default();
-    let raw_msg = db_err.message().to_string();
-    let friendly = postgres_error_friendly(&code, &raw_msg);
-
-    // SQLSTATE 类码前 2 位
-    let class = code.get(..2).unwrap_or("");
-    Some(match class {
-        // 08=连接 / 28=认证 → ConnectionFailed
-        "08" | "28" => DomainError::ConnectionFailed(friendly),
-        _ => DomainError::QueryFailed(friendly),
+    map_database_error(err, postgres_error_friendly, |code, msg| {
+        // SQLSTATE 类码前 2 位：08=连接 / 28=认证 → ConnectionFailed
+        match code.get(..2).unwrap_or("") {
+            "08" | "28" => DomainError::ConnectionFailed(msg),
+            _ => DomainError::QueryFailed(msg),
+        }
     })
 }
 

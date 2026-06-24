@@ -194,6 +194,10 @@ pub struct VcsView {
     pub(super) diff_scroll: UniformListScrollHandle,
     /// commit 文件列表 / 冲突编辑器滚动
     pub(super) commit_files_scroll: UniformListScrollHandle,
+    /// Changes 变更文件树 uniform_list 滚动句柄（4 组扁平为单列表 + 分组表头行）
+    pub(super) changes_scroll: UniformListScrollHandle,
+    /// history 左栏（本地/远程分支 + tag 合并为单 uniform_list）滚动句柄
+    pub(super) history_left_scroll: UniformListScrollHandle,
     pub(super) conflict_ours_scroll: UniformListScrollHandle,
     pub(super) conflict_theirs_scroll: UniformListScrollHandle,
     /// 虚拟列表滚动句柄：history 中栏 + reflog 列表（uniform_list 行级，万级也不卡）

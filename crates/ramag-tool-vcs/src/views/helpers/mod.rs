@@ -4,7 +4,7 @@ mod commit_row;
 
 pub(super) use commit_row::render_commit_row;
 
-use gpui::{AnyElement, ClickEvent, Context, IntoElement, SharedString};
+use gpui::{AnyElement, ClickEvent, Context, IntoElement, SharedString, Window};
 use gpui_component::{
     Disableable as _, IconName, Sizable as _,
     button::{Button, ButtonVariants as _},
@@ -240,6 +240,28 @@ pub(super) fn file_op_button(
         this.confirm_file_op(op, path.clone(), window, cx);
     }))
     .into_any_element()
+}
+
+/// 侧栏行尾操作小按钮（stash / tag 等通用）：ghost + xsmall + icon + tooltip + disabled。
+/// `id` 由调用方拼好（含前缀去重），`on_click` 由调用方按各自操作构造。
+pub(super) fn side_op_button(
+    id: impl Into<SharedString>,
+    tooltip: &'static str,
+    icon: impl Into<gpui_component::Icon>,
+    busy: bool,
+    on_click: impl Fn(&mut VcsView, &mut Window, &mut Context<VcsView>) + 'static,
+    cx: &mut Context<VcsView>,
+) -> AnyElement {
+    Button::new(id.into())
+        .ghost()
+        .xsmall()
+        .icon(icon)
+        .tooltip(tooltip)
+        .disabled(busy)
+        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+            on_click(this, window, cx);
+        }))
+        .into_any_element()
 }
 
 /// 文件状态字母（M / A / D / R / C / T / ? / U）

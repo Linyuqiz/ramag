@@ -10,9 +10,7 @@ use gpui::{
     Render, SharedString, Styled, Window, div, hsla, prelude::*, px,
 };
 use gpui_component::{
-    ActiveTheme, Sizable as _,
-    button::{Button, ButtonVariants as _},
-    h_flex,
+    ActiveTheme, h_flex,
     input::{Input, InputState},
     v_flex,
 };
@@ -20,6 +18,7 @@ use ramag_app::RedisService;
 use ramag_domain::entities::{ConnectionConfig, RedisType};
 use tracing::{error, info};
 
+use crate::views::form_shell::{SubmitState, form_footer};
 use crate::views::lines_editor::{LinesEditor, LinesKind, PushDir};
 use crate::views::pairs_editor::{PairsEditor, PairsKind};
 use crate::views::ttl_picker::TtlPicker;
@@ -29,13 +28,6 @@ pub enum KeyCreateEvent {
     /// 创建成功，返回 key 名（让上层刷新树并选中新 key）
     Created(String),
     Cancelled,
-}
-
-#[derive(Debug, Clone)]
-enum SubmitState {
-    Idle,
-    Submitting,
-    Failed(String),
 }
 
 /// 类型选择按钮的展示顺序
@@ -356,11 +348,6 @@ impl Render for KeyCreateForm {
             type_row = type_row.child(btn);
         }
 
-        let err_msg = match &self.state {
-            SubmitState::Idle | SubmitState::Submitting => None,
-            SubmitState::Failed(s) => Some(s.clone()),
-        };
-        let submitting = matches!(self.state, SubmitState::Submitting);
         let value_section_title = format!("{} 值", self.selected_type.label());
 
         v_flex()
@@ -406,45 +393,18 @@ impl Render for KeyCreateForm {
                     .child(self.ttl_picker.clone()),
             )
             .child(div().h(px(1.0)).bg(border).my(px(2.0)))
-            .child(
-                h_flex()
-                    .w_full()
-                    .items_center()
-                    .justify_between()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_xs()
-                            .text_color(gpui::red())
-                            .child(err_msg.unwrap_or_default()),
-                    )
-                    .child(
-                        h_flex()
-                            .gap(px(8.0))
-                            .flex_none()
-                            .child(
-                                Button::new("kc-cancel")
-                                    .ghost()
-                                    .small()
-                                    .label("取消")
-                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                        this.handle_cancel(cx);
-                                    })),
-                            )
-                            .child(
-                                Button::new("kc-create")
-                                    .primary()
-                                    .small()
-                                    .label(if submitting { "创建中..." } else { "创建" })
-                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                        if !matches!(this.state, SubmitState::Submitting) {
-                                            this.handle_create(cx);
-                                        }
-                                    })),
-                            ),
-                    ),
-            )
+            .child(form_footer(
+                "kc",
+                "创建",
+                &self.state,
+                |this, _: &ClickEvent, _, cx| this.handle_cancel(cx),
+                |this, _: &ClickEvent, _, cx| {
+                    if !this.state.is_submitting() {
+                        this.handle_create(cx);
+                    }
+                },
+                cx,
+            ))
     }
 }
 

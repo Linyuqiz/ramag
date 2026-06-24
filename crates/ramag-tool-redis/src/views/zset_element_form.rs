@@ -7,15 +7,15 @@ use gpui::{
     div, prelude::*, px,
 };
 use gpui_component::{
-    ActiveTheme, Sizable as _,
-    button::{Button, ButtonVariants as _},
-    h_flex,
+    ActiveTheme,
     input::{Input, InputState},
     v_flex,
 };
 use ramag_app::RedisService;
 use ramag_domain::entities::ConnectionConfig;
 use tracing::{error, info};
+
+use crate::views::form_shell::{SubmitState, form_footer};
 
 #[derive(Debug, Clone)]
 pub enum ZSetElementFormMode {
@@ -27,13 +27,6 @@ pub enum ZSetElementFormMode {
 pub enum ZSetElementFormEvent {
     Saved,
     Cancelled,
-}
-
-#[derive(Debug, Clone)]
-enum SubmitState {
-    Idle,
-    Submitting,
-    Failed(String),
 }
 
 pub struct ZSetElementForm {
@@ -145,11 +138,6 @@ impl Render for ZSetElementForm {
         let border = theme.border;
 
         let is_edit = matches!(self.mode, ZSetElementFormMode::EditScore { .. });
-        let err = match &self.state {
-            SubmitState::Idle | SubmitState::Submitting => None,
-            SubmitState::Failed(s) => Some(s.clone()),
-        };
-        let submitting = matches!(self.state, SubmitState::Submitting);
 
         let member_block = if is_edit {
             v_flex()
@@ -205,44 +193,17 @@ impl Render for ZSetElementForm {
             )
             .child(member_block)
             .child(div().h(px(1.0)).bg(border).my(px(2.0)))
-            .child(
-                h_flex()
-                    .w_full()
-                    .items_center()
-                    .justify_between()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_xs()
-                            .text_color(gpui::red())
-                            .child(err.unwrap_or_default()),
-                    )
-                    .child(
-                        h_flex()
-                            .gap(px(8.0))
-                            .flex_none()
-                            .child(
-                                Button::new("ze-cancel")
-                                    .ghost()
-                                    .small()
-                                    .label("取消")
-                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                        this.handle_cancel(cx)
-                                    })),
-                            )
-                            .child(
-                                Button::new("ze-save")
-                                    .primary()
-                                    .small()
-                                    .label(if submitting { "保存中..." } else { "保存" })
-                                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                        if !matches!(this.state, SubmitState::Submitting) {
-                                            this.handle_save(cx);
-                                        }
-                                    })),
-                            ),
-                    ),
-            )
+            .child(form_footer(
+                "ze",
+                "保存",
+                &self.state,
+                |this, _: &ClickEvent, _, cx| this.handle_cancel(cx),
+                |this, _: &ClickEvent, _, cx| {
+                    if !this.state.is_submitting() {
+                        this.handle_save(cx);
+                    }
+                },
+                cx,
+            ))
     }
 }

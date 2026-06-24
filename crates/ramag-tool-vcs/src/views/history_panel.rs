@@ -13,7 +13,6 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::Input,
-    scroll::ScrollableElement as _,
     v_flex,
 };
 
@@ -21,6 +20,7 @@ use ramag_domain::entities::Commit;
 
 use super::commit_graph::CommitGraphRow;
 use super::helpers::{build_commit_lanes, render_commit_row};
+use super::sidebar::{LeftRow, SidebarSection};
 use super::vcs_view::VcsView;
 
 impl VcsView {
@@ -224,18 +224,95 @@ impl VcsView {
             .into_any_element()
     }
 
-    /// 左栏：本地 / 远程分支 + tags 段（复用 sidebar 段渲染，可折叠）
+    /// 左栏：本地/远程分支 + Tag 三段合并为单个 uniform_list（段表头 + 行 + 新建输入，28px 等高）
     fn render_history_left_pane(&self, _border: gpui::Hsla, cx: &mut Context<Self>) -> AnyElement {
+        let mut rows: Vec<LeftRow> = Vec::new();
+
+        // 本地分支段：表头 + 行 + 底部新建
+        rows.push(LeftRow::Header {
+            title: "本地分支",
+            count: self.local_branches.len(),
+            collapsed: self.collapsed_local,
+            section: SidebarSection::Local,
+        });
+        if !self.collapsed_local {
+            for (idx, b) in self.local_branches.iter().enumerate() {
+                rows.push(LeftRow::Branch {
+                    idx,
+                    branch: b.clone(),
+                    is_remote: false,
+                });
+            }
+            rows.push(LeftRow::CreateBranch);
+        }
+
+        // 远程分支段：表头 + 行（空则占位）
+        rows.push(LeftRow::Header {
+            title: "远程分支",
+            count: self.remote_branches.len(),
+            collapsed: self.collapsed_remote,
+            section: SidebarSection::Remote,
+        });
+        if !self.collapsed_remote {
+            if self.remote_branches.is_empty() {
+                rows.push(LeftRow::Empty("(无远程分支)"));
+            } else {
+                for (idx, b) in self.remote_branches.iter().enumerate() {
+                    rows.push(LeftRow::Branch {
+                        idx,
+                        branch: b.clone(),
+                        is_remote: true,
+                    });
+                }
+            }
+        }
+
+        // Tag 段：表头 + 行（空则占位）+ 底部新建
+        rows.push(LeftRow::Header {
+            title: "Tag",
+            count: self.tags.len(),
+            collapsed: self.collapsed_tag,
+            section: SidebarSection::Tag,
+        });
+        if !self.collapsed_tag {
+            if self.tags.is_empty() {
+                rows.push(LeftRow::Empty("(无 tag)"));
+            } else {
+                for (idx, t) in self.tags.iter().enumerate() {
+                    rows.push(LeftRow::Tag {
+                        idx,
+                        tag: t.clone(),
+                    });
+                }
+            }
+            rows.push(LeftRow::CreateTag);
+        }
+
+        let rows_rc: Rc<Vec<LeftRow>> = Rc::new(rows);
+        let total = rows_rc.len();
+        let body = uniform_list(
+            "vcs-history-left-rows",
+            total,
+            cx.processor({
+                let rows_rc = rows_rc.clone();
+                move |this, range: Range<usize>, _w, cx| {
+                    range
+                        .map(|i| this.render_left_row(&rows_rc[i], cx))
+                        .collect::<Vec<_>>()
+                }
+            }),
+        )
+        .track_scroll(&self.history_left_scroll)
+        .flex_1();
+
+        // size_full + min_h_0：在外层定高区内拿到确定高度，uniform_list 自带虚拟滚动
         v_flex()
             .id("vcs-history-left-pane")
             .size_full()
+            .min_h_0()
             .px(px(8.0))
             .py(px(6.0))
-            .gap(px(8.0))
-            .overflow_y_scrollbar()
-            .child(self.render_local_branches_section(cx))
-            .child(self.render_remote_branches_section(cx))
-            .child(self.render_tags_section(cx))
+            .child(body)
             .into_any_element()
     }
 

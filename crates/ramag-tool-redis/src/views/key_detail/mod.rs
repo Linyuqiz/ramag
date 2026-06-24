@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use gpui::{
     Context, EventEmitter, FocusHandle, Focusable, IntoElement, ParentElement, Render, Styled,
-    Window, div, prelude::*, px,
+    UniformListScrollHandle, Window, div, prelude::*, px,
 };
 use gpui_component::{
     ActiveTheme, WindowExt as _, notification::Notification, scroll::ScrollableElement as _, v_flex,
@@ -99,6 +99,8 @@ pub struct KeyDetailPanel {
     value_view_mode: Option<ViewMode>,
     /// Session 调 focus_panel 聚焦后，cmd-w 等 action 走焦点链路由到 Session
     focus_handle: FocusHandle,
+    /// 容器值（hash/list/set/zset/stream）uniform_list 行级虚拟化的滚动句柄
+    value_scroll: UniformListScrollHandle,
 }
 
 impl EventEmitter<KeyDetailEvent> for KeyDetailPanel {}
@@ -125,6 +127,7 @@ impl KeyDetailPanel {
             value_view_mode: None,
             focus_handle: cx.focus_handle(),
             estimating_size: false,
+            value_scroll: UniformListScrollHandle::new(),
         }
     }
 
@@ -430,38 +433,75 @@ impl Render for KeyDetailPanel {
         let header = header::render_header(self, &key, fg, muted_fg, accent, border, cx);
         let view_mode = self.value_view_mode;
 
-        let body: gpui::AnyElement = if self.loading {
-            div()
-                .py(px(28.0))
-                .text_center()
-                .text_sm()
-                .text_color(muted_fg)
-                .child("加载中...")
-                .into_any_element()
+        // body + 是否自带虚拟滚动：容器类型走 uniform_list（自滚动），其余走普通滚动
+        let (body, self_scrolls): (gpui::AnyElement, bool) = if self.loading {
+            (
+                div()
+                    .py(px(28.0))
+                    .text_center()
+                    .text_sm()
+                    .text_color(muted_fg)
+                    .child("加载中...")
+                    .into_any_element(),
+                false,
+            )
         } else if let Some(err) = self.error.clone() {
-            div()
-                .p(px(14.0))
-                .text_sm()
-                .text_color(gpui::red())
-                .child(err)
-                .into_any_element()
-        } else if let Some(v) = self.value.clone() {
-            // 标量 String/Bytes 走 scalar 模块（含 Gzip 提示 + 编辑按钮）
-            // 其他容器类型走 helpers::render_value 分发
-            match &v {
-                RedisValue::Text(_) | RedisValue::Bytes(_) => {
-                    scalar::render_scalar(&key, &v, view_mode, fg, muted_fg, border, cx, window)
-                        .into_any_element()
-                }
-                _ => render_value(&v, &key, cx, fg, muted_fg, accent, border),
-            }
+            (
+                div()
+                    .p(px(14.0))
+                    .text_sm()
+                    .text_color(gpui::red())
+                    .child(err)
+                    .into_any_element(),
+                false,
+            )
         } else {
-            div()
-                .p(px(14.0))
-                .text_sm()
-                .text_color(muted_fg)
-                .child("(无值)")
-                .into_any_element()
+            match &self.value {
+                // 容器类型：helpers::render_value 内部用 uniform_list 行级虚拟化（自带滚动）
+                Some(
+                    v @ (RedisValue::List(_)
+                    | RedisValue::Hash(_)
+                    | RedisValue::Set(_)
+                    | RedisValue::ZSet(_)
+                    | RedisValue::Stream(_)),
+                ) => (
+                    render_value(v, &key, cx, &self.value_scroll, fg, muted_fg, border),
+                    true,
+                ),
+                // 标量 String/Bytes 走 scalar 模块（含 Gzip 提示 + 编辑按钮）
+                Some(v @ (RedisValue::Text(_) | RedisValue::Bytes(_))) => (
+                    scalar::render_scalar(&key, v, view_mode, fg, muted_fg, border, cx, window)
+                        .into_any_element(),
+                    false,
+                ),
+                // Nil/Int/Float/Bool/Array：小体量，普通渲染
+                Some(v) => (
+                    render_value(v, &key, cx, &self.value_scroll, fg, muted_fg, border),
+                    false,
+                ),
+                None => (
+                    div()
+                        .p(px(14.0))
+                        .text_sm()
+                        .text_color(muted_fg)
+                        .child("(无值)")
+                        .into_any_element(),
+                    false,
+                ),
+            }
+        };
+
+        // 滚动区：外层 flex_1 + min_h_0 给出「减去 header 后的确定高度」。
+        // 容器类型的 uniform_list 自带虚拟滚动，只需内边距；其余套 overflow_y_scrollbar。
+        let content = if self_scrolls {
+            div().flex_1().min_h_0().p(px(14.0)).child(body)
+        } else {
+            div().flex_1().min_h_0().child(
+                div()
+                    .size_full()
+                    .overflow_y_scrollbar()
+                    .child(div().w_full().p(px(14.0)).child(body)),
+            )
         };
 
         v_flex()
@@ -469,18 +509,7 @@ impl Render for KeyDetailPanel {
             .bg(bg)
             .track_focus(&self.focus_handle)
             .child(header)
-            // 滚动区分两层：外层 flex_1 + min_h_0 给出「减去 header 后的确定高度」，
-            // 内层 overflow_y_scrollbar 在该确定高度内滚动。
-            // 不能直接 .flex_1().min_h_0().overflow_y_scrollbar()——该包装器只继承 size 样式且会给
-            // 内容元素重新加 flex_1，min_h_0 落到内容上会把它压扁到视口高度，从而永不溢出、无法滚动
-            .child(
-                div().flex_1().min_h_0().child(
-                    div()
-                        .size_full()
-                        .overflow_y_scrollbar()
-                        .child(div().w_full().p(px(14.0)).child(body)),
-                ),
-            )
+            .child(content)
             .into_any_element()
     }
 }

@@ -34,6 +34,16 @@ impl Default for RedisDriver {
     }
 }
 
+/// 生产（只读）模式下拦截写操作：命中即记日志并返回 Forbidden。
+/// `op` 标识被拦截的操作（DEL / TTL change / 具体命令名），用于日志定位。
+fn ensure_writable(config: &ConnectionConfig, op: &str) -> Result<()> {
+    if config.production {
+        warn!(conn = %config.name, op, "read-only mode: blocked write");
+        return Err(DomainError::Forbidden(READ_ONLY_MESSAGE.into()));
+    }
+    Ok(())
+}
+
 #[async_trait]
 impl KvDriver for RedisDriver {
     fn name(&self) -> &'static str {
@@ -165,10 +175,7 @@ impl KvDriver for RedisDriver {
     }
 
     async fn delete_key(&self, config: &ConnectionConfig, db: u8, key: &str) -> Result<bool> {
-        if config.production {
-            warn!(conn = %config.name, key, "read-only mode: blocked DEL");
-            return Err(DomainError::Forbidden(READ_ONLY_MESSAGE.into()));
-        }
+        ensure_writable(config, "DEL")?;
         let config = config.clone();
         let pools = self.pools.clone_handle();
         let key = key.to_owned();
@@ -187,10 +194,7 @@ impl KvDriver for RedisDriver {
         key: &str,
         ttl_secs: Option<i64>,
     ) -> Result<bool> {
-        if config.production {
-            warn!(conn = %config.name, key, "read-only mode: blocked TTL change");
-            return Err(DomainError::Forbidden(READ_ONLY_MESSAGE.into()));
-        }
+        ensure_writable(config, "TTL change")?;
         let config = config.clone();
         let pools = self.pools.clone_handle();
         let key = key.to_owned();
@@ -225,9 +229,8 @@ impl KvDriver for RedisDriver {
                 "命令为空，至少需要命令名".into(),
             ));
         }
-        if config.production && is_write_command(&argv[0]) {
-            warn!(conn = %config.name, cmd = %argv[0], "read-only mode: blocked write command");
-            return Err(DomainError::Forbidden(READ_ONLY_MESSAGE.into()));
+        if is_write_command(&argv[0]) {
+            ensure_writable(config, &argv[0])?;
         }
         let config = config.clone();
         let pools = self.pools.clone_handle();

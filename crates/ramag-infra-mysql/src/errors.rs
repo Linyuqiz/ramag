@@ -2,7 +2,7 @@
 //! 参考：<https://dev.mysql.com/doc/mysql-errors/8.0/en/server-error-reference.html>
 
 use ramag_domain::error::DomainError;
-use ramag_infra_sql_shared::errors::map_sqlx_common;
+use ramag_infra_sql_shared::errors::{map_database_error, map_sqlx_common};
 
 /// 先识别 mysql 错误码，未命中走 shared 通用映射
 pub fn map_mysql_error(err: &sqlx::Error) -> DomainError {
@@ -11,15 +11,10 @@ pub fn map_mysql_error(err: &sqlx::Error) -> DomainError {
 
 /// 仅识别 mysql 错误码，非 Database 变体返回 None
 pub fn map_mysql_database_error(err: &sqlx::Error) -> Option<DomainError> {
-    let db_err = err.as_database_error()?;
-    let code = db_err.code().map(|c| c.to_string()).unwrap_or_default();
-    let raw_msg = db_err.message().to_string();
-    let friendly = mysql_error_friendly(&code, &raw_msg);
-
-    Some(match code.as_str() {
+    map_database_error(err, mysql_error_friendly, |code, msg| match code {
         // 网络 / 认证 → ConnectionFailed
-        "1045" | "1049" | "2003" | "2005" => DomainError::ConnectionFailed(friendly),
-        _ => DomainError::QueryFailed(friendly),
+        "1045" | "1049" | "2003" | "2005" => DomainError::ConnectionFailed(msg),
+        _ => DomainError::QueryFailed(msg),
     })
 }
 

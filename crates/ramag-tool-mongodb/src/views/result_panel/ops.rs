@@ -92,15 +92,7 @@ impl ResultPanel {
                     }
                     content.child(col)
                 })
-                .footer(
-                    h_flex()
-                        .w_full()
-                        .items_center()
-                        .justify_end()
-                        .gap(px(8.0))
-                        .child(cancel)
-                        .child(apply),
-                )
+                .footer(dialog_footer(cancel, apply))
         });
     }
 
@@ -206,15 +198,7 @@ impl ResultPanel {
                         format!("将从「{coll_hint}」按 _id 逐个删除，操作不可撤销"),
                     )))
                 })
-                .footer(
-                    h_flex()
-                        .w_full()
-                        .items_center()
-                        .justify_end()
-                        .gap(px(8.0))
-                        .child(cancel)
-                        .child(apply),
-                )
+                .footer(dialog_footer(cancel, apply))
         });
     }
 
@@ -261,4 +245,15 @@ impl ResultPanel {
         })
         .detach();
     }
+}
+
+/// 弹窗底部按钮条：右对齐「取消 + 主操作」，两个 dialog 共用同款布局
+fn dialog_footer(cancel: Button, apply: Button) -> impl IntoElement {
+    h_flex()
+        .w_full()
+        .items_center()
+        .justify_end()
+        .gap(px(8.0))
+        .child(cancel)
+        .child(apply)
 }

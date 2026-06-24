@@ -2,17 +2,11 @@
 //!
 //! 行尾按钮 [Apply][Pop][Drop]，每条 stash 显示 stash@{N} + message + 时间。
 
-use gpui::{
-    AnyElement, ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div, px,
-};
-use gpui_component::{
-    ActiveTheme, Disableable as _, IconName, Sizable as _,
-    button::{Button, ButtonVariants as _},
-    h_flex, v_flex,
-};
+use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, div, px};
+use gpui_component::{ActiveTheme, IconName, h_flex, v_flex};
 use ramag_domain::entities::Stash;
 
-use super::helpers::StashOp;
+use super::helpers::{StashOp, side_op_button};
 use super::vcs_view::VcsView;
 
 impl VcsView {
@@ -85,31 +79,28 @@ fn stash_row(s: &Stash, busy: bool, cx: &mut Context<VcsView>) -> impl IntoEleme
             h_flex()
                 .gap(px(4.0))
                 .items_center()
-                .child(stash_btn(
-                    "apply",
-                    idx,
+                .child(side_op_button(
+                    format!("vcs-side-stash-apply-{idx}"),
                     "应用（保留 stash）",
                     IconName::ArrowDown,
-                    StashOp::Apply(idx),
                     busy,
+                    move |this, window, cx| this.confirm_stash_op(StashOp::Apply(idx), window, cx),
                     cx,
                 ))
-                .child(stash_btn(
-                    "pop",
-                    idx,
+                .child(side_op_button(
+                    format!("vcs-side-stash-pop-{idx}"),
                     "应用并删除 stash",
                     IconName::Check,
-                    StashOp::Pop(idx),
                     busy,
+                    move |this, window, cx| this.confirm_stash_op(StashOp::Pop(idx), window, cx),
                     cx,
                 ))
-                .child(stash_btn_icon(
-                    "drop",
-                    idx,
+                .child(side_op_button(
+                    format!("vcs-side-stash-drop-{idx}"),
                     "丢弃 stash",
                     ramag_ui::icons::trash(),
-                    StashOp::Drop(idx),
                     busy,
+                    move |this, window, cx| this.confirm_stash_op(StashOp::Drop(idx), window, cx),
                     cx,
                 ))
                 .child(div().flex_1())
@@ -121,48 +112,4 @@ fn stash_row(s: &Stash, busy: bool, cx: &mut Context<VcsView>) -> impl IntoEleme
                         .child(s.timestamp.format("%m-%d %H:%M").to_string()),
                 ),
         )
-}
-
-fn stash_btn(
-    kind: &'static str,
-    idx: usize,
-    tooltip: &'static str,
-    icon: IconName,
-    op: StashOp,
-    busy: bool,
-    cx: &mut Context<VcsView>,
-) -> AnyElement {
-    let id = SharedString::from(format!("vcs-side-stash-{kind}-{idx}"));
-    Button::new(id)
-        .ghost()
-        .xsmall()
-        .icon(icon)
-        .tooltip(tooltip)
-        .disabled(busy)
-        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-            this.confirm_stash_op(op, window, cx);
-        }))
-        .into_any_element()
-}
-
-fn stash_btn_icon(
-    kind: &'static str,
-    idx: usize,
-    tooltip: &'static str,
-    icon: gpui_component::Icon,
-    op: StashOp,
-    busy: bool,
-    cx: &mut Context<VcsView>,
-) -> AnyElement {
-    let id = SharedString::from(format!("vcs-side-stash-{kind}-{idx}"));
-    Button::new(id)
-        .ghost()
-        .xsmall()
-        .icon(icon)
-        .tooltip(tooltip)
-        .disabled(busy)
-        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-            this.confirm_stash_op(op, window, cx);
-        }))
-        .into_any_element()
 }

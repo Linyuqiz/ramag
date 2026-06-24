@@ -1,6 +1,8 @@
 //! 通用渲染辅助：值分发 + 标量小块 + 时长格式化 + 并发 helper
 
-use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, div, px};
+use gpui::{
+    AnyElement, Context, IntoElement, ParentElement, Styled, UniformListScrollHandle, div, px,
+};
 use gpui_component::{h_flex, v_flex};
 use ramag_domain::entities::RedisValue;
 
@@ -18,9 +20,9 @@ pub(super) fn render_value(
     v: &RedisValue,
     key: &str,
     cx: &mut Context<KeyDetailPanel>,
+    scroll: &UniformListScrollHandle,
     fg: gpui::Hsla,
     muted_fg: gpui::Hsla,
-    accent: gpui::Hsla,
     border: gpui::Hsla,
 ) -> AnyElement {
     match v {
@@ -30,24 +32,48 @@ pub(super) fn render_value(
         RedisValue::Int(i) => simple_label(&format!("{i} (integer)"), fg).into_any_element(),
         RedisValue::Float(f) => simple_label(&format!("{f} (double)"), fg).into_any_element(),
         RedisValue::Bool(b) => simple_label(&format!("{b} (bool)"), fg).into_any_element(),
-        RedisValue::List(items) => {
-            render_list_block(cx, key.to_string(), items, fg, muted_fg, accent, border)
-                .into_any_element()
-        }
-        RedisValue::Hash(pairs) => {
-            render_hash_block(cx, key.to_string(), pairs, fg, muted_fg, accent, border)
-                .into_any_element()
-        }
-        RedisValue::Set(items) => {
-            render_set_block(cx, key.to_string(), items, fg, muted_fg, accent, border)
-                .into_any_element()
-        }
-        RedisValue::ZSet(pairs) => {
-            render_zset_block(cx, key.to_string(), pairs, fg, muted_fg, accent, border)
-                .into_any_element()
-        }
+        RedisValue::List(items) => render_list_block(
+            cx,
+            key.to_string(),
+            items.len(),
+            scroll,
+            fg,
+            muted_fg,
+            border,
+        )
+        .into_any_element(),
+        RedisValue::Hash(pairs) => render_hash_block(
+            cx,
+            key.to_string(),
+            pairs.len(),
+            scroll,
+            fg,
+            muted_fg,
+            border,
+        )
+        .into_any_element(),
+        RedisValue::Set(items) => render_set_block(
+            cx,
+            key.to_string(),
+            items.len(),
+            scroll,
+            fg,
+            muted_fg,
+            border,
+        )
+        .into_any_element(),
+        RedisValue::ZSet(pairs) => render_zset_block(
+            cx,
+            key.to_string(),
+            pairs.len(),
+            scroll,
+            fg,
+            muted_fg,
+            border,
+        )
+        .into_any_element(),
         RedisValue::Stream(entries) => {
-            render_stream_block(cx, key.to_string(), entries, fg, muted_fg, accent, border)
+            render_stream_block(cx, key.to_string(), entries, scroll, fg, muted_fg, border)
                 .into_any_element()
         }
         // Array 兜底（命令应答的复合返回，不直接来自 key value）

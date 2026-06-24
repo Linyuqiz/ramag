@@ -147,6 +147,8 @@ impl VcsView {
             pf_content_scroll: UniformListScrollHandle::new(),
             diff_scroll: UniformListScrollHandle::new(),
             commit_files_scroll: UniformListScrollHandle::new(),
+            changes_scroll: UniformListScrollHandle::new(),
+            history_left_scroll: UniformListScrollHandle::new(),
             conflict_ours_scroll: UniformListScrollHandle::new(),
             conflict_theirs_scroll: UniformListScrollHandle::new(),
             history_scroll: UniformListScrollHandle::new(),

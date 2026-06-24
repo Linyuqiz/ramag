@@ -1,8 +1,11 @@
 //! ResultPanel DML：行内编辑触发的 INSERT / UPDATE / DELETE
 
+use std::sync::Arc;
+
 use gpui::Context;
 use gpui_component::notification::Notification;
-use ramag_domain::entities::{Query, Value};
+use ramag_app::ConnectionService;
+use ramag_domain::entities::{ConnectionConfig, Query, Value};
 use tracing::error;
 
 use super::ResultPanel;
@@ -12,6 +15,22 @@ use super::helpers::{
 };
 
 impl ResultPanel {
+    /// DML 前置守卫：取连接服务 + 连接配置，缺任一即弹 toast 返回 None。
+    /// `action` 用于提示文案（删除 / 新增 / 修改）。
+    fn dml_conn(
+        &mut self,
+        action: &str,
+        cx: &mut Context<Self>,
+    ) -> Option<(Arc<ConnectionService>, ConnectionConfig)> {
+        let (Some(svc), Some(conn)) = (self.service.clone(), self.connection.clone()) else {
+            self.pending_notification =
+                Some(Notification::warning(format!("当前未注入连接，无法{action}")).autohide(true));
+            cx.notify();
+            return None;
+        };
+        Some((svc, conn))
+    }
+
     /// 删除前的预览数据：(row_idx, "列=值" 简短文案)；调用方拿去给 confirm dialog 用
     /// 优先用主键列做预览，没主键用第一列
     pub(crate) fn delete_preview(&self) -> Option<(usize, String)> {
@@ -77,16 +96,7 @@ impl ResultPanel {
         indices: Vec<usize>,
         cx: &mut Context<Self>,
     ) {
-        let Some(svc) = self.service.clone() else {
-            self.pending_notification =
-                Some(Notification::warning("当前未注入连接，无法删除").autohide(true));
-            cx.notify();
-            return;
-        };
-        let Some(conn) = self.connection.clone() else {
-            self.pending_notification =
-                Some(Notification::warning("当前未注入连接，无法删除").autohide(true));
-            cx.notify();
+        let Some((svc, conn)) = self.dml_conn("删除", cx) else {
             return;
         };
         let ResultState::Ok(result) = &self.state else {
@@ -175,16 +185,7 @@ impl ResultPanel {
         if values.is_empty() {
             return;
         }
-        let Some(svc) = self.service.clone() else {
-            self.pending_notification =
-                Some(Notification::warning("当前未注入连接，无法新增").autohide(true));
-            cx.notify();
-            return;
-        };
-        let Some(conn) = self.connection.clone() else {
-            self.pending_notification =
-                Some(Notification::warning("当前未注入连接，无法新增").autohide(true));
-            cx.notify();
+        let Some((svc, conn)) = self.dml_conn("新增", cx) else {
             return;
         };
         let table_ref = match self.current_table_ref() {
@@ -264,16 +265,7 @@ impl ResultPanel {
 
     /// 二次确认后真执行 DELETE：异步发到 DB，成功后本地移除该行
     pub(crate) fn execute_delete_row_async(&mut self, ri: usize, cx: &mut Context<Self>) {
-        let Some(svc) = self.service.clone() else {
-            self.pending_notification =
-                Some(Notification::warning("当前未注入连接，无法删除").autohide(true));
-            cx.notify();
-            return;
-        };
-        let Some(conn) = self.connection.clone() else {
-            self.pending_notification =
-                Some(Notification::warning("当前未注入连接，无法删除").autohide(true));
-            cx.notify();
+        let Some((svc, conn)) = self.dml_conn("删除", cx) else {
             return;
         };
         let ResultState::Ok(result) = &self.state else {
@@ -354,16 +346,7 @@ impl ResultPanel {
         new_text: String,
         cx: &mut Context<Self>,
     ) {
-        let Some(svc) = self.service.clone() else {
-            self.pending_notification =
-                Some(Notification::warning("当前未注入连接，无法修改").autohide(true));
-            cx.notify();
-            return;
-        };
-        let Some(conn) = self.connection.clone() else {
-            self.pending_notification =
-                Some(Notification::warning("当前未注入连接，无法修改").autohide(true));
-            cx.notify();
+        let Some((svc, conn)) = self.dml_conn("修改", cx) else {
             return;
         };
         let ResultState::Ok(result) = &self.state else {

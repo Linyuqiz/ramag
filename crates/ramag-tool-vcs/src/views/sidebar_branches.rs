@@ -1,4 +1,5 @@
-//! 侧栏：本地 / 远程分支段。行只显示名字 + 上游同步，操作走右键菜单；本地段底部含新建分支输入
+//! 侧栏：分支行（名字 + 上游同步，操作走右键菜单）+ 本地段底部「新建分支」输入行。
+//! 行由 history 左栏的单个 uniform_list 统一渲染（28px 等高），段组装见 history_panel
 
 use gpui::{
     AnyElement, ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
@@ -10,37 +11,22 @@ use gpui_component::{
     h_flex,
     input::Input,
     menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem},
-    v_flex,
 };
 use ramag_domain::entities::Branch;
 
 use super::confirm_dialogs::open_confirm_dialog;
 use super::helpers::BranchOp;
-use super::sidebar::{SidebarSection, section_header};
+use super::sidebar::LEFT_ROW_H;
 use super::vcs_view::VcsView;
 
 impl VcsView {
-    /// 本地分支段：title + 折叠 + 列表 + 底部新建输入
-    pub(super) fn render_local_branches_section(&self, cx: &mut Context<Self>) -> AnyElement {
-        let count = self.local_branches.len();
+    /// 本地段底部「新建分支」输入行（name 输入 + 创建按钮，固定 28px 高）
+    pub(super) fn render_create_branch_row(&self, cx: &mut Context<Self>) -> AnyElement {
         let busy = self.busy;
-        let collapsed = self.collapsed_local;
-
-        let header = section_header("本地分支", count, collapsed, SidebarSection::Local, cx);
-        if collapsed {
-            return v_flex().gap(px(4.0)).child(header).into_any_element();
-        }
-
-        let rows: Vec<AnyElement> = self
-            .local_branches
-            .iter()
-            .enumerate()
-            .map(|(idx, b)| branch_row(idx, b, busy, false, cx).into_any_element())
-            .collect();
-
-        let create_row = h_flex()
+        h_flex()
+            .h(px(LEFT_ROW_H))
+            .flex_none()
             .gap(px(4.0))
-            .pt(px(4.0))
             .items_center()
             .child(
                 div().flex_1().min_w_0().child(
@@ -59,56 +45,13 @@ impl VcsView {
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.handle_create_branch(cx);
                     })),
-            );
-
-        v_flex()
-            .gap(px(2.0))
-            .child(header)
-            .child(v_flex().gap(px(1.0)).children(rows))
-            .child(create_row)
-            .into_any_element()
-    }
-
-    /// 远程分支段（只读列表，无创建操作；默认折叠）
-    pub(super) fn render_remote_branches_section(&self, cx: &mut Context<Self>) -> AnyElement {
-        let theme = cx.theme();
-        let muted_fg = theme.muted_foreground;
-        let count = self.remote_branches.len();
-        let busy = self.busy;
-        let collapsed = self.collapsed_remote;
-
-        let header = section_header("远程分支", count, collapsed, SidebarSection::Remote, cx);
-        if collapsed {
-            return v_flex().gap(px(4.0)).child(header).into_any_element();
-        }
-
-        let body: AnyElement = if self.remote_branches.is_empty() {
-            div()
-                .pl(px(4.0))
-                .text_xs()
-                .text_color(muted_fg)
-                .child("(无远程分支)")
-                .into_any_element()
-        } else {
-            let rows: Vec<AnyElement> = self
-                .remote_branches
-                .iter()
-                .enumerate()
-                .map(|(idx, b)| branch_row(idx, b, busy, true, cx).into_any_element())
-                .collect();
-            v_flex().gap(px(1.0)).children(rows).into_any_element()
-        };
-
-        v_flex()
-            .gap(px(2.0))
-            .child(header)
-            .child(body)
+            )
             .into_any_element()
     }
 }
 
-/// 单条分支行：图标 + 名字 + 上游同步；操作通过右键菜单触发
-fn branch_row(
+/// 单条分支行：图标 + 名字 + 上游同步；操作通过右键菜单触发（固定 28px 高）
+pub(super) fn branch_row(
     idx: usize,
     b: &Branch,
     busy: bool,
@@ -147,9 +90,10 @@ fn branch_row(
 
     let row = h_flex()
         .id(row_id)
+        .h(px(LEFT_ROW_H))
+        .flex_none()
         .gap(px(6.0))
         .items_center()
-        .py(px(3.0))
         .px(px(4.0))
         .rounded(px(3.0))
         .hover(move |this| this.bg(hover_bg))
