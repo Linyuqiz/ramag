@@ -61,6 +61,65 @@ pub(super) fn lang_for_path(path: &str) -> Option<&'static str> {
     Some(lang)
 }
 
+/// 制表位宽度：tab 展开到 4 列边界（与等宽渲染一致）
+const TAB_W: usize = 4;
+
+/// 单字符显示列宽：CJK / 全角 / emoji ≈ 2 列，其余 1 列（近似，不引第三方 crate）
+fn char_cols(c: char) -> usize {
+    let cp = c as u32;
+    if (0x1100..=0x115F).contains(&cp)
+        || (0x2E80..=0xA4CF).contains(&cp)
+        || (0xAC00..=0xD7A3).contains(&cp)
+        || (0xF900..=0xFAFF).contains(&cp)
+        || (0xFE30..=0xFE4F).contains(&cp)
+        || (0xFF00..=0xFF60).contains(&cp)
+        || (0xFFE0..=0xFFE6).contains(&cp)
+        || (0x1F300..=0x1FAFF).contains(&cp)
+        || (0x20000..=0x3FFFD).contains(&cp)
+    {
+        2
+    } else {
+        1
+    }
+}
+
+/// 文本显示列数：tab 按制表位展开、CJK/全角按 2 列计。
+/// 决定横向内容宽度——`chars().count()` 把 Tab/中文都算 1 会让宽度偏小、滚到底仍截断
+pub(super) fn display_cols(text: &str) -> usize {
+    let mut col = 0usize;
+    for c in text.chars() {
+        if c == '\t' {
+            col += TAB_W - (col % TAB_W);
+        } else {
+            col += char_cols(c);
+        }
+    }
+    col
+}
+
+/// 把 tab 展开成空格（制表位 4），让渲染宽度与 [`display_cols`] 一致、可预测
+/// （GPUI 原生 tab 宽不确定，展开后横向宽度才能精确算）
+fn expand_tabs(text: &str) -> String {
+    if !text.contains('\t') {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len() + 8);
+    let mut col = 0usize;
+    for c in text.chars() {
+        if c == '\t' {
+            let spaces = TAB_W - (col % TAB_W);
+            for _ in 0..spaces {
+                out.push(' ');
+            }
+            col += spaces;
+        } else {
+            out.push(c);
+            col += char_cols(c);
+        }
+    }
+    out
+}
+
 /// 渲染一行代码内容为内联元素。
 ///
 /// - `lang = None` 或文本为空 → 单个 div（颜色 `fg`），与未高亮时完全一致。
@@ -75,6 +134,9 @@ pub(super) fn render_code_line(
     mono: SharedString,
     cx: &mut Context<VcsView>,
 ) -> AnyElement {
+    // tab 展开成空格：渲染宽度与 display_cols 一致，避免横向截断
+    let expanded = expand_tabs(text);
+    let text: &str = &expanded;
     let Some(lang) = lang.filter(|_| !text.is_empty()) else {
         return plain_line(text, fg, mono);
     };

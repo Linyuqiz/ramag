@@ -2,7 +2,7 @@
 //! 5 个 list 共享 `UniformListScrollHandle` 行级 Y 同步；content 各自独立 X 滚；gutter / 中间列在 overflow_x_scroll 之外保持可见。
 //! `h_flex` 默认 items_center，必须显式 `.items_stretch()` 否则子栏会被压成内容高
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::rc::Rc;
 
@@ -37,7 +37,7 @@ fn split_max_chars(diff: &FileDiff) -> (usize, usize) {
     let mut max_new = 0usize;
     for h in &diff.hunks {
         for l in &h.lines {
-            let n = l.text.chars().count();
+            let n = super::syntax::display_cols(&l.text);
             match l.kind {
                 DiffLineKind::Delete => max_old = max_old.max(n),
                 DiffLineKind::Add => max_new = max_new.max(n),
@@ -123,6 +123,28 @@ pub fn render_file_diff_split(
     ));
     let total = keys.len();
 
+    // 每个 hunk 的「中点行」→ hunk_idx：回滚按钮放中点行（仿 VSCode 居中），而非 header 第一行
+    let button_rows: Rc<HashMap<usize, usize>> = {
+        let mut m: HashMap<usize, usize> = HashMap::new();
+        let mut i = 0;
+        while i < keys.len() {
+            if let SplitKey::Header { hunk_idx } = keys[i] {
+                let mut j = i + 1;
+                while j < keys.len() && !matches!(keys[j], SplitKey::Header { .. }) {
+                    j += 1;
+                }
+                let span = j - i;
+                // 中点偏向内容行（header 之后），span=1 的退化 hunk 落回 header
+                let mid = if span > 1 { i + span / 2 } else { i };
+                m.insert(mid, hunk_idx);
+                i = j;
+            } else {
+                i += 1;
+            }
+        }
+        Rc::new(m)
+    };
+
     let scroll_v = scroll.clone();
     let h_shared = h_scroll.clone();
 
@@ -158,6 +180,7 @@ pub fn render_file_diff_split(
         total,
         diff_rc.clone(),
         keys.clone(),
+        button_rows.clone(),
         enable_discard,
         has_blame,
         middle_w,
@@ -369,6 +392,7 @@ fn build_middle_list(
     total: usize,
     diff_rc: Rc<FileDiff>,
     keys: Rc<Vec<SplitKey>>,
+    button_rows: Rc<HashMap<usize, usize>>,
     enable_discard: bool,
     has_blame: bool,
     middle_w: f32,
@@ -390,33 +414,41 @@ fn build_middle_list(
                     None
                 };
             range
-                .map(|i| match keys[i] {
-                    SplitKey::Header { hunk_idx } => {
-                        render_middle_header(hunk_idx, enable_discard, muted_bg, cx)
+                .map(|i| {
+                    // hunk 中点行 + 可回滚：渲染居中回滚按钮（替换该行 blame，仿 VSCode）
+                    if enable_discard && let Some(&hunk_idx) = button_rows.get(&i) {
+                        return render_middle_revert(hunk_idx, cx);
                     }
-                    SplitKey::Pair {
-                        hunk_idx,
-                        left,
-                        right,
-                    } => {
-                        // 左列=旧侧行作者、右列=新侧行作者（都按 new_lineno 查当前文件 blame）
-                        let author_of = |li: Option<usize>| {
-                            li.and_then(|i| diff_rc.hunks[hunk_idx].lines[i].new_lineno)
-                                .and_then(|ln| {
-                                    blame_rc.as_ref().and_then(|bs| {
-                                        bs.iter()
-                                            .find(|b| b.line_no == ln)
-                                            .map(|b| b.author.chars().take(10).collect::<String>())
+                    match keys[i] {
+                        SplitKey::Header { .. } => div()
+                            .w_full()
+                            .h(px(DIFF_ROW_H))
+                            .bg(muted_bg)
+                            .into_any_element(),
+                        SplitKey::Pair {
+                            hunk_idx,
+                            left,
+                            right,
+                        } => {
+                            // 左列=旧侧行作者、右列=新侧行作者（都按 new_lineno 查当前文件 blame）
+                            let author_of = |li: Option<usize>| {
+                                li.and_then(|i| diff_rc.hunks[hunk_idx].lines[i].new_lineno)
+                                    .and_then(|ln| {
+                                        blame_rc.as_ref().and_then(|bs| {
+                                            bs.iter().find(|b| b.line_no == ln).map(|b| {
+                                                b.author.chars().take(10).collect::<String>()
+                                            })
+                                        })
                                     })
-                                })
-                        };
-                        render_middle_cell(author_of(left), author_of(right), muted_fg)
+                            };
+                            render_middle_cell(author_of(left), author_of(right), muted_fg)
+                        }
+                        SplitKey::Spacer { .. } => div()
+                            .h(px(DIFF_ROW_H))
+                            .w_full()
+                            .bg(muted_bg)
+                            .into_any_element(),
                     }
-                    SplitKey::Spacer { .. } => div()
-                        .h(px(DIFF_ROW_H))
-                        .w_full()
-                        .bg(muted_bg)
-                        .into_any_element(),
                 })
                 .collect::<Vec<_>>()
         }),
@@ -427,21 +459,14 @@ fn build_middle_list(
     .min_h_0()
 }
 
-/// 中间列 hunk header：居中回滚按钮（enable_discard 时；否则仅占位）
-fn render_middle_header(
-    hunk_idx: usize,
-    enable_discard: bool,
-    muted_bg: gpui::Hsla,
-    cx: &mut Context<VcsView>,
-) -> AnyElement {
-    let mut row = h_flex()
+/// 中间列回滚按钮：放在 hunk 中点行、水平居中（仿 VSCode；仅 enable_discard 时渲染到此）
+fn render_middle_revert(hunk_idx: usize, cx: &mut Context<VcsView>) -> AnyElement {
+    h_flex()
         .w_full()
         .h(px(DIFF_ROW_H))
-        .bg(muted_bg)
         .items_center()
-        .justify_center();
-    if enable_discard {
-        row = row.child(
+        .justify_center()
+        .child(
             Button::new(SharedString::from(format!("vcs-hunk-discard-{hunk_idx}")))
                 .ghost()
                 .xsmall()
@@ -450,9 +475,8 @@ fn render_middle_header(
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.discard_hunk(hunk_idx, cx);
                 })),
-        );
-    }
-    row.into_any_element()
+        )
+        .into_any_element()
 }
 
 /// 中间列配对行：左列=旧侧作者、右列=新侧作者（删除行的旧作者需历史 blame，暂空）

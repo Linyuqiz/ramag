@@ -41,7 +41,7 @@ pub(super) fn max_line_chars(diff: &FileDiff) -> usize {
     let mut max = 0usize;
     for h in &diff.hunks {
         for l in &h.lines {
-            let n = l.text.chars().count();
+            let n = super::syntax::display_cols(&l.text);
             if n > max {
                 max = n;
             }
@@ -291,12 +291,13 @@ fn render_diff_line(
     row
 }
 
-/// 公共行号单元格（40px 宽 / 右对齐风）
+/// 公共行号单元格（40px 宽，右对齐贴紧内容，仿 VSCode）
 pub(super) fn line_no_cell(label: String, muted_fg: gpui::Hsla) -> impl IntoElement {
-    div()
+    h_flex()
         .flex_none()
         .w(px(40.0))
         .px(px(4.0))
+        .justify_end()
         .text_color(muted_fg)
         .child(label)
 }
@@ -312,11 +313,12 @@ pub(super) fn line_no_cell_clickable(
     cx: &mut Context<VcsView>,
 ) -> AnyElement {
     let label = line_no.map(|n| n.to_string()).unwrap_or_default();
-    let mut cell = div()
+    let mut cell = h_flex()
         .id(cell_id)
         .flex_none()
         .w(px(40.0))
         .px(px(4.0))
+        .justify_end()
         .text_color(muted_fg)
         .child(label);
     if let Some(n) = line_no {

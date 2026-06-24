@@ -73,7 +73,7 @@ pub(super) fn finalize_file_snapshot(raw: RawFileContent) -> FileContentSnapshot
     let max_chars = raw
         .lines
         .iter()
-        .map(|l| l.chars().count())
+        .map(|l| super::super::syntax::display_cols(l))
         .max()
         .unwrap_or(0);
     FileContentSnapshot {
