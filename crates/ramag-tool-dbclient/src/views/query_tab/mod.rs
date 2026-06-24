@@ -201,33 +201,18 @@ impl QueryTab {
         self.handle_run(cx);
     }
 
-    /// 把示例 SQL 写入编辑器：空编辑器整体替换，非空在光标处插入并按前后文补换行，
-    /// 避免文首插入产生空行、或与既有语句粘在同一行
+    /// 把示例 SQL 写入编辑器：整体覆盖现有内容（与 MongoDB 行为一致，不保留旧语句）
     pub(super) fn insert_example(
         &mut self,
         sql: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let (value, cursor) = {
-            let state = self.editor.read(cx);
-            (state.value().to_string(), state.cursor())
-        };
         self.editor.update(cx, |state, cx| {
-            if value.trim().is_empty() {
-                state.set_value(sql.to_string(), window, cx);
-            } else {
-                // cursor 是 byte offset，防御性对齐到 char 边界
-                let mut at = cursor.min(value.len());
-                while at > 0 && !value.is_char_boundary(at) {
-                    at -= 1;
-                }
-                let text = examples::wrap_for_insert(&value[..at], &value[at..], sql);
-                state.insert(text, window, cx);
-            }
+            state.set_value(sql.to_string(), window, cx);
             state.focus(window, cx);
         });
-        // set_value / insert 不发 Change 事件，手动触发列结构预拉（与 set_sql 一致）
+        // set_value 不发 Change 事件，手动触发列结构预拉（与 set_sql 一致）
         self.prefetch_columns_for_used_tables(cx);
         cx.notify();
     }

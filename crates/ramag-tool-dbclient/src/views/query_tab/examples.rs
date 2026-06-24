@@ -71,47 +71,9 @@ pub(crate) fn sql_examples(driver: DriverKind, table: &str) -> Vec<(&'static str
     out
 }
 
-/// 按插入点前后文给示例补换行：前面有内容则空一行隔开，后面紧跟内容则空一行再接，
-/// 文首 / 文末 / 已有换行处不重复加，避免空行开头或语句粘连
-pub(super) fn wrap_for_insert(before: &str, after: &str, sql: &str) -> String {
-    let prefix = if before.trim().is_empty() || before.ends_with("\n\n") {
-        ""
-    } else if before.ends_with('\n') {
-        "\n"
-    } else {
-        "\n\n"
-    };
-    let suffix = if after.trim().is_empty() || after.starts_with('\n') {
-        ""
-    } else {
-        "\n\n"
-    };
-    format!("{prefix}{sql}{suffix}")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn wrap_at_start_separates_following_content() {
-        // 文首插入：不带前导空行，尾部空一行与原语句隔开（返回值仅含待插入文本）
-        let s = wrap_for_insert("", "SELECT 1;", "SELECT 2;");
-        assert_eq!(s, "SELECT 2;\n\n");
-    }
-
-    #[test]
-    fn wrap_at_end_separates_leading_content() {
-        let s = wrap_for_insert("SELECT 1;", "", "SELECT 2;");
-        assert_eq!(s, "\n\nSELECT 2;");
-    }
-
-    #[test]
-    fn wrap_does_not_duplicate_existing_newlines() {
-        assert_eq!(wrap_for_insert("SELECT 1;\n", "", "X"), "\nX");
-        assert_eq!(wrap_for_insert("SELECT 1;\n\n", "", "X"), "X");
-        assert_eq!(wrap_for_insert("", "\nSELECT 1;", "X"), "X");
-    }
 
     #[test]
     fn uses_selected_table_name() {

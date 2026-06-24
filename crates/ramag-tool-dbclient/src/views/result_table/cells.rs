@@ -144,7 +144,7 @@ pub(super) fn render_data_row(
                 .border_color(border)
                 .overflow_hidden()
                 .cursor_pointer()
-                .when(is_selected, |this| this.bg(accent.opacity(0.35)))
+                .when(is_selected, |this| this.bg(accent.opacity(0.22)))
                 .on_click(cx.listener(move |this, e: &ClickEvent, window, cx| {
                     this.set_selected_cell(Some((row_idx, ci)));
                     if e.click_count() >= 2 {

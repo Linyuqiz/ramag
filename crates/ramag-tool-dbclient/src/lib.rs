@@ -11,6 +11,8 @@ pub use actions::{
     FindInResults, FormatSql, NewQueryTab, RunQuery, RunStatementAtCursor, ToggleSqlEditor,
 };
 pub use views::DbClientView;
+// Redis 命令行控制台快捷键 Action：经本 facade 透传给 bin 绑键（bin 不直接依赖 redis）
+pub use ramag_tool_redis::ToggleRedisConsole;
 
 use std::sync::Arc;
 

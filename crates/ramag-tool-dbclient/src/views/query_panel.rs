@@ -177,6 +177,11 @@ impl QueryPanel {
         }
     }
 
+    /// SQL 编辑器当前是否可见（供会话决定 Tab 激活时聚焦编辑器还是会话根）
+    pub fn is_editor_visible(&self) -> bool {
+        self.show_editor
+    }
+
     /// 把 SQL 写入当前激活 Tab 并立即执行
     pub fn prefill_active_sql_and_run(
         &mut self,

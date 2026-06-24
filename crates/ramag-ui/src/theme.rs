@@ -159,6 +159,12 @@ fn apply_dark_palette(theme: &mut Theme) {
 
     theme.selection = accent.opacity(0.35);
 
+    // 列表/菜单选中与悬停：暗色下用稍浓的淡化 accent（深底上要看得出），
+    // 配普通 foreground 文字仍可读；不要实色 accent 压住文字
+    theme.list_active = accent.opacity(0.24);
+    theme.list_active_border = accent.opacity(0.45);
+    theme.list_hover = accent.opacity(0.12);
+
     theme.popover = hsl(0.0, 0.0, 17.0);
     theme.popover_foreground = hsl(0.0, 0.0, 86.0);
 
@@ -214,6 +220,11 @@ fn apply_light_palette(theme: &mut Theme) {
     theme.info_foreground = hsl(0.0, 0.0, 100.0);
 
     theme.selection = accent.opacity(0.20);
+
+    // 列表/菜单选中与悬停：亮色下用更淡的 accent（白底上淡蓝），保证暗字可读
+    theme.list_active = accent.opacity(0.14);
+    theme.list_active_border = accent.opacity(0.30);
+    theme.list_hover = accent.opacity(0.07);
 
     theme.popover = hsl(0.0, 0.0, 100.0);
     theme.popover_foreground = hsl(0.0, 0.0, 12.0);

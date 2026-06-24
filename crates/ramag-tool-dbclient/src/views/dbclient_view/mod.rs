@@ -71,6 +71,15 @@ impl SessionEntity {
             SessionEntity::Mongo(e) => e.update(cx, |s, cx| s.ensure_loaded(cx)),
         }
     }
+
+    /// Tab 激活时聚焦内容，让各会话 cmd-e 等快捷键的 handler 立即在焦点链上（无需先点内容区）
+    pub(super) fn focus(&self, window: &mut Window, cx: &mut App) {
+        match self {
+            SessionEntity::Sql(e) => e.update(cx, |s, cx| s.focus(window, cx)),
+            SessionEntity::Redis(e) => e.update(cx, |s, cx| s.focus(window, cx)),
+            SessionEntity::Mongo(e) => e.update(cx, |s, cx| s.focus(window, cx)),
+        }
+    }
 }
 
 pub struct DbClientView {
@@ -165,6 +174,8 @@ impl DbClientView {
             self.center = CenterMode::Session;
             // 重新激活已打开的连接：树为空则补拉（含首次加载失败后的重试）
             self.sessions[idx].ensure_loaded(cx);
+            // 聚焦内容，cmd-e 等快捷键无需先点内容区
+            self.sessions[idx].focus(window, cx);
             cx.notify();
             return;
         }
@@ -190,8 +201,11 @@ impl DbClientView {
             }
         };
         self.sessions.push(new_session);
-        self.active_session = Some(self.sessions.len() - 1);
+        let new_idx = self.sessions.len() - 1;
+        self.active_session = Some(new_idx);
         self.center = CenterMode::Session;
+        // 新会话立即聚焦内容，cmd-e 等快捷键无需先点内容区
+        self.sessions[new_idx].focus(window, cx);
         // tab 多溢出时让新连接 tab 滚入视图（GPUI 自动 clamp 到 max_offset）
         self.sessions_scroll
             .set_offset(Point::new(px(-99999.0), px(0.0)));
@@ -223,12 +237,19 @@ impl DbClientView {
         cx.notify();
     }
 
-    pub(super) fn select_session(&mut self, idx: usize, cx: &mut Context<Self>) {
+    pub(super) fn select_session(
+        &mut self,
+        idx: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if idx < self.sessions.len() {
             self.active_session = Some(idx);
             self.center = CenterMode::Session;
             // 切到该 Tab：树为空则补拉（含首次加载失败后的重试）
             self.sessions[idx].ensure_loaded(cx);
+            // 聚焦内容，cmd-e 等快捷键无需先点内容区
+            self.sessions[idx].focus(window, cx);
             cx.notify();
         }
     }

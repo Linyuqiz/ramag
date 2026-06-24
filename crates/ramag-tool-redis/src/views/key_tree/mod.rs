@@ -43,6 +43,8 @@ pub enum KeyTreeEvent {
     Selected(String),
     /// 请求新建 Key（点击顶部 "+" 按钮）；由上层弹出 KeyCreateForm 对话框处理
     RequestCreate,
+    /// 请求打开命令行控制台（点击工具栏命令行图标）；由 Session 展开右侧浮层
+    RequestOpenConsole,
     /// 用户切换 DB（0-15）；由 Session 处理（同步详情 + 重新加载树）
     DbSelected(u8),
     /// 树侧右键删除完成（key / 前缀 / 整库）；Session 据此清理详情面板
@@ -421,6 +423,16 @@ impl Render for KeyTreePanel {
                     .xsmall()
                     .icon(ramag_ui::icons::refresh_cw())
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.refresh(cx))),
+            )
+            .child(
+                Button::new("redis-open-console")
+                    .ghost()
+                    .xsmall()
+                    .icon(IconName::SquareTerminal)
+                    .tooltip("命令行（cmd-e）")
+                    .on_click(cx.listener(|_, _: &ClickEvent, _, cx| {
+                        cx.emit(KeyTreeEvent::RequestOpenConsole);
+                    })),
             );
 
         let theme_bg = theme.background;

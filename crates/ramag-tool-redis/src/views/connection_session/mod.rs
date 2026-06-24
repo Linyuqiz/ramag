@@ -6,8 +6,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    Context, Entity, IntoElement, ParentElement, Render, Styled, Subscription, Window, div,
-    prelude::*, px,
+    Context, Entity, IntoElement, MouseDownEvent, ParentElement, Render, Styled, Subscription,
+    Window, div, prelude::*, px, relative,
 };
 use gpui_component::{
     ActiveTheme,
@@ -19,6 +19,8 @@ use ramag_domain::entities::ConnectionConfig;
 use ramag_ui::CloseTab;
 use tracing::info;
 
+use crate::actions::ToggleRedisConsole;
+use crate::views::cli_console::CliConsole;
 use crate::views::hash_field_form::HashFieldFormMode;
 use crate::views::key_detail::{KeyDetailEvent, KeyDetailPanel};
 use crate::views::key_tree::{DeletedScope, KeyTreeEvent, KeyTreePanel};
@@ -29,6 +31,8 @@ use dialogs::truncate_for_dialog;
 const TREE_WIDTH_INITIAL: f32 = 280.0;
 const TREE_WIDTH_MIN: f32 = 180.0;
 const TREE_WIDTH_MAX: f32 = 600.0;
+/// 命令行浮层占会话宽度比例（右侧抽屉）
+const CONSOLE_WIDTH_FRACTION: f32 = 0.4;
 
 pub struct RedisSessionPanel {
     pub(super) service: Arc<RedisService>,
@@ -36,6 +40,8 @@ pub struct RedisSessionPanel {
     pub(super) db: u8,
     pub(super) tree: Entity<KeyTreePanel>,
     pub(super) detail: Entity<KeyDetailPanel>,
+    console: Entity<CliConsole>,
+    console_open: bool,
     resize_state: Entity<ResizableState>,
     subscriptions: Vec<Subscription>,
 }
@@ -83,6 +89,9 @@ impl RedisSessionPanel {
                 }
                 KeyTreeEvent::RequestCreate => {
                     this.open_create_dialog(window, cx);
+                }
+                KeyTreeEvent::RequestOpenConsole => {
+                    this.open_console(window, cx);
                 }
                 KeyTreeEvent::DbSelected(db) => {
                     this.handle_db_change(*db, cx);
@@ -263,6 +272,10 @@ impl RedisSessionPanel {
             },
         ));
 
+        // 命令行控制台：单实例，内容常驻；显隐由会话控制（cmd-e / 图标 / 点击外部）
+        let console =
+            cx.new(|cx| CliConsole::new(service.clone(), config.clone(), initial_db, window, cx));
+
         let resize_state = cx.new(|_| ResizableState::default());
 
         Self {
@@ -271,6 +284,8 @@ impl RedisSessionPanel {
             db: initial_db,
             tree,
             detail,
+            console,
+            console_open: false,
             resize_state,
             subscriptions: subs,
         }
@@ -287,6 +302,11 @@ impl RedisSessionPanel {
     /// Tab 被（重新）激活时调用：key 树为空才补拉，避免空面板（连接放久后切回也会重新 SCAN）
     pub fn ensure_loaded(&self, cx: &mut Context<Self>) {
         self.tree.update(cx, |t, cx| t.ensure_loaded(cx));
+    }
+
+    /// Tab 激活时聚焦详情面板，让 cmd-e（ToggleRedisConsole）的 handler 立即在焦点链上
+    pub fn focus(&self, window: &mut Window, cx: &mut Context<Self>) {
+        self.detail.update(cx, |p, cx| p.focus_panel(window, cx));
     }
 
     /// 让 dialogs.rs 内的方法把 subscription 推进 Vec（保持字段私有）
@@ -306,7 +326,34 @@ impl RedisSessionPanel {
             .update(cx, |t, cx| t.set_connection(Some(conf.clone()), new_db, cx));
         self.detail
             .update(cx, |p, cx| p.set_connection(Some(conf), new_db, cx));
+        self.console.update(cx, |c, cx| c.set_db(new_db, cx));
         cx.notify();
+    }
+
+    /// 展开命令行控制台并把焦点锁到输入框
+    fn open_console(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.console_open = true;
+        self.console.update(cx, |c, cx| c.focus_input(window, cx));
+        cx.notify();
+    }
+
+    /// 关闭控制台（内容常驻），焦点收回详情面板以保持 RedisSession 上下文可响应 cmd-e
+    fn close_console(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.console_open {
+            return;
+        }
+        self.console_open = false;
+        self.detail.update(cx, |p, cx| p.focus_panel(window, cx));
+        cx.notify();
+    }
+
+    /// cmd-e：开/关切换
+    fn toggle_console(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.console_open {
+            self.close_console(window, cx);
+        } else {
+            self.open_console(window, cx);
+        }
     }
 }
 
@@ -317,13 +364,55 @@ impl Render for RedisSessionPanel {
         let border = theme.border;
         let bg = theme.background;
 
-        // CloseTab：KeyDetail 有 key 时清回空态；空态时冒泡到全局 fallback 关窗
-        let workspace = v_flex()
+        // 主区：树 + 详情（命令行不占位，浮层叠在其上）
+        let base = h_resizable("redis-session-resize")
+            .with_state(&self.resize_state)
+            .child(
+                resizable_panel()
+                    .size(px(TREE_WIDTH_INITIAL))
+                    .size_range(px(TREE_WIDTH_MIN)..px(TREE_WIDTH_MAX))
+                    .child(
+                        div()
+                            .size_full()
+                            .border_r_1()
+                            .border_color(border)
+                            .child(self.tree.clone()),
+                    ),
+            )
+            .child(resizable_panel().child(div().size_full().min_w_0().child(self.detail.clone())));
+
+        // 命令行浮层：右侧抽屉，点击面板外（on_mouse_down_out）即关闭，内容保留
+        let console_overlay = self.console_open.then(|| {
+            div()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .right_0()
+                .w(relative(CONSOLE_WIDTH_FRACTION))
+                .border_l_1()
+                .border_color(border)
+                .shadow_lg()
+                .child(self.console.clone())
+                .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, window, cx| {
+                    this.close_console(window, cx);
+                }))
+        });
+
+        // 根：key_context 覆盖全会话，cmd-e 切换 / cmd-w 关 tab 在树 / 详情 / 控制台聚焦时都可响应
+        v_flex()
             .size_full()
+            .relative()
+            .bg(bg)
+            .text_color(fg)
             .key_context("RedisSession")
+            .on_action(cx.listener(|this, _: &ToggleRedisConsole, window, cx| {
+                this.toggle_console(window, cx);
+            }))
             .on_action(cx.listener(|this, _: &CloseTab, window, cx| {
-                let has_key = this.detail.read(cx).current_key().is_some();
-                if has_key {
+                // 命令行开着先关命令行；否则 KeyDetail 有 key 清回空态；都没有则冒泡到全局关窗
+                if this.console_open {
+                    this.close_console(window, cx);
+                } else if this.detail.read(cx).current_key().is_some() {
                     this.detail.update(cx, |p, cx_inner| {
                         p.clear_key(cx_inner);
                         p.focus_panel(window, cx_inner);
@@ -333,24 +422,7 @@ impl Render for RedisSessionPanel {
                     cx.propagate();
                 }
             }))
-            .child(self.detail.clone());
-
-        v_flex().size_full().bg(bg).text_color(fg).child(
-            h_resizable("redis-session-resize")
-                .with_state(&self.resize_state)
-                .child(
-                    resizable_panel()
-                        .size(px(TREE_WIDTH_INITIAL))
-                        .size_range(px(TREE_WIDTH_MIN)..px(TREE_WIDTH_MAX))
-                        .child(
-                            div()
-                                .size_full()
-                                .border_r_1()
-                                .border_color(border)
-                                .child(self.tree.clone()),
-                        ),
-                )
-                .child(resizable_panel().child(div().size_full().min_w_0().child(workspace))),
-        )
+            .child(base)
+            .children(console_overlay)
     }
 }

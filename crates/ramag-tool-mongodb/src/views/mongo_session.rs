@@ -100,6 +100,11 @@ impl MongoSessionPanel {
     pub fn ensure_loaded(&self, cx: &mut Context<Self>) {
         self.tree.update(cx, |t, cx| t.ensure_loaded(cx));
     }
+
+    /// Tab 激活时聚焦查询面板，让 cmd-e（ToggleMongoEditor）的 handler 立即在焦点链上
+    pub fn focus(&self, window: &mut Window, cx: &mut Context<Self>) {
+        self.queries.update(cx, |q, cx| q.focus(window, cx));
+    }
 }
 
 impl Render for MongoSessionPanel {

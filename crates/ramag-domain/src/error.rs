@@ -45,6 +45,20 @@ pub enum DomainError {
 }
 
 impl DomainError {
+    /// 纯消息体（不含「查询执行失败:」等分类中文前缀），供 CLI 等按自身风格渲染
+    pub fn message(&self) -> &str {
+        match self {
+            DomainError::InvalidConfig(m)
+            | DomainError::ConnectionFailed(m)
+            | DomainError::QueryFailed(m)
+            | DomainError::Storage(m)
+            | DomainError::NotFound(m)
+            | DomainError::NotImplemented(m)
+            | DomainError::Forbidden(m)
+            | DomainError::Other(m) => m,
+        }
+    }
+
     /// 写操作错误的用户提示：只读拦截（Forbidden）直接用统一文案（不加业务前缀，
     /// 即 `READ_ONLY_MESSAGE`），其余错误加业务前缀便于定位
     pub fn write_hint(&self, prefix: &str) -> String {

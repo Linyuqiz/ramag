@@ -26,5 +26,14 @@ serde_json = { workspace = true }
 base64 = "0.22"
 flate2 = "1"
 
+# GPUI Action 派生（cmd-e 切换命令行控制台，仅 derive 用）
+serde = { workspace = true }
+schemars = { workspace = true }
+
+# 命令行补全 provider（实现 gpui-component CompletionProvider）
+anyhow = { workspace = true }
+lsp-types = { workspace = true }
+ropey = { workspace = true }
+
 # 日志
 tracing = { workspace = true }

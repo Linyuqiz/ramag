@@ -24,7 +24,7 @@ use ramag_tool_clipboard::{
 };
 use ramag_tool_dbclient::{
     DbClientTool, ExplainQuery, FindInResults, FormatSql, NewQueryTab, RunQuery,
-    RunStatementAtCursor, ToggleSqlEditor, create_dbclient_view,
+    RunStatementAtCursor, ToggleRedisConsole, ToggleSqlEditor, create_dbclient_view,
 };
 use ramag_tool_mongodb::{FormatMongoJson, NewMongoQueryTab, RunMongoQuery, ToggleMongoEditor};
 use ramag_tool_vcs::{
@@ -140,6 +140,8 @@ fn main() {
             KeyBinding::new("cmd-t", NewMongoQueryTab, Some("MongoQueryPanel")),
             KeyBinding::new("cmd-shift-f", FormatMongoJson, Some("MongoQueryTab")),
             KeyBinding::new("cmd-e", ToggleMongoEditor, Some("MongoQueryPanel")),
+            // Redis 命令行控制台：cmd-e 在 Redis 会话上下文切换显隐
+            KeyBinding::new("cmd-e", ToggleRedisConsole, Some("RedisSession")),
             // VCS 视图快捷键（context=VcsView，焦点在 VCS 视图时优先于上面的 None context 绑定）
             KeyBinding::new("cmd-k", FocusCommitMessage, Some("VcsView")),
             KeyBinding::new("cmd-enter", CommitNow, Some("VcsView")),

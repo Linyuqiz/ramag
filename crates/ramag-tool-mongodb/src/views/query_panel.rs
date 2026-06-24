@@ -163,6 +163,17 @@ impl MongoQueryPanel {
         }
     }
 
+    /// 供 session 在 Tab 激活时聚焦：编辑器可见则聚焦编辑器（cmd-e 与 cmd-enter 都在焦点链上，
+    /// 因 MongoQueryTab 嵌在 MongoQueryPanel 内）；隐藏则聚焦面板根，让 cmd-e 能唤出编辑器
+    pub fn focus(&self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.show_editor {
+            self.focus_active_editor(window, cx);
+        } else {
+            window.focus(&self.focus_handle, cx);
+        }
+        cx.notify();
+    }
+
     /// 大负 offset 让 tab bar 滚末尾；GPUI 自动 clamp 到 max_offset
     fn scroll_tabs_to_end(&self) {
         self.tabs_scroll

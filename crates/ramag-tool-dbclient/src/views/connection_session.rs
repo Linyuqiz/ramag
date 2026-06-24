@@ -208,6 +208,18 @@ impl ConnectionSession {
     pub fn ensure_loaded(&self, cx: &mut Context<Self>) {
         self.tree.update(cx, |t, cx| t.ensure_loaded(cx));
     }
+
+    /// Tab 激活时聚焦：编辑器可见则聚焦编辑器（cmd-enter 的 handler 在 QueryTab 层，需焦点在内），
+    /// 隐藏则聚焦会话根，让 cmd-e（ToggleSqlEditor）能唤出编辑器
+    pub fn focus(&self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.queries.read(cx).is_editor_visible() {
+            self.queries
+                .update(cx, |q, cx| q.focus_active_editor(window, cx));
+        } else {
+            window.focus(&self.focus_handle, cx);
+        }
+        cx.notify();
+    }
 }
 
 impl Render for ConnectionSession {

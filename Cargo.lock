@@ -6429,14 +6429,19 @@ dependencies = [
 name = "ramag-tool-redis"
 version = "0.0.1"
 dependencies = [
+ "anyhow",
  "base64",
  "flate2",
  "futures",
  "gpui",
  "gpui-component",
+ "lsp-types",
  "ramag-app",
  "ramag-domain",
  "ramag-ui",
+ "ropey",
+ "schemars",
+ "serde",
  "serde_json",
  "tracing",
 ]

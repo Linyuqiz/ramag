@@ -126,8 +126,8 @@ impl Render for DbClientView {
                             this.close_session(idx, cx);
                         })),
                 )
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.select_session(idx, cx);
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    this.select_session(idx, window, cx);
                 }));
 
             if is_active && !on_picker_active {
