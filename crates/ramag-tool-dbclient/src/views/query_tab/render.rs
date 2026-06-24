@@ -22,7 +22,11 @@ use crate::actions::{
 use crate::views::result_panel::ResultState;
 
 impl Render for QueryTab {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // 把异步任务挂起的 toast 推送出来（如生产模式只读拦截提示）
+        if let Some(n) = self.pending_notification.take() {
+            window.push_notification(n, cx);
+        }
         let theme = cx.theme();
         let muted_fg = theme.muted_foreground;
         let border = theme.border;
