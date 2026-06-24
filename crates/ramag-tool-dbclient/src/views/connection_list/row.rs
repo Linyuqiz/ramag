@@ -3,7 +3,7 @@
 //! driver badge + 名称 + 只读标记 + 版本 / 地址 / 账号固定列对齐 + 编辑/删除按钮。
 
 use gpui::{
-    ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div, prelude::*, px,
+    ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, div, img, prelude::*, px,
 };
 use gpui_component::{
     Sizable as _,
@@ -34,6 +34,14 @@ pub(super) fn connection_row(
         DriverKind::Redis => "Redis",
         DriverKind::Mongodb => "MongoDB",
     };
+
+    // 类型 badge 前的官方品牌彩色 logo（img 渲染，非单色 Icon）
+    let brand_icon: Option<&'static str> = ramag_ui::icons::db_brand_icon(match conn.driver {
+        DriverKind::Mysql => "mysql",
+        DriverKind::Postgres => "postgres",
+        DriverKind::Redis => "redis",
+        DriverKind::Mongodb => "mongodb",
+    });
 
     // driver 配色（一类一色，便于扫一眼连接列表区分）：
     // MySQL 蓝（主题 accent）/ PostgreSQL 紫 / Redis 红 / MongoDB 绿
@@ -116,16 +124,21 @@ pub(super) fn connection_row(
         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
             this.handle_click(conn_for_open.clone(), cx);
         }))
-        // 类型 badge（固定宽度，一类一色）
+        // 类型 badge（固定宽度，一类一色）：品牌彩色 logo + 类型名
         .child(
-            div().flex_none().w(px(76.0)).flex().justify_center().child(
-                div()
+            div().flex_none().w(px(96.0)).flex().justify_center().child(
+                h_flex()
+                    .items_center()
+                    .gap(px(5.0))
                     .px(px(8.0))
                     .py(px(2.0))
                     .rounded(px(4.0))
                     .text_xs()
                     .text_color(badge_fg)
                     .bg(badge_bg)
+                    .when_some(brand_icon, |b, icon| {
+                        b.child(img(icon).size(px(14.0)).flex_none())
+                    })
                     .child(kind_label),
             ),
         )

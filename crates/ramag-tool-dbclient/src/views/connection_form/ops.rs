@@ -1,7 +1,8 @@
 //! ConnectionForm 状态 + 异步：driver 切换 / 校验 / 测试 / 保存。render_driver_selector 也在这里
 
 use gpui::{
-    ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, Window, prelude::*, px,
+    ClickEvent, Context, IntoElement, ParentElement, SharedString, Styled, Window, img, prelude::*,
+    px,
 };
 use gpui_component::{ActiveTheme, h_flex, v_flex};
 use ramag_domain::entities::{ConnectionConfig, ConnectionId, DriverKind};
@@ -155,8 +156,12 @@ impl ConnectionFormPanel {
                 .py(px(7.0))
                 .rounded_md()
                 .border_1()
-                .text_sm()
-                .child(name.to_string());
+                .text_sm();
+            // 品牌彩色 logo（img 渲染保留原色，禁用态由按钮整体 opacity 一并变暗）+ 名称
+            if let Some(icon) = ramag_ui::icons::db_brand_icon(id) {
+                btn = btn.child(img(icon).size(px(16.0)).flex_none());
+            }
+            btn = btn.child(name.to_string());
 
             if is_selected {
                 // 选中态：accent 描边 + 浅 accent 底
