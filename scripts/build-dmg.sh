@@ -90,7 +90,7 @@ DMG="$REPO_DIR/target/Ramag${SUFFIX}.dmg"
 STAGING="$REPO_DIR/target/dmg-staging${SUFFIX}"
 
 # === 依赖检查 ========================================================
-NEED_CMDS=(sips iconutil hdiutil cargo)
+NEED_CMDS=(sips iconutil hdiutil codesign cargo)
 if [[ "$TARGET_TRIPLE" == "universal" ]]; then
     NEED_CMDS+=(lipo)
 fi
@@ -233,6 +233,14 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
 </plist>
 EOF
 
+# adhoc 签名整个 bundle（必须在 bundle 内容全部就位后、打包前做）：
+# 1) 消除「linker 只签了 Mach-O、bundle 没有 _CodeSignature」的不一致（codesign --verify 告警）
+# 2) 满足 Apple Silicon 对可执行文件必须签名的要求
+# 注意：adhoc 签名无法通过 Gatekeeper 公证校验，传输后仍会被打隔离标记，需 xattr 解除（见文末）
+echo "▶ codesign --force --sign - (adhoc) ..."
+codesign --force --sign - "$APP"
+codesign --verify --verbose "$APP" 2>&1 | sed 's/^/   /' || true
+
 # 让 LaunchServices 重新注册，避免 dock 图标缓存
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 if [[ -x "$LSREGISTER" ]]; then
@@ -262,10 +270,15 @@ echo ""
 echo "ok 已生成 DMG："
 ls -lh "$DMG"
 if [[ -n "$TARGET_TRIPLE" && "$TARGET_TRIPLE" != "universal" ]]; then
-    echo "架构：${TARGET_TRIPLE}（在目标 mac 上首次运行可能被 Gatekeeper 拦截，可用 xattr -dr com.apple.quarantine /Applications/Ramag.app 解除）"
+    echo "架构：${TARGET_TRIPLE}"
 elif [[ "$TARGET_TRIPLE" == "universal" ]]; then
     echo "架构：universal（Intel + Apple Silicon 双切片，体积约为单架构两倍）"
 fi
+echo "签名：adhoc（已签 bundle，可本机运行）"
 echo ""
 echo "测试：open $DMG"
 echo "（挂载后把 $(basename "$APP") 拖到 Applications 即可安装）"
+echo ""
+echo "⚠ 经浏览器/企业微信等传输后会被 Gatekeeper 拦成「已损坏」（adhoc 未公证）。"
+echo "  接收方解除隔离即可打开（一次性）："
+echo "  xattr -dr com.apple.quarantine /Applications/Ramag.app"
